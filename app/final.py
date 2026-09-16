@@ -13,7 +13,8 @@ from app import fleet_web
 from app import guardian
 from app import main as core
 from app import operations
-from app import operations_robust
+from app import operations_stability
+from app import operations_safe_routes
 from app import guardian_events  # patches Guardian transition event logging
 from app import operations_safety  # patches normalized version/profile behavior
 from app import portal
@@ -47,8 +48,6 @@ def final_page(title: str, body: str, user=None, active: str = "") -> HTMLRespon
         1,
     )
     text = ui_time.localize_html_iso_timestamps(text)
-    # Historical headings used "UTC" even though displayed timestamps are now
-    # localized. Keep the label aligned with the actual operator-visible value.
     text = text.replace("Created UTC", "Created (Montréal)").replace("Detected UTC", "Detected (Montréal)")
     return ui_enhancements.enhance_response(HTMLResponse(text, status_code=response.status_code))
 
@@ -144,9 +143,14 @@ async def normalize_router(router_id: int, request: Request):
     return final_page("Normalize Tikcentral", body, user, "audit")
 
 
-operations_robust.install()
+# Install failure-tolerant probes before routes are registered so all Operations
+# code resolves to the hardened implementations at request time.
+operations_stability.install()
 guardian.register(app, final_page)
 operations.register(app, final_page)
+# Replace only Operations POST actions with wrappers that never expose router
+# command failures as generic FastAPI Internal Server Error pages.
+operations_safe_routes.register(app)
 rescue_v2.register(app, final_page)
 changes.register(app, final_page)
 enrollment_v3.register(app, final_page)
