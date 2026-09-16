@@ -41,6 +41,9 @@ cat <<EOF
 :if ([:len [/ip/route find where dst-address=\$allowedNet and gateway=\$wgName]] = 0) do={
     /ip/route add dst-address=\$allowedNet gateway=\$wgName comment="Tikcentral management"
 }
+:if ([:len [/ip/firewall/filter find where comment="Tikcentral relay WinBox"]] = 0) do={
+    /ip/firewall/filter add chain=input action=accept in-interface=\$wgName src-address=10.250.0.1 protocol=tcp dst-port=8291 place-before=0 comment="Tikcentral relay WinBox"
+}
 :if ([:len [/ip/firewall/filter find where comment="Tikcentral admin TCP"]] = 0) do={
     /ip/firewall/filter add chain=input action=accept in-interface=\$wgName src-address=10.250.254.0/24 protocol=tcp dst-port=22,8291 place-before=0 comment="Tikcentral admin TCP"
 }
@@ -48,4 +51,5 @@ cat <<EOF
     /ip/firewall/filter add chain=input action=accept in-interface=\$wgName src-address=10.250.254.0/24 protocol=icmp place-before=0 comment="Tikcentral admin ICMP"
 }
 :put ("Tikcentral enrolled: " . \$vpnIP)
+:put ("Remote WinBox: " . (\$cfg->"remote_winbox"))
 EOF
