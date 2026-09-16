@@ -1,4 +1,4 @@
-"""Tikcentral final production entrypoint with live router audit/repair tools."""
+"""Tikcentral final production entrypoint with live audit and Access Guardian."""
 
 import html
 
@@ -6,6 +6,7 @@ from fastapi import HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app import fleet
+from app import guardian
 from app import main as core
 from app import portal
 from app import production
@@ -20,8 +21,14 @@ def final_page(title: str, body: str, user=None, active: str = "") -> HTMLRespon
     if not user:
         return response
     text = response.body.decode("utf-8")
-    cls = "active" if active == "audit" else ""
-    text = text.replace("</nav>", f'<a class="{cls}" href="/audit">Audit</a></nav>', 1)
+    audit_cls = "active" if active == "audit" else ""
+    guardian_cls = "active" if active == "guardian" else ""
+    text = text.replace(
+        "</nav>",
+        f'<a class="{guardian_cls}" href="/guardian">Guardian</a>'
+        f'<a class="{audit_cls}" href="/audit">Audit</a></nav>',
+        1,
+    )
     return HTMLResponse(text, status_code=response.status_code)
 
 
@@ -108,6 +115,8 @@ async def normalize_router(router_id: int, request: Request):
     except Exception as exc:
         output = str(exc)
         status = "Normalization failed"
-    csrf = core.csrf_token(request)
     body = f'''<div class="panel pad"><h2>{html.escape(router['site_name'])}</h2><strong>{html.escape(status)}</strong><div class="inline" style="margin-top:14px"><a href="/audit/{router_id}"><button class="primary">Run audit again</button></a><a href="/audit"><button>Back</button></a></div></div><div class="panel pad"><pre style="white-space:pre-wrap;background:#0d1528;padding:14px;border-radius:8px;max-height:520px;overflow:auto">{html.escape(output or '(no output)')}</pre></div>'''
     return final_page("Normalize Tikcentral", body, user, "audit")
+
+
+guardian.register(app, final_page)
