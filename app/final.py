@@ -17,6 +17,7 @@ from app import operations_safety  # patches normalized version/profile behavior
 from app import portal
 from app import production
 from app import rescue
+from app import ui_time
 
 app = production.app
 
@@ -42,6 +43,9 @@ def final_page(title: str, body: str, user=None, active: str = "") -> HTMLRespon
         f'<a class="{audit_cls}" href="/audit">Audit</a></nav>',
         1,
     )
+    # All persisted timestamps stay UTC internally. Convert ISO timestamps only
+    # when rendering the authenticated UI so operators always see Montreal time.
+    text = ui_time.localize_html_iso_timestamps(text)
     return HTMLResponse(text, status_code=response.status_code)
 
 
