@@ -9,6 +9,7 @@ from app import backup_tiers  # installs tiered retention monkeypatch
 from app import changes
 from app import enrollment_v3
 from app import fleet
+from app import fleet_web
 from app import guardian
 from app import main as core
 from app import operations
@@ -18,6 +19,7 @@ from app import operations_safety  # patches normalized version/profile behavior
 from app import portal
 from app import production
 from app import rescue_v2
+from app import ui_enhancements
 from app import ui_time
 
 app = production.app
@@ -45,11 +47,18 @@ def final_page(title: str, body: str, user=None, active: str = "") -> HTMLRespon
         1,
     )
     text = ui_time.localize_html_iso_timestamps(text)
-    return HTMLResponse(text, status_code=response.status_code)
+    # Historical headings used "UTC" even though displayed timestamps are now
+    # localized. Keep the label aligned with the actual operator-visible value.
+    text = text.replace("Created UTC", "Created (Montréal)").replace("Detected UTC", "Detected (Montréal)")
+    return ui_enhancements.enhance_response(HTMLResponse(text, status_code=response.status_code))
 
 
+# Patch every page renderer used by old and new modules. _base_page above keeps a
+# reference to the original production renderer, so this does not recurse.
 portal.portal_page = final_page
 core.page = final_page
+production.production_page = final_page
+fleet_web.fleet_page = final_page
 
 
 def _admin(request: Request):
