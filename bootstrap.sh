@@ -84,18 +84,30 @@ DB_PATH=$DATA_DIR/tikcentral.db
 WG_HELPER=/usr/local/sbin/tikcentral-wg-peer
 WG_SERVER_PUBLIC_KEY=$WG_PUBLIC
 WG_ENDPOINT=$DOMAIN:51820
+PUBLIC_HOSTNAME=$DOMAIN
 WG_ROUTER_POOL=10.250.1.0/24
 WG_ALLOWED_NETWORK=10.250.0.0/16
 TOKEN_TTL_HOURS=24
 ONLINE_SECONDS=180
+TEMP_ACCESS_DAYS=5
+WINBOX_PUBLIC_PORT_MIN=20000
+WINBOX_PUBLIC_PORT_MAX=49999
+WINBOX_TARGET_PORT=8291
+WINBOX_RESCAN_SECONDS=10
 EOF
   chmod 0640 "$ENV_FILE"
   chown root:tikcentral "$ENV_FILE"
 else
   sed -i "s|^WG_SERVER_PUBLIC_KEY=.*|WG_SERVER_PUBLIC_KEY=$WG_PUBLIC|" "$ENV_FILE"
   sed -i "s|^WG_ENDPOINT=.*|WG_ENDPOINT=$DOMAIN:51820|" "$ENV_FILE"
+  if grep -q '^PUBLIC_HOSTNAME=' "$ENV_FILE"; then sed -i "s|^PUBLIC_HOSTNAME=.*|PUBLIC_HOSTNAME=$DOMAIN|" "$ENV_FILE"; else echo "PUBLIC_HOSTNAME=$DOMAIN" >> "$ENV_FILE"; fi
   grep -q '^DASHBOARD_PASSWORD=' "$ENV_FILE" || echo "DASHBOARD_PASSWORD=$(python3 -c 'import secrets; print(secrets.token_urlsafe(18))')" >> "$ENV_FILE"
   grep -q '^ONLINE_SECONDS=' "$ENV_FILE" || echo 'ONLINE_SECONDS=180' >> "$ENV_FILE"
+  grep -q '^TEMP_ACCESS_DAYS=' "$ENV_FILE" || echo 'TEMP_ACCESS_DAYS=5' >> "$ENV_FILE"
+  grep -q '^WINBOX_PUBLIC_PORT_MIN=' "$ENV_FILE" || echo 'WINBOX_PUBLIC_PORT_MIN=20000' >> "$ENV_FILE"
+  grep -q '^WINBOX_PUBLIC_PORT_MAX=' "$ENV_FILE" || echo 'WINBOX_PUBLIC_PORT_MAX=49999' >> "$ENV_FILE"
+  grep -q '^WINBOX_TARGET_PORT=' "$ENV_FILE" || echo 'WINBOX_TARGET_PORT=8291' >> "$ENV_FILE"
+  grep -q '^WINBOX_RESCAN_SECONDS=' "$ENV_FILE" || echo 'WINBOX_RESCAN_SECONDS=10' >> "$ENV_FILE"
 fi
 
 set -a
@@ -108,6 +120,7 @@ python3 -m venv "$ROOT/venv"
 "$ROOT/venv/bin/pip" install -r "$APP/app/requirements.txt"
 
 install -o root -g root -m 0644 "$APP/deploy/tikcentral.service" /etc/systemd/system/tikcentral.service
+install -o root -g root -m 0644 "$APP/deploy/tikcentral-winbox-proxy.service" /etc/systemd/system/tikcentral-winbox-proxy.service
 install -o root -g root -m 0644 "$APP/deploy/tikcentral-backup.service" /etc/systemd/system/tikcentral-backup.service
 install -o root -g root -m 0644 "$APP/deploy/tikcentral-backup.timer" /etc/systemd/system/tikcentral-backup.timer
 
@@ -138,6 +151,7 @@ ufw allow "$SSH_PORT/tcp"
 ufw allow 80/tcp
 ufw allow 443/tcp
 ufw allow 51820/udp
+ufw allow 20000:49999/tcp
 ufw default deny incoming
 ufw default allow outgoing
 ufw default deny routed
@@ -148,6 +162,7 @@ systemctl daemon-reload
 systemctl enable --now wg-quick@wg0
 systemctl enable --now caddy
 systemctl enable --now tikcentral
+systemctl enable --now tikcentral-winbox-proxy
 systemctl enable --now tikcentral-backup.timer
 
 sleep 2
@@ -158,5 +173,6 @@ echo "Tikcentral installed."
 echo "Dashboard: https://$DOMAIN/"
 echo "Dashboard username: admin"
 echo "Dashboard password: $DASHBOARD_PASSWORD"
+echo "Public WinBox relay ports: 20000-49999/tcp (source IP authorization enforced by Tikcentral)"
 echo "WireGuard public key: $WG_PUBLIC"
 echo "Run: cd $APP && sudo ./scripts/status.sh"
