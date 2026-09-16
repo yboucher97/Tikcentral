@@ -138,10 +138,22 @@ python3 -m venv "$ROOT/venv"
 "$ROOT/venv/bin/pip" install -r "$APP/app/requirements.txt"
 
 # Repair permissions from older bootstrap runs that leaked umask 077 into venv creation.
-# Root owns the environment; the service account only receives read/traverse/execute rights.
+# Root owns the environment. Every venv directory must be traversable by the service;
+# regular files are read-only to non-root, while existing executable files remain executable.
 chown -R root:root "$ROOT/venv"
-chmod -R a+rX "$ROOT/venv"
+find "$ROOT/venv" -type d -exec chmod 0755 {} +
+find "$ROOT/venv" -type f -exec chmod a+r {} +
+find "$ROOT/venv/bin" -maxdepth 1 -type f -exec chmod 0755 {} +
 chmod 0755 "$ROOT" "$ROOT/venv" "$ROOT/venv/bin"
+
+# Verify the dedicated service account can actually execute the venv interpreter before
+# touching systemd. Fail here with a clear path dump rather than entering a restart loop.
+if ! sudo -u tikcentral "$ROOT/venv/bin/python3" --version >/dev/null 2>&1; then
+  echo "Tikcentral service account cannot execute the Python virtual environment." >&2
+  namei -l "$ROOT/venv/bin/python3" >&2 || true
+  findmnt -T "$ROOT/venv/bin/python3" >&2 || true
+  exit 1
+fi
 
 install -o root -g root -m 0644 "$APP/deploy/tikcentral.service" /etc/systemd/system/tikcentral.service
 install -o root -g root -m 0644 "$APP/deploy/tikcentral-winbox-proxy.service" /etc/systemd/system/tikcentral-winbox-proxy.service
