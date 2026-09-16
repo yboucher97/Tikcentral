@@ -16,7 +16,6 @@ from app import provisioning
 PROFILE_LABELS = {
     "throughput": "Maximum throughput — FastTrack ON, QoS staged OFF",
     "fairness": "Fairness / QoS — FastTrack OFF, CAKE + tenant shaping ON",
-    "prepared": "Prepared / custom — FastTrack ON, all QoS components staged OFF",
 }
 
 
@@ -25,6 +24,7 @@ def _apply_profile(script: str, profile: str) -> str:
     if profile == "fairness":
         commands = r'''
 # Selected performance profile: FAIRNESS / QOS
+# RAW prefilter and MSS clamp remain active in every profile.
 /ip/firewall/filter set [find where comment="Opticable FastTrack"] disabled=yes
 /ip/firewall/mangle set [find where comment="Opticable QoS mark upload"] disabled=no
 /ip/firewall/mangle set [find where comment="Opticable QoS mark download"] disabled=no
@@ -37,25 +37,17 @@ def _apply_profile(script: str, profile: str) -> str:
 /queue/tree set [find where name="OPT-QOS-UPLOAD"] disabled=no
 /queue/tree set [find where name="OPT-QOS-DOWNLOAD"] disabled=no
 /queue/simple set [find where comment~"Opticable tenant cap"] disabled=no
-:put "Performance profile active: Fairness/QoS"
-'''.strip()
-    elif profile == "prepared":
-        commands = r'''
-# Selected performance profile: PREPARED / CUSTOM
-/ip/firewall/filter set [find where comment="Opticable FastTrack"] disabled=no
-/ip/firewall/mangle set [find where comment~"^Opticable QoS "] disabled=yes
-/queue/tree set [find where name~"^OPT-QOS-"] disabled=yes
-/queue/simple set [find where comment~"Opticable tenant cap"] disabled=yes
-:put "Performance profile active: Prepared/custom (FastTrack active; QoS staged)"
+:put "Performance profile active: Fairness/QoS; RAW and MSS remain active"
 '''.strip()
     else:
         commands = r'''
 # Selected performance profile: MAXIMUM THROUGHPUT
+# RAW prefilter and MSS clamp remain active in every profile.
 /ip/firewall/filter set [find where comment="Opticable FastTrack"] disabled=no
 /ip/firewall/mangle set [find where comment~"^Opticable QoS "] disabled=yes
 /queue/tree set [find where name~"^OPT-QOS-"] disabled=yes
 /queue/simple set [find where comment~"Opticable tenant cap"] disabled=yes
-:put "Performance profile active: Maximum throughput"
+:put "Performance profile active: Maximum throughput; RAW and MSS remain active"
 '''.strip()
 
     head, sep, tail = script.rpartition("\n}")
@@ -76,7 +68,7 @@ def _page(page_func, user, csrf, message=""):
 <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px">
 <label>Mode<br><select name="mode" style="width:100%"><option value="enroll">Tikcentral only (existing router)</option><option value="default">Tikcentral + Opticable default config (fresh router)</option></select></label>
 <label>Site identity<br><input name="site_name" maxlength="120" style="width:100%" placeholder="977-973 St-Faustin Mont-Blanc" required></label>
-<label>Performance profile<br><select name="performance_profile" style="width:100%"><option value="throughput" selected>Maximum throughput (recommended E50)</option><option value="fairness">Fairness / QoS</option><option value="prepared">Prepared / custom</option></select></label>
+<label>Performance profile<br><select name="performance_profile" style="width:100%"><option value="throughput" selected>Maximum throughput (recommended E50)</option><option value="fairness">Fairness / QoS</option></select></label>
 <label>Tenant VLAN count<br><input type="number" name="vlan_count" min="1" max="20" value="12" style="width:100%"></label>
 <label>Active physical LANs<br><select name="lan_count" style="width:100%"><option>1</option><option>2</option><option>3</option><option selected>4</option></select></label>
 <label>VLAN parent<br><select name="vlan_parent" style="width:100%"><option selected>ether2</option><option>ether3</option><option>ether4</option><option>ether5</option></select></label>
@@ -85,7 +77,7 @@ def _page(page_func, user, csrf, message=""):
 <label>Tenant cap download Mbps<br><input type="number" name="tenant_down" min="0" max="1000" value="80" style="width:100%"></label>
 <label>Tenant cap upload Mbps<br><input type="number" name="tenant_up" min="0" max="1000" value="40" style="width:100%"></label>
 </div>
-<div class="panel pad" style="margin-top:16px;background:#0d1528"><strong>Profile behavior</strong><div class="muted" style="margin-top:6px"><b>Maximum throughput:</b> FastTrack active; RAW/MSS active; CAKE, QoS mangle and tenant queues created but disabled.<br><b>Fairness / QoS:</b> FastTrack disabled; CAKE shaping, QoS classification and tenant caps enabled.<br><b>Prepared / custom:</b> same safe high-throughput runtime state, with all QoS pieces staged for later manual/Tikcentral tuning.</div></div>
+<div class="panel pad" style="margin-top:16px;background:#0d1528"><strong>Profile behavior</strong><div class="muted" style="margin-top:6px"><b>Always active:</b> conservative RAW prefiltering and TCP MSS clamp-to-PMTU.<br><b>Maximum throughput:</b> FastTrack active; CAKE, QoS mangle and tenant queues are created but disabled.<br><b>Fairness / QoS:</b> FastTrack disabled; CAKE shaping, QoS classification and tenant caps enabled.</div></div>
 <div class="muted" style="margin-top:12px">Fresh config always creates DHCP on ether1 plus Bell VLAN35 and a disabled dummy PPPoE profile. PPPoE route distance 1; DHCP distance 2.</div>
 <div style="margin-top:16px"><button class="primary">Generate script</button></div>
 </form></div>
