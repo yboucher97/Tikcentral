@@ -7,7 +7,6 @@ entire sample. Errors exposed to the event timeline are intentionally concise.
 
 import subprocess
 
-from app import core_compat
 from app import events
 from app import fleet
 from app import main as core
@@ -47,7 +46,6 @@ def _exec(ip: str, command: str, timeout: int, label: str, required: bool = Fals
             raise RuntimeError(f"{label} telemetry timed out after {timeout} seconds")
         return "", f"{label} probe timed out"
     except Exception as exc:
-        # Do not expose the entire ssh argv/RouterOS command in the UI timeline.
         msg = str(exc).strip().splitlines()[-1] if str(exc).strip() else exc.__class__.__name__
         if len(msg) > 180:
             msg = msg[:177] + "..."
@@ -111,7 +109,6 @@ def collect_telemetry(router_id: int, record_event: bool = False):
 
 def install():
     operations.collect_telemetry = collect_telemetry
-    # Clean up prior timeout events that embedded the entire SSH command.
     with core.db() as conn:
         conn.execute(
             """UPDATE router_events
