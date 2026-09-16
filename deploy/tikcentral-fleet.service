@@ -1,0 +1,16 @@
+[Unit]
+Description=Tikcentral Fleet Scheduler Tick
+After=network-online.target wg-quick@wg0.service tikcentral.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=tikcentral
+Group=tikcentral
+WorkingDirectory=/opt/tikcentral/current
+EnvironmentFile=/etc/tikcentral/tikcentral.env
+ExecStart=/opt/tikcentral/venv/bin/python3 -m app.fleet_runner scheduled
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/tikcentral /var/backups/tikcentral/routers
