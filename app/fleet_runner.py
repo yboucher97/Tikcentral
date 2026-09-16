@@ -6,6 +6,12 @@ from app import guardian
 from app import operations
 from app import guardian_events  # records Guardian transitions
 from app import operations_safety  # normalizes versions/profile operations
+from app import operations_stability  # failure-tolerant telemetry/commissioning
+
+# The fleet runner is a separate Python process from the web app. Install the
+# same hardened Operations functions here so scheduled telemetry does not fall
+# back to the legacy monolithic RouterOS command.
+operations_stability.install()
 
 
 def main():
