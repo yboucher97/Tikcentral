@@ -9,7 +9,6 @@ ENV_FILE="/etc/tikcentral/tikcentral.env"
 [[ -f "$ENV_FILE" ]] || { echo "Tikcentral is not installed: $ENV_FILE is missing. Run bootstrap.sh once first." >&2; exit 1; }
 [[ -d "$APP/.git" ]] || { echo "Tikcentral app repository is missing at $APP. Run bootstrap.sh once first." >&2; exit 1; }
 
-# Preserve persistent state before touching code.
 STAMP="$(date -u +%Y%m%d-%H%M%S)"
 mkdir -p /var/backups/tikcentral
 if [[ -f /var/lib/tikcentral/tikcentral.db ]]; then
@@ -17,18 +16,15 @@ if [[ -f /var/lib/tikcentral/tikcentral.db ]]; then
 fi
 cp -a "$ENV_FILE" "/var/backups/tikcentral/pre-update-$STAMP.env"
 
-# Update application source only. Persistent data/config are outside the repository.
 git -C "$APP" fetch --prune origin
 git -C "$APP" reset --hard origin/main
 
-# Update the narrowly-scoped root helper if its implementation changed.
 chmod +x "$APP/helpers/tikcentral-wg-peer"
 install -o root -g root -m 0755 "$APP/helpers/tikcentral-wg-peer" /usr/local/sbin/tikcentral-wg-peer
 printf 'tikcentral ALL=(root) NOPASSWD: /usr/local/sbin/tikcentral-wg-peer *\n' > /etc/sudoers.d/tikcentral-wg
 chmod 0440 /etc/sudoers.d/tikcentral-wg
 visudo -cf /etc/sudoers.d/tikcentral-wg >/dev/null
 
-# Reconcile Tikcentral's Python environment only.
 python3 -m venv "$ROOT/venv"
 "$ROOT/venv/bin/pip" install --upgrade pip wheel
 "$ROOT/venv/bin/pip" install -r "$APP/app/requirements.txt"
@@ -45,51 +41,36 @@ if ! sudo -u tikcentral "$ROOT/venv/bin/python3" --version >/dev/null 2>&1; then
   exit 1
 fi
 
-# Validate Python source before changing/restarting any running service.
 "$ROOT/venv/bin/python3" -m py_compile \
   "$APP/app/main.py" \
   "$APP/app/portal.py" \
-  "$APP/app/enroll_ui.py" \
   "$APP/app/winbox_proxy.py"
 
-# Update service definitions only; do not recreate runtime data.
 install -o root -g root -m 0644 "$APP/deploy/tikcentral.service" /etc/systemd/system/tikcentral.service
 install -o root -g root -m 0644 "$APP/deploy/tikcentral-winbox-proxy.service" /etc/systemd/system/tikcentral-winbox-proxy.service
-install -o root -g root -m 0644 "$APP/deploy/tikcentral-enroll-ui.service" /etc/systemd/system/tikcentral-enroll-ui.service
 install -o root -g root -m 0644 "$APP/deploy/tikcentral-backup.service" /etc/systemd/system/tikcentral-backup.service
 install -o root -g root -m 0644 "$APP/deploy/tikcentral-backup.timer" /etc/systemd/system/tikcentral-backup.timer
 
-# Read existing configuration. Never rewrite credentials during update.
 set -a
 source "$ENV_FILE"
 set +a
 DOMAIN="${PUBLIC_HOSTNAME:-${WG_ENDPOINT%:*}}"
 [[ -n "$DOMAIN" ]] || { echo "Could not determine Tikcentral hostname from $ENV_FILE" >&2; exit 1; }
 
-# Refresh reverse-proxy routing for application services only.
-# Preserve /enroll in the upstream request because enroll_ui.py defines /enroll routes.
 cat > /etc/caddy/Caddyfile <<EOF
 $DOMAIN {
     encode zstd gzip
-
-    @enrollment_ui path /enroll /enroll/*
-    handle @enrollment_ui {
-        reverse_proxy 127.0.0.1:8081
-    }
-
-    handle {
-        reverse_proxy 127.0.0.1:8080
-    }
+    reverse_proxy 127.0.0.1:8080
 }
 EOF
 caddy fmt --overwrite /etc/caddy/Caddyfile >/dev/null
 caddy validate --config /etc/caddy/Caddyfile
 
 systemctl daemon-reload
-systemctl enable tikcentral tikcentral-winbox-proxy tikcentral-enroll-ui tikcentral-backup.timer >/dev/null
+systemctl enable tikcentral tikcentral-winbox-proxy tikcentral-backup.timer >/dev/null
+systemctl disable --now tikcentral-enroll-ui >/dev/null 2>&1 || true
 systemctl restart tikcentral
 systemctl restart tikcentral-winbox-proxy
-systemctl restart tikcentral-enroll-ui
 systemctl restart caddy
 systemctl start tikcentral-backup.timer
 
@@ -109,10 +90,9 @@ if [[ "$API_OK" -ne 1 ]]; then
   exit 1
 fi
 
-if ! systemctl is-active --quiet tikcentral-enroll-ui; then
-  echo "Tikcentral enrollment UI failed after update." >&2
-  systemctl --no-pager --full status tikcentral-enroll-ui || true
-  journalctl -u tikcentral-enroll-ui -n 80 --no-pager || true
+if ! curl -fsS -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/enroll | grep -Eq '^(200|303)$'; then
+  echo "Tikcentral enrollment route did not respond correctly after update." >&2
+  journalctl -u tikcentral -n 80 --no-pager || true
   exit 1
 fi
 
@@ -132,5 +112,5 @@ echo "  - /etc/tikcentral/tikcentral.env"
 echo "Pre-update backup: /var/backups/tikcentral/pre-update-$STAMP.db"
 echo "Dashboard: https://$DOMAIN/"
 echo "Routers: https://$DOMAIN/routers"
-echo "Enrollment UI: https://$DOMAIN/enroll"
+echo "Enrollment: https://$DOMAIN/enroll"
 echo "Settings: https://$DOMAIN/settings"
