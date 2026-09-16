@@ -69,10 +69,24 @@ def collect_telemetry(router_id: int, record_event: bool = False):
     if "version" not in m:
         raise RuntimeError("core telemetry response was incomplete")
 
-    captured = operations.now_iso()
-    fasttrack = operations._int(m.get("fasttrack_enabled")) > 0
-    qos = operations._int(m.get("qos_enabled")) > 0
+    with core.db() as conn:
+        previous = conn.execute(
+            "SELECT * FROM router_telemetry WHERE router_id=? ORDER BY id DESC LIMIT 1",
+            (router_id,),
+        ).fetchone()
+
+    def prev(name, default=""):
+        return previous[name] if previous is not None and name in previous.keys() else default
+
+    fasttrack = operations._int(m["fasttrack_enabled"]) > 0 if "fasttrack_enabled" in m else bool(prev("fasttrack_enabled", 0))
+    qos = operations._int(m["qos_enabled"]) > 0 if "qos_enabled" in m else bool(prev("qos_enabled", 0))
+    tenant_queues = operations._int(m["tenant_queues_enabled"]) > 0 if "tenant_queues_enabled" in m else bool(prev("tenant_queues_enabled", 0))
+    raw_count = operations._int(m["raw_rule_count"]) if "raw_rule_count" in m else int(prev("raw_rule_count", 0) or 0)
+    mss = operations._int(m["mss_clamp_enabled"]) > 0 if "mss_clamp_enabled" in m else bool(prev("mss_clamp_enabled", 0))
+    rb_current = m.get("routerboot_current", prev("routerboot_current", ""))
+    rb_upgrade = m.get("routerboot_upgrade", prev("routerboot_upgrade", ""))
     profile = "fairness" if qos and not fasttrack else "throughput"
+    captured = operations.now_iso()
 
     with core.db() as conn:
         conn.execute(
@@ -83,19 +97,19 @@ def collect_telemetry(router_id: int, record_event: bool = False):
                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (router_id, captured, operations._int(m.get("cpu_load")), m.get("free_memory", ""),
              m.get("total_memory", ""), m.get("uptime", ""), m.get("version", ""),
-             m.get("routerboot_current", ""), m.get("routerboot_upgrade", ""), int(fasttrack),
-             int(qos), int(operations._int(m.get("tenant_queues_enabled")) > 0),
-             operations._int(m.get("raw_rule_count")), int(operations._int(m.get("mss_clamp_enabled")) > 0)),
+             rb_current, rb_upgrade, int(fasttrack), int(qos), int(tenant_queues), raw_count, int(mss)),
         )
         conn.execute(
             "UPDATE routers SET routeros_version=?,routerboot_version=? WHERE id=?",
-            (m.get("version", ""), m.get("routerboot_current", ""), router_id),
+            (m.get("version", ""), rb_current, router_id),
         )
         expected = conn.execute(
             "SELECT expected_profile FROM router_expected_state WHERE router_id=?", (router_id,)
         ).fetchone()
 
-    if expected and expected["expected_profile"] and expected["expected_profile"] != profile:
+    # Only evaluate profile drift when both policy probes succeeded. Partial data
+    # should never create a false configuration warning.
+    if not fw_err and not qos_err and expected and expected["expected_profile"] and expected["expected_profile"] != profile:
         events.record(router_id, "drift", f"Performance profile drift: expected {expected['expected_profile']}, found {profile}", severity="warning")
 
     probe_errors = [x for x in (rb_err, fw_err, qos_err) if x]
@@ -104,7 +118,8 @@ def collect_telemetry(router_id: int, record_event: bool = False):
         details = "; ".join(probe_errors)
         events.record(router_id, "telemetry", summary, details, "warning" if probe_errors else "info")
 
-    return {**m, "profile": profile, "captured_at": captured, "probe_errors": probe_errors}
+    return {**m, "profile": profile, "captured_at": captured, "probe_errors": probe_errors,
+            "routerboot_current": rb_current, "routerboot_upgrade": rb_upgrade}
 
 
 def install():
