@@ -95,15 +95,49 @@ def ssh_base(ip: str):
     ]
 
 
+def routeros_single_line(command: str) -> str:
+    """Normalize a RouterOS command block for non-interactive SSH.
+
+    RouterOS SSH does not support multiline remote commands when invoked as
+    ``ssh -T host command``. Tikcentral keeps readable multiline command blocks
+    in Python, but sends a single CLI line to the router.
+    """
+    text = (command or "").replace("\r\n", "\n").replace("\r", "\n").strip()
+    if "\n" not in text:
+        return text
+
+    parts = []
+    for raw in text.split("\n"):
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        # Lines opening a RouterOS block should flow directly into the first
+        # command. All other physical lines get a statement terminator unless
+        # one is already present. This keeps if/do/else blocks valid while
+        # removing literal newlines from the SSH command argument.
+        if line.endswith("{"):
+            parts.append(line)
+        elif line.endswith(";"):
+            parts.append(line)
+        else:
+            parts.append(line + ";")
+    return " ".join(parts)
+
+
 def ssh_exec(ip: str, command: str, timeout: int | None = None):
     Path(KNOWN_HOSTS).parent.mkdir(parents=True, exist_ok=True)
     Path(KNOWN_HOSTS).touch(exist_ok=True)
+    remote_command = routeros_single_line(command)
     p = subprocess.run(
-        ssh_base(ip) + [command], capture_output=True, text=True,
+        ssh_base(ip) + [remote_command], capture_output=True, text=True,
         timeout=timeout or SSH_TIMEOUT + 15,
     )
     if p.returncode != 0:
-        raise RuntimeError((p.stderr or p.stdout or f"ssh exited {p.returncode}").strip())
+        message = (p.stderr or p.stdout or f"ssh exited {p.returncode}").strip()
+        # Never echo a very large generated RouterOS command back into the UI.
+        if len(message) > 1200:
+            message = message[-1200:]
+        raise RuntimeError(message)
     return p.stdout.strip()
 
 
