@@ -18,6 +18,7 @@ cp -a "$ENV_FILE" "/var/backups/tikcentral/pre-update-$STAMP.env"
 
 git -C "$APP" fetch --prune origin
 git -C "$APP" reset --hard origin/main
+DEPLOYED_COMMIT="$(git -C "$APP" rev-parse --short HEAD)"
 
 chmod +x "$APP/helpers/tikcentral-wg-peer"
 install -o root -g root -m 0755 "$APP/helpers/tikcentral-wg-peer" /usr/local/sbin/tikcentral-wg-peer
@@ -45,6 +46,17 @@ fi
   "$APP/app/main.py" \
   "$APP/app/portal.py" \
   "$APP/app/winbox_proxy.py"
+
+# Verify the portal module actually registers the required web routes before restart.
+ROUTES="$(cd "$APP" && set -a && source "$ENV_FILE" && set +a && "$ROOT/venv/bin/python3" -c 'from app.portal import app; print("\n".join(sorted({r.path for r in app.routes})))')"
+for REQUIRED_ROUTE in /enroll /enroll/generate /routers /settings; do
+  if ! grep -Fxq "$REQUIRED_ROUTE" <<<"$ROUTES"; then
+    echo "Required route $REQUIRED_ROUTE is missing from app.portal." >&2
+    echo "Registered routes:" >&2
+    echo "$ROUTES" >&2
+    exit 1
+  fi
+done
 
 install -o root -g root -m 0644 "$APP/deploy/tikcentral.service" /etc/systemd/system/tikcentral.service
 install -o root -g root -m 0644 "$APP/deploy/tikcentral-winbox-proxy.service" /etc/systemd/system/tikcentral-winbox-proxy.service
@@ -90,9 +102,23 @@ if [[ "$API_OK" -ne 1 ]]; then
   exit 1
 fi
 
-if ! curl -fsS -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/enroll | grep -Eq '^(200|303)$'; then
-  echo "Tikcentral enrollment route did not respond correctly after update." >&2
-  journalctl -u tikcentral -n 80 --no-pager || true
+APP_CODE="$(curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/enroll || true)"
+if [[ "$APP_CODE" != "200" && "$APP_CODE" != "303" ]]; then
+  echo "Tikcentral /enroll failed directly on the application (HTTP $APP_CODE)." >&2
+  echo "Running ExecStart:" >&2
+  systemctl show tikcentral -p ExecStart --no-pager >&2 || true
+  journalctl -u tikcentral -n 80 --no-pager >&2 || true
+  exit 1
+fi
+
+# Verify the exact public HTTPS route through Caddy while resolving the hostname locally.
+CADDY_CODE="$(curl -ksS --resolve "$DOMAIN:443:127.0.0.1" -o /dev/null -w '%{http_code}' "https://$DOMAIN/enroll" || true)"
+if [[ "$CADDY_CODE" != "200" && "$CADDY_CODE" != "303" ]]; then
+  echo "Tikcentral /enroll failed through Caddy (HTTP $CADDY_CODE)." >&2
+  echo "Caddyfile:" >&2
+  cat /etc/caddy/Caddyfile >&2 || true
+  echo "Running Tikcentral ExecStart:" >&2
+  systemctl show tikcentral -p ExecStart --no-pager >&2 || true
   exit 1
 fi
 
@@ -101,6 +127,9 @@ rm -f /tmp/tikcentral-update-health.json
 
 echo
 echo "Tikcentral updated successfully."
+echo "Deployed commit: $DEPLOYED_COMMIT"
+echo "Enrollment app check: HTTP $APP_CODE"
+echo "Enrollment Caddy check: HTTP $CADDY_CODE"
 echo "Persistent state preserved:"
 echo "  - users and password hashes"
 echo "  - sessions"
