@@ -91,7 +91,12 @@ fi
   "$APP/app/fleet_web.py" \
   "$APP/app/guardian.py" \
   "$APP/app/changes.py" \
+  "$APP/app/events.py" \
+  "$APP/app/backup_tiers.py" \
   "$APP/app/provisioning.py" \
+  "$APP/app/performance_profile.py" \
+  "$APP/app/enrollment_v2.py" \
+  "$APP/app/operations.py" \
   "$APP/app/production.py" \
   "$APP/app/final.py" \
   "$APP/app/winbox_proxy.py"
@@ -101,7 +106,7 @@ source "$ENV_FILE"
 set +a
 
 ROUTES="$(cd "$APP" && "$ROOT/venv/bin/python3" -c 'from app.final import app; print("\n".join(sorted({r.path for r in app.routes})))')"
-for REQUIRED_ROUTE in /enroll /enroll/generate /enroll/admin-credentials /routers /settings /automation /automation/command /automation/backup /automation/update/check /automation/update/install /ssh '/ssh/{router_id}' /guardian '/guardian/{router_id}/repair' /changes '/changes/{router_id}' /audit '/audit/{router_id}' '/audit/{router_id}/normalize'; do
+for REQUIRED_ROUTE in /enroll /enroll/generate /enroll/admin-credentials /routers /settings /automation /automation/command /automation/backup /automation/update/check /automation/update/install /ssh '/ssh/{router_id}' /guardian '/guardian/{router_id}/repair' /operations '/operations/{router_id}' '/operations/{router_id}/commission' '/operations/{router_id}/telemetry' '/operations/{router_id}/profile/{profile}' '/operations/{router_id}/backup/{tier}' '/operations/{router_id}/drift/check' '/operations/{router_id}/baseline' '/operations/{router_id}/update/check' '/operations/{router_id}/upgrade/{mode}' '/operations/{router_id}/routerboot' '/operations/{router_id}/approve-version' /changes '/changes/{router_id}' /audit '/audit/{router_id}' '/audit/{router_id}/normalize'; do
   if ! grep -Fxq "$REQUIRED_ROUTE" <<<"$ROUTES"; then
     echo "Required route $REQUIRED_ROUTE is missing from app.final." >&2
     echo "$ROUTES" >&2
@@ -131,16 +136,19 @@ if ! grep -Fxq '{' <<<"$MANAGED_SCRIPT" || ! grep -Fxq '}' <<<"$MANAGED_SCRIPT";
   exit 1
 fi
 
-DEFAULT_SCRIPT="$(cd "$APP" && "$ROOT/venv/bin/python3" -c 'from app.provisioning import default_config_script; print(default_config_script("scope-check",12,4,500,500,80,40,"ether2"))')"
-if ! grep -Fq 'Default WAN DHCP' <<<"$DEFAULT_SCRIPT" || ! grep -Fq 'Bell PPPoE - enter credentials onsite' <<<"$DEFAULT_SCRIPT" || ! grep -Fq 'Opticable FastTrack' <<<"$DEFAULT_SCRIPT"; then
-  echo "Opticable default provisioning profile failed validation." >&2
-  exit 1
-fi
+DEFAULT_SCRIPT="$(cd "$APP" && "$ROOT/venv/bin/python3" -c 'from app.performance_profile import performance_ready_default_config_script; from app.enrollment_v2 import _apply_profile; print(_apply_profile(performance_ready_default_config_script("scope-check",12,4,500,500,80,40,"ether2"),"throughput"))')"
+for REQUIRED_TEXT in 'Default WAN DHCP' 'Bell PPPoE - enter credentials onsite' 'Opticable FastTrack' 'Opticable RAW bad source' 'Opticable MSS clamp' 'OPT-QOS-UPLOAD' 'Performance profile active: Maximum throughput'; do
+  if ! grep -Fq "$REQUIRED_TEXT" <<<"$DEFAULT_SCRIPT"; then
+    echo "Opticable default provisioning profile failed validation: missing $REQUIRED_TEXT" >&2
+    exit 1
+  fi
+done
 
 cd "$APP"
 "$ROOT/venv/bin/python3" -c 'from app.fleet import ensure_schema; ensure_schema()'
 "$ROOT/venv/bin/python3" -c 'from app.guardian import ensure_schema; ensure_schema()'
 "$ROOT/venv/bin/python3" -c 'from app.provisioning import ensure_schema; ensure_schema()'
+"$ROOT/venv/bin/python3" -c 'from app.operations import ensure_schema; ensure_schema()'
 
 install -o root -g root -m 0644 "$APP/deploy/tikcentral.service" /etc/systemd/system/tikcentral.service
 install -o root -g root -m 0644 "$APP/deploy/tikcentral-winbox-proxy.service" /etc/systemd/system/tikcentral-winbox-proxy.service
@@ -186,7 +194,7 @@ if [[ "$API_OK" -ne 1 ]]; then
   exit 1
 fi
 
-for PATH_TO_CHECK in /enroll /routers /automation /ssh /guardian /changes /audit; do
+for PATH_TO_CHECK in /enroll /routers /automation /ssh /guardian /operations /changes /audit; do
   CODE="$(curl -sS -o /dev/null -w '%{http_code}' "http://127.0.0.1:8080$PATH_TO_CHECK" || true)"
   if [[ "$CODE" != "200" && "$CODE" != "303" ]]; then
     echo "Tikcentral $PATH_TO_CHECK failed directly on the application (HTTP $CODE)." >&2
@@ -196,9 +204,9 @@ for PATH_TO_CHECK in /enroll /routers /automation /ssh /guardian /changes /audit
   fi
 done
 
-CADDY_CODE="$(curl -ksS --resolve "$DOMAIN:443:127.0.0.1" -o /dev/null -w '%{http_code}' "https://$DOMAIN/guardian" || true)"
+CADDY_CODE="$(curl -ksS --resolve "$DOMAIN:443:127.0.0.1" -o /dev/null -w '%{http_code}' "https://$DOMAIN/operations" || true)"
 if [[ "$CADDY_CODE" != "200" && "$CADDY_CODE" != "303" ]]; then
-  echo "Tikcentral /guardian failed through Caddy (HTTP $CADDY_CODE)." >&2
+  echo "Tikcentral /operations failed through Caddy (HTTP $CADDY_CODE)." >&2
   cat /etc/caddy/Caddyfile >&2 || true
   exit 1
 fi
@@ -214,15 +222,21 @@ echo "Router API credential: ready (secret retained on VPS)"
 echo "Encrypted personal-router credential store: ready"
 echo "Enrollment modes: Tikcentral-only + Opticable default config"
 echo "Access Guardian: enabled (1-minute checks)"
+echo "Operations telemetry: enabled (5-minute collection)"
+echo "Configuration drift: enabled (30-minute checks after baseline)"
+echo "Serialized RouterOS upgrades: ready"
+echo "Approved-version tracking: ready"
+echo "Backup tiers: daily rotating + retained pre-change/commissioning"
+echo "Router event timeline: ready"
 echo "Configuration change history: ready"
-echo "Router backup scheduler: enabled"
 echo "Live router audit/normalization: ready"
-echo "Guardian Caddy check: HTTP $CADDY_CODE"
+echo "Operations Caddy check: HTTP $CADDY_CODE"
 echo "Persistent state preserved: users, routers, WireGuard assignments, authorized IPs and existing configuration."
 echo "Pre-update backup: /var/backups/tikcentral/pre-update-$STAMP.db"
 echo "Dashboard: https://$DOMAIN/"
 echo "Routers: https://$DOMAIN/routers"
 echo "Guardian: https://$DOMAIN/guardian"
+echo "Operations: https://$DOMAIN/operations"
 echo "Changes: https://$DOMAIN/changes"
 echo "Enrollment: https://$DOMAIN/enroll"
 echo "Automation: https://$DOMAIN/automation"
