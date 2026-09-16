@@ -45,6 +45,13 @@ if ! sudo -u tikcentral "$ROOT/venv/bin/python3" --version >/dev/null 2>&1; then
   exit 1
 fi
 
+# Validate Python source before changing/restarting any running service.
+"$ROOT/venv/bin/python3" -m py_compile \
+  "$APP/app/main.py" \
+  "$APP/app/portal.py" \
+  "$APP/app/enroll_ui.py" \
+  "$APP/app/winbox_proxy.py"
+
 # Update service definitions only; do not recreate runtime data.
 install -o root -g root -m 0644 "$APP/deploy/tikcentral.service" /etc/systemd/system/tikcentral.service
 install -o root -g root -m 0644 "$APP/deploy/tikcentral-winbox-proxy.service" /etc/systemd/system/tikcentral-winbox-proxy.service
@@ -115,4 +122,6 @@ echo "  - WireGuard server keys and peers"
 echo "  - /etc/tikcentral/tikcentral.env"
 echo "Pre-update backup: /var/backups/tikcentral/pre-update-$STAMP.db"
 echo "Dashboard: https://$DOMAIN/"
+echo "Routers: https://$DOMAIN/routers"
 echo "Enrollment UI: https://$DOMAIN/enroll"
+echo "Settings: https://$DOMAIN/settings"
