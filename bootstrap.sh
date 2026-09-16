@@ -27,18 +27,22 @@ done
 [[ "$EUID" -eq 0 ]] || { echo "Run this bootstrap as root (use: curl ... | sudo bash -s -- ...)" >&2; exit 1; }
 
 export DEBIAN_FRONTEND=noninteractive
+
+# Refresh package metadata, but do not perform a machine-wide upgrade.
+# apt-get install below only installs/upgrades packages Tikcentral actually requires.
 apt-get update
-apt-get upgrade -y
 apt-get install -y --no-install-recommends \
   apt-transport-https ca-certificates curl debian-archive-keyring debian-keyring git gnupg jq python3 python3-venv sqlite3 sudo ufw wireguard-tools
 
-# Install/upgrade Caddy from the official stable repository so the Caddyfile syntax
-# is consistent across Ubuntu releases.
-curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+# Ensure Caddy comes from its official stable repository. Running apt-get install for
+# this named package is idempotent: if the installed version already matches the
+# repository candidate, apt makes no change; if Tikcentral needs the newer package,
+# only Caddy and its required dependencies are upgraded.
+curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | gpg --dearmor --yes -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
 curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | tee /etc/apt/sources.list.d/caddy-stable.list >/dev/null
 chmod o+r /usr/share/keyrings/caddy-stable-archive-keyring.gpg /etc/apt/sources.list.d/caddy-stable.list
 apt-get update
-apt-get install -y caddy
+apt-get install -y --no-install-recommends caddy
 
 id tikcentral >/dev/null 2>&1 || useradd --system --home "$DATA_DIR" --shell /usr/sbin/nologin tikcentral
 install -d -o root -g root -m 0755 "$ROOT" "$ENV_DIR" /etc/wireguard
@@ -125,6 +129,7 @@ DASHBOARD_HASH="$(caddy hash-password --plaintext "$DASHBOARD_PASSWORD")"
 
 python3 -m venv "$ROOT/venv"
 "$ROOT/venv/bin/pip" install --upgrade pip wheel
+# Reconcile only Tikcentral's Python dependencies to the versions declared by the repo.
 "$ROOT/venv/bin/pip" install -r "$APP/app/requirements.txt"
 
 install -o root -g root -m 0644 "$APP/deploy/tikcentral.service" /etc/systemd/system/tikcentral.service
