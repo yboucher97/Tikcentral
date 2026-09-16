@@ -90,6 +90,7 @@ fi
   "$APP/app/fleet_runner.py" \
   "$APP/app/fleet_web.py" \
   "$APP/app/guardian.py" \
+  "$APP/app/guardian_events.py" \
   "$APP/app/changes.py" \
   "$APP/app/events.py" \
   "$APP/app/backup_tiers.py" \
@@ -97,6 +98,8 @@ fi
   "$APP/app/performance_profile.py" \
   "$APP/app/enrollment_v2.py" \
   "$APP/app/operations.py" \
+  "$APP/app/operations_safety.py" \
+  "$APP/app/rescue.py" \
   "$APP/app/production.py" \
   "$APP/app/final.py" \
   "$APP/app/winbox_proxy.py"
@@ -106,7 +109,7 @@ source "$ENV_FILE"
 set +a
 
 ROUTES="$(cd "$APP" && "$ROOT/venv/bin/python3" -c 'from app.final import app; print("\n".join(sorted({r.path for r in app.routes})))')"
-for REQUIRED_ROUTE in /enroll /enroll/generate /enroll/admin-credentials /routers /settings /automation /automation/command /automation/backup /automation/update/check /automation/update/install /ssh '/ssh/{router_id}' /guardian '/guardian/{router_id}/repair' /operations '/operations/{router_id}' '/operations/{router_id}/commission' '/operations/{router_id}/telemetry' '/operations/{router_id}/profile/{profile}' '/operations/{router_id}/backup/{tier}' '/operations/{router_id}/drift/check' '/operations/{router_id}/baseline' '/operations/{router_id}/update/check' '/operations/{router_id}/upgrade/{mode}' '/operations/{router_id}/routerboot' '/operations/{router_id}/approve-version' /changes '/changes/{router_id}' /audit '/audit/{router_id}' '/audit/{router_id}/normalize'; do
+for REQUIRED_ROUTE in /enroll /enroll/generate /enroll/admin-credentials /routers /settings /automation /automation/command /automation/backup /automation/update/check /automation/update/install /ssh '/ssh/{router_id}' /guardian '/guardian/{router_id}/repair' /operations '/operations/{router_id}' '/operations/{router_id}/commission' '/operations/{router_id}/telemetry' '/operations/{router_id}/profile/{profile}' '/operations/{router_id}/backup/{tier}' '/operations/{router_id}/drift/check' '/operations/{router_id}/baseline' '/operations/{router_id}/update/check' '/operations/{router_id}/upgrade/{mode}' '/operations/{router_id}/routerboot' '/operations/{router_id}/approve-version' /rescue '/rescue/{router_id}/enable' '/rescue/{router_id}/disable' /changes '/changes/{router_id}' /audit '/audit/{router_id}' '/audit/{router_id}/normalize'; do
   if ! grep -Fxq "$REQUIRED_ROUTE" <<<"$ROUTES"; then
     echo "Required route $REQUIRED_ROUTE is missing from app.final." >&2
     echo "$ROUTES" >&2
@@ -149,6 +152,7 @@ cd "$APP"
 "$ROOT/venv/bin/python3" -c 'from app.guardian import ensure_schema; ensure_schema()'
 "$ROOT/venv/bin/python3" -c 'from app.provisioning import ensure_schema; ensure_schema()'
 "$ROOT/venv/bin/python3" -c 'from app.operations import ensure_schema; ensure_schema()'
+"$ROOT/venv/bin/python3" -c 'from app.rescue import ensure_schema; ensure_schema()'
 
 install -o root -g root -m 0644 "$APP/deploy/tikcentral.service" /etc/systemd/system/tikcentral.service
 install -o root -g root -m 0644 "$APP/deploy/tikcentral-winbox-proxy.service" /etc/systemd/system/tikcentral-winbox-proxy.service
@@ -194,7 +198,7 @@ if [[ "$API_OK" -ne 1 ]]; then
   exit 1
 fi
 
-for PATH_TO_CHECK in /enroll /routers /automation /ssh /guardian /operations /changes /audit; do
+for PATH_TO_CHECK in /enroll /routers /automation /ssh /guardian /operations /rescue /changes /audit; do
   CODE="$(curl -sS -o /dev/null -w '%{http_code}' "http://127.0.0.1:8080$PATH_TO_CHECK" || true)"
   if [[ "$CODE" != "200" && "$CODE" != "303" ]]; then
     echo "Tikcentral $PATH_TO_CHECK failed directly on the application (HTTP $CODE)." >&2
@@ -228,6 +232,7 @@ echo "Serialized RouterOS upgrades: ready"
 echo "Approved-version tracking: ready"
 echo "Backup tiers: daily rotating + retained pre-change/commissioning"
 echo "Router event timeline: ready"
+echo "Static local rescue-port management: ready"
 echo "Configuration change history: ready"
 echo "Live router audit/normalization: ready"
 echo "Operations Caddy check: HTTP $CADDY_CODE"
@@ -237,6 +242,7 @@ echo "Dashboard: https://$DOMAIN/"
 echo "Routers: https://$DOMAIN/routers"
 echo "Guardian: https://$DOMAIN/guardian"
 echo "Operations: https://$DOMAIN/operations"
+echo "Rescue: https://$DOMAIN/rescue"
 echo "Changes: https://$DOMAIN/changes"
 echo "Enrollment: https://$DOMAIN/enroll"
 echo "Automation: https://$DOMAIN/automation"
