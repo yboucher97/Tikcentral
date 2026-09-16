@@ -14,12 +14,14 @@ from app import guardian
 from app import main as core
 from app import operations
 from app import operations_stability
+from app import operations_compat
 from app import operations_safe_routes
 from app import guardian_events  # patches Guardian transition event logging
 from app import operations_safety  # patches normalized version/profile behavior
 from app import portal
 from app import production
 from app import rescue_v2
+from app import rescue_safe_routes
 from app import ui_enhancements
 from app import ui_time
 
@@ -143,14 +145,19 @@ async def normalize_router(router_id: int, request: Request):
     return final_page("Normalize Tikcentral", body, user, "audit")
 
 
-# Install failure-tolerant probes before routes are registered so all Operations
-# code resolves to the hardened implementations at request time.
+# Install failure-tolerant probes first, then the commissioning compatibility
+# layer so existing Tikcentral-only routers are not judged against the fresh
+# Opticable E50 baseline.
 operations_stability.install()
+operations_compat.install()
 guardian.register(app, final_page)
 operations.register(app, final_page)
 # Replace only Operations POST actions with wrappers that never expose router
 # command failures as generic FastAPI Internal Server Error pages.
 operations_safe_routes.register(app)
 rescue_v2.register(app, final_page)
+# Rescue has the same rule: operational blockers/errors are shown in the UI,
+# never as an unhelpful generic HTTP 500 page.
+rescue_safe_routes.register(app, final_page)
 changes.register(app, final_page)
 enrollment_v3.register(app, final_page)
