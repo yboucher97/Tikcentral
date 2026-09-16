@@ -22,7 +22,10 @@ cat <<EOF
 :local pub [/interface/wireguard get \$wgId public-key]
 :local serial [/system/routerboard get serial-number]
 :local identity [/system/identity get name]
-:local body ("{\\\"token\\\":\\\"" . \$token . "\\\",\\\"public_key\\\":\\\"" . \$pub . "\\\",\\\"serial\\\":\\\"" . \$serial . "\\\",\\\"identity\\\":\\\"" . \$identity . "\\\"}")
+:local model [/system/routerboard get model]
+:local routerosVersion [/system/resource get version]
+:local routerbootVersion [/system/routerboard get current-firmware]
+:local body ("{\\\"token\\\":\\\"" . \$token . "\\\",\\\"public_key\\\":\\\"" . \$pub . "\\\",\\\"serial\\\":\\\"" . \$serial . "\\\",\\\"identity\\\":\\\"" . \$identity . "\\\",\\\"model\\\":\\\"" . \$model . "\\\",\\\"routeros_version\\\":\\\"" . \$routerosVersion . "\\\",\\\"routerboot_version\\\":\\\"" . \$routerbootVersion . "\\\"}")
 :local r [/tool/fetch url=\$apiUrl http-method=post http-header-field="Content-Type: application/json" http-data=\$body output=user as-value]
 :local cfg [:deserialize from=json value=(\$r->"data")]
 :local vpnIP (\$cfg->"vpn_ip")
