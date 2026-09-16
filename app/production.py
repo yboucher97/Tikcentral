@@ -1,20 +1,55 @@
-"""Final Tikcentral production ASGI entrypoint.
+"""Final Tikcentral production ASGI entrypoint."""
 
-Adds the server-held RouterOS API credential to the managed router identity after
-fleet_web has registered the portal, automation routes, and SSH-key provisioning.
-"""
-
+import html
 import os
 
+from fastapi import HTTPException, Request
+from fastapi.responses import HTMLResponse, RedirectResponse
+
+from app import entrypoint
+from app import fleet
 from app import fleet_web
+from app import main as core
 from app import portal
 
 app = fleet_web.app
+
+# Rebuild the shared shell without preserving the old Content-Length header and
+# expose Automation + SSH across all authenticated pages.
+_base_page = fleet_web._base_page
+
+
+def production_page(title: str, body: str, user=None, active: str = "") -> HTMLResponse:
+    response = _base_page(title, body, user, active)
+    if not user:
+        return response
+    text = response.body.decode("utf-8")
+    automation_cls = "active" if active == "automation" else ""
+    ssh_cls = "active" if active == "ssh" else ""
+    text = text.replace(
+        "</nav>",
+        f'<a class="{automation_cls}" href="/automation">Automation</a>'
+        f'<a class="{ssh_cls}" href="/ssh">SSH</a></nav>',
+        1,
+    )
+    return HTMLResponse(text, status_code=response.status_code)
+
+
+portal.portal_page = production_page
+core.page = production_page
+fleet_web.fleet_page = production_page
+
+# Add the server-held RouterOS API credential and harden SSH-key replacement in
+# every newly generated enrollment script.
 _base_managed_script = portal.build_routeros_script
 
 
 def managed_router_script_with_api_password(site_name: str, token: str) -> str:
     script = _base_managed_script(site_name, token)
+    script = script.replace(
+        '/user ssh-keys remove [find where user="tikcentral"]',
+        ':if ([:len [/user ssh-keys find where user="tikcentral"]] > 0) do={ /user ssh-keys remove [find where user="tikcentral"] }',
+    )
     password = os.getenv("TIKCENTRAL_ROUTER_API_PASSWORD", "").replace('"', "")
     if not password:
         return script
@@ -31,3 +66,63 @@ def managed_router_script_with_api_password(site_name: str, token: str) -> str:
 
 
 portal.build_routeros_script = managed_router_script_with_api_password
+
+
+def _admin(request: Request):
+    return core.require_web_admin(request)
+
+
+@app.get("/ssh", response_class=HTMLResponse)
+def ssh_router_list(request: Request):
+    user = _admin(request)
+    if not user:
+        return RedirectResponse("/login", status_code=303)
+    with core.db() as conn:
+        routers = conn.execute(
+            "SELECT id,site_name,identity,model,vpn_ip,enabled FROM routers ORDER BY site_name COLLATE NOCASE,id"
+        ).fetchall()
+    rows = "".join(
+        f'''<tr><td>{html.escape(r['site_name'])}</td><td>{html.escape(r['identity'] or '-')}</td><td>{html.escape(r['model'] or '-')}</td><td><code>{html.escape(r['vpn_ip'])}</code></td><td>{'Enabled' if r['enabled'] else 'Disabled'}</td><td><a href="/ssh/{r['id']}"><button {'disabled' if not r['enabled'] else ''}>Open SSH console</button></a></td></tr>'''
+        for r in routers
+    ) or '<tr><td colspan="6" class="muted">No routers enrolled.</td></tr>'
+    body = f'''<div class="panel pad"><h2>Web SSH</h2><div class="muted">Commands are executed from the Tikcentral VPS over the private WireGuard address using the managed SSH key. Each submitted command is a separate SSH command session.</div></div><div class="panel"><table><thead><tr><th>Site</th><th>Identity</th><th>Model</th><th>VPN IP</th><th>State</th><th></th></tr></thead><tbody>{rows}</tbody></table></div>'''
+    return production_page("SSH", body, user, "ssh")
+
+
+@app.get("/ssh/{router_id}", response_class=HTMLResponse)
+def ssh_console(router_id: int, request: Request):
+    user = _admin(request)
+    if not user:
+        return RedirectResponse("/login", status_code=303)
+    with core.db() as conn:
+        router = conn.execute("SELECT id,site_name,identity,model,vpn_ip,enabled FROM routers WHERE id=?", (router_id,)).fetchone()
+    if not router:
+        raise HTTPException(status_code=404, detail="router not found")
+    csrf = core.csrf_token(request)
+    body = f'''<div class="panel pad"><h2>SSH — {html.escape(router['site_name'])}</h2><div class="muted">{html.escape(router['identity'] or '')} · {html.escape(router['model'] or '')} · <code>{html.escape(router['vpn_ip'])}</code></div><form method="post" action="/ssh/{router_id}" style="margin-top:16px"><input type="hidden" name="csrf" value="{csrf}"><textarea name="command" style="width:100%;min-height:100px" placeholder="/system resource print" required></textarea><div class="inline" style="margin-top:10px"><button class="primary">Run command</button><a href="/ssh">Back to routers</a></div></form></div>'''
+    return production_page("SSH Console", body, user, "ssh")
+
+
+@app.post("/ssh/{router_id}", response_class=HTMLResponse)
+async def ssh_console_run(router_id: int, request: Request):
+    user = _admin(request)
+    if not user:
+        return RedirectResponse("/login", status_code=303)
+    data = await core.form_data(request)
+    core.require_csrf(request, data.get("csrf", ""))
+    command = data.get("command", "").strip()
+    if not command:
+        raise HTTPException(status_code=400, detail="command required")
+    with core.db() as conn:
+        router = conn.execute("SELECT id,site_name,identity,model,vpn_ip,enabled FROM routers WHERE id=?", (router_id,)).fetchone()
+    if not router or not router["enabled"]:
+        raise HTTPException(status_code=404, detail="enabled router not found")
+    try:
+        output = fleet.ssh_exec(router["vpn_ip"], command, timeout=90)
+        status = "Success"
+    except Exception as exc:
+        output = str(exc)
+        status = "Error"
+    csrf = core.csrf_token(request)
+    body = f'''<div class="panel pad"><h2>SSH — {html.escape(router['site_name'])}</h2><div class="muted">{html.escape(router['identity'] or '')} · <code>{html.escape(router['vpn_ip'])}</code></div><div style="margin-top:14px"><strong>{status}</strong></div><pre style="white-space:pre-wrap;background:#0d1528;padding:14px;border-radius:8px;max-height:520px;overflow:auto">{html.escape(output or '(no output)')}</pre><form method="post" action="/ssh/{router_id}"><input type="hidden" name="csrf" value="{csrf}"><textarea name="command" style="width:100%;min-height:100px" placeholder="Next RouterOS command" required></textarea><div class="inline" style="margin-top:10px"><button class="primary">Run command</button><a href="/ssh">Back to routers</a></div></form></div>'''
+    return production_page("SSH Console", body, user, "ssh")
