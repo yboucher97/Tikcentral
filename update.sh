@@ -42,7 +42,12 @@ chown root:tikcentral "$SSH_DIR/tikcentral_ed25519.pub"
 chmod 0644 "$SSH_DIR/tikcentral_ed25519.pub"
 
 install -d -o tikcentral -g tikcentral -m 0750 "$ROUTER_BACKUP_DIR"
-install -o tikcentral -g tikcentral -m 0600 /dev/null /var/lib/tikcentral/known_hosts 2>/dev/null || true
+if [[ ! -f /var/lib/tikcentral/known_hosts ]]; then
+  install -o tikcentral -g tikcentral -m 0600 /dev/null /var/lib/tikcentral/known_hosts
+else
+  chown tikcentral:tikcentral /var/lib/tikcentral/known_hosts
+  chmod 0600 /var/lib/tikcentral/known_hosts
+fi
 
 # Add new fleet settings only when missing. Never replace existing credentials.
 grep -q '^TIKCENTRAL_ROUTER_USER=' "$ENV_FILE" || echo 'TIKCENTRAL_ROUTER_USER=tikcentral' >> "$ENV_FILE"
@@ -53,6 +58,9 @@ grep -q '^TIKCENTRAL_SSH_TIMEOUT=' "$ENV_FILE" || echo 'TIKCENTRAL_SSH_TIMEOUT=2
 grep -q '^TIKCENTRAL_FLEET_WORKERS=' "$ENV_FILE" || echo 'TIKCENTRAL_FLEET_WORKERS=8' >> "$ENV_FILE"
 if ! grep -q '^ROUTER_BACKUP_PASSWORD=' "$ENV_FILE"; then
   echo "ROUTER_BACKUP_PASSWORD=$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')" >> "$ENV_FILE"
+fi
+if ! grep -q '^TIKCENTRAL_ROUTER_API_PASSWORD=' "$ENV_FILE"; then
+  echo "TIKCENTRAL_ROUTER_API_PASSWORD=$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')" >> "$ENV_FILE"
 fi
 chmod 0640 "$ENV_FILE"
 chown root:tikcentral "$ENV_FILE"
@@ -80,6 +88,7 @@ fi
   "$APP/app/fleet.py" \
   "$APP/app/fleet_runner.py" \
   "$APP/app/fleet_web.py" \
+  "$APP/app/production.py" \
   "$APP/app/winbox_proxy.py"
 
 set -a
@@ -87,18 +96,23 @@ source "$ENV_FILE"
 set +a
 
 # Verify production routes and initialize fleet tables before restarting.
-ROUTES="$(cd "$APP" && "$ROOT/venv/bin/python3" -c 'from app.fleet_web import app; print("\n".join(sorted({r.path for r in app.routes})))')"
-for REQUIRED_ROUTE in /enroll /enroll/generate /routers /settings /automation /automation/command /automation/backup; do
+ROUTES="$(cd "$APP" && "$ROOT/venv/bin/python3" -c 'from app.production import app; print("\n".join(sorted({r.path for r in app.routes})))')"
+for REQUIRED_ROUTE in /enroll /enroll/generate /routers /settings /automation /automation/command /automation/backup /automation/update/check /automation/update/install; do
   if ! grep -Fxq "$REQUIRED_ROUTE" <<<"$ROUTES"; then
-    echo "Required route $REQUIRED_ROUTE is missing from app.fleet_web." >&2
+    echo "Required route $REQUIRED_ROUTE is missing from app.production." >&2
     echo "$ROUTES" >&2
     exit 1
   fi
 done
 
-MANAGED_SCRIPT="$(cd "$APP" && "$ROOT/venv/bin/python3" -c 'from app.fleet_web import managed_router_script; print(managed_router_script("scope-check", "scope-check-token"))')"
+MANAGED_SCRIPT="$(cd "$APP" && "$ROOT/venv/bin/python3" -c 'from app.production import managed_router_script_with_api_password; print(managed_router_script_with_api_password("scope-check", "scope-check-token"))')"
 if ! grep -Fq 'Tikcentral managed service identity' <<<"$MANAGED_SCRIPT"; then
   echo "Enrollment script is missing the managed Tikcentral identity." >&2
+  exit 1
+fi
+if ! grep -Fq 'TIKCENTRAL' <<<"$(echo TIKCENTRAL)"; then :; fi
+if ! grep -Fq '/user set [find where name="tikcentral"] password=' <<<"$MANAGED_SCRIPT"; then
+  echo "Enrollment script is missing the VM-held RouterOS API credential." >&2
   exit 1
 fi
 if ! grep -Fxq '{' <<<"$MANAGED_SCRIPT" || ! grep -Fxq '}' <<<"$MANAGED_SCRIPT"; then
@@ -177,6 +191,7 @@ echo
 echo "Tikcentral updated successfully."
 echo "Deployed commit: $DEPLOYED_COMMIT"
 echo "Fleet SSH identity: ready"
+echo "Router API credential: ready (secret retained on VPS)"
 echo "Router backup scheduler: enabled"
 echo "Automation Caddy check: HTTP $CADDY_CODE"
 echo "Persistent state preserved: users, routers, WireGuard assignments, authorized IPs and existing configuration."
