@@ -1,4 +1,5 @@
 import hashlib
+import html
 import ipaddress
 import os
 import secrets
@@ -7,7 +8,8 @@ import subprocess
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 
-from fastapi import FastAPI, Header, HTTPException
+from fastapi import FastAPI, Header, HTTPException, Request
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 
 DB_PATH = os.getenv("DB_PATH", "/var/lib/tikcentral/tikcentral.db")
@@ -18,8 +20,9 @@ WG_ENDPOINT = os.environ["WG_ENDPOINT"]
 WG_ROUTER_POOL = ipaddress.ip_network(os.getenv("WG_ROUTER_POOL", "10.250.1.0/24"))
 WG_ALLOWED_NETWORK = os.getenv("WG_ALLOWED_NETWORK", "10.250.0.0/16")
 TOKEN_TTL_HOURS = int(os.getenv("TOKEN_TTL_HOURS", "24"))
+ONLINE_SECONDS = int(os.getenv("ONLINE_SECONDS", "600"))
 
-app = FastAPI(title="Tikcentral MikroTik Hub", version="1.0.0")
+app = FastAPI(title="Tikcentral MikroTik Hub", version="1.1.0")
 
 SCHEMA = """
 PRAGMA journal_mode=WAL;
@@ -65,10 +68,20 @@ def db():
         conn.close()
 
 
+def ensure_column(conn: sqlite3.Connection, table: str, name: str, definition: str):
+    columns = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
+    if name not in columns:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {definition}")
+
+
 def init_db():
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
     with db() as conn:
         conn.executescript(SCHEMA)
+        ensure_column(conn, "routers", "public_ip", "TEXT NOT NULL DEFAULT ''")
+        ensure_column(conn, "routers", "last_seen_at", "TEXT")
+        ensure_column(conn, "routers", "heartbeat_hash", "TEXT")
+        ensure_column(conn, "routers", "winbox_port", "INTEGER NOT NULL DEFAULT 8291")
 
 
 def require_admin(x_api_key: str = Header(default="")):
@@ -100,6 +113,22 @@ def wg_helper(*args: str) -> str:
     return p.stdout.strip()
 
 
+def client_ip(request: Request) -> str:
+    forwarded = request.headers.get("x-forwarded-for", "")
+    if forwarded:
+        return forwarded.split(",", 1)[0].strip()
+    return request.client.host if request.client else ""
+
+
+def is_online(last_seen_at: str | None) -> bool:
+    if not last_seen_at:
+        return False
+    try:
+        return (utcnow() - datetime.fromisoformat(last_seen_at)).total_seconds() <= ONLINE_SECONDS
+    except ValueError:
+        return False
+
+
 class TokenCreate(BaseModel):
     site_name: str = Field(min_length=1, max_length=120)
 
@@ -107,6 +136,13 @@ class TokenCreate(BaseModel):
 class EnrollRequest(BaseModel):
     token: str = Field(min_length=16, max_length=256)
     public_key: str = Field(min_length=40, max_length=60)
+    serial: str = Field(default="", max_length=120)
+    identity: str = Field(default="", max_length=120)
+
+
+class HeartbeatRequest(BaseModel):
+    public_key: str = Field(min_length=40, max_length=60)
+    heartbeat_token: str = Field(min_length=16, max_length=256)
     serial: str = Field(default="", max_length=120)
     identity: str = Field(default="", max_length=120)
 
@@ -125,6 +161,93 @@ def health():
     except HTTPException:
         wg = "error"
     return {"ok": wg == "ok", "database": "ok", "wireguard": wg}
+
+
+@app.get("/", response_class=HTMLResponse)
+def dashboard():
+    with db() as conn:
+        rows = conn.execute(
+            "SELECT id,site_name,identity,serial,public_ip,vpn_ip,winbox_port,last_seen_at FROM routers WHERE enabled=1 ORDER BY site_name COLLATE NOCASE, id"
+        ).fetchall()
+
+    online_count = sum(1 for row in rows if is_online(row["last_seen_at"]))
+    body_rows = []
+    for row in rows:
+        online = is_online(row["last_seen_at"])
+        status_class = "online" if online else "offline"
+        status_text = "Online" if online else "Offline"
+        winbox = f'{row["vpn_ip"]}:{row["winbox_port"]}'
+        seen = row["last_seen_at"] or "Never"
+        body_rows.append(f"""
+        <tr>
+          <td><span class="dot {status_class}"></span>{status_text}</td>
+          <td>{html.escape(row['identity'] or '-')}</td>
+          <td>{html.escape(row['serial'] or '-')}</td>
+          <td><code>{html.escape(row['public_ip'] or '-')}</code></td>
+          <td><code>{html.escape(row['vpn_ip'])}</code></td>
+          <td>
+            <div class="copy-wrap"><code>{html.escape(winbox)}</code><button onclick="copyText('{html.escape(winbox)}', this)">Copy</button></div>
+          </td>
+          <td class="muted">{html.escape(seen)}</td>
+        </tr>
+        """)
+
+    if not body_rows:
+        body_rows.append('<tr><td colspan="7" class="empty">No MikroTik routers enrolled yet.</td></tr>')
+
+    return HTMLResponse(f"""<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Tikcentral</title>
+<style>
+:root{{--bg:#0b1020;--panel:#121a2d;--line:#26324c;--text:#ecf2ff;--muted:#92a0bb;--accent:#7aa2ff;--ok:#46d17d;--bad:#68758d}}
+*{{box-sizing:border-box}}
+body{{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 system-ui,-apple-system,Segoe UI,sans-serif}}
+main{{max-width:1200px;margin:48px auto;padding:0 20px}}
+header{{display:flex;justify-content:space-between;align-items:end;gap:20px;margin-bottom:22px}}
+h1{{font-size:28px;margin:0 0 4px}}
+.sub{{color:var(--muted)}}
+.count{{background:var(--panel);border:1px solid var(--line);padding:10px 14px;border-radius:10px}}
+.panel{{overflow:auto;background:var(--panel);border:1px solid var(--line);border-radius:14px}}
+table{{width:100%;border-collapse:collapse;min-width:900px}}
+th,td{{padding:14px 16px;text-align:left;border-bottom:1px solid var(--line)}}
+th{{font-size:12px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted)}}
+tr:last-child td{{border-bottom:0}}
+code{{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:#dce7ff}}
+.dot{{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:8px}}
+.dot.online{{background:var(--ok);box-shadow:0 0 9px var(--ok)}}
+.dot.offline{{background:var(--bad)}}
+.copy-wrap{{display:flex;align-items:center;gap:10px}}
+button{{border:1px solid #395182;background:#1a2846;color:var(--text);border-radius:7px;padding:6px 10px;cursor:pointer}}
+button:hover{{background:#22365f}}
+.muted{{color:var(--muted);font-size:12px}}
+.empty{{text-align:center;color:var(--muted);padding:40px}}
+</style>
+</head>
+<body>
+<main>
+<header>
+  <div><h1>Tikcentral</h1><div class="sub">MikroTik remote management</div></div>
+  <div class="count"><strong>{online_count}</strong> online / <strong>{len(rows)}</strong> routers</div>
+</header>
+<div class="panel">
+<table>
+<thead><tr><th>Status</th><th>Identity</th><th>Serial number</th><th>Public IP</th><th>VPN IP</th><th>WinBox</th><th>Last seen UTC</th></tr></thead>
+<tbody>{''.join(body_rows)}</tbody>
+</table>
+</div>
+</main>
+<script>
+async function copyText(value, button){{
+  try{{await navigator.clipboard.writeText(value)}}catch(e){{
+    const t=document.createElement('textarea');t.value=value;document.body.appendChild(t);t.select();document.execCommand('copy');t.remove();
+  }}
+  const old=button.textContent;button.textContent='Copied';setTimeout(()=>button.textContent=old,1000);
+}}
+</script>
+</body></html>""")
 
 
 @app.post("/admin/tokens")
@@ -146,14 +269,15 @@ def routers(x_api_key: str = Header(default="")):
     require_admin(x_api_key)
     with db() as conn:
         rows = conn.execute(
-            "SELECT id,site_name,identity,serial,vpn_ip,public_key,enabled,created_at FROM routers ORDER BY id"
+            "SELECT id,site_name,identity,serial,public_ip,vpn_ip,winbox_port,last_seen_at,public_key,enabled,created_at FROM routers ORDER BY id"
         ).fetchall()
     return [dict(r) for r in rows]
 
 
 @app.post("/api/enroll")
-def enroll(req: EnrollRequest):
+def enroll(req: EnrollRequest, request: Request):
     now = utcnow()
+    public_ip = client_ip(request)
     with db() as conn:
         existing = conn.execute(
             "SELECT site_name,vpn_ip,public_key,enabled FROM routers WHERE public_key=?",
@@ -163,6 +287,10 @@ def enroll(req: EnrollRequest):
             if not existing["enabled"]:
                 raise HTTPException(status_code=403, detail="router disabled")
             wg_helper("add", existing["public_key"], existing["vpn_ip"])
+            conn.execute(
+                "UPDATE routers SET identity=?,serial=?,public_ip=?,last_seen_at=? WHERE public_key=?",
+                (req.identity, req.serial, public_ip, iso(now), req.public_key),
+            )
             return {
                 "vpn_ip": existing["vpn_ip"],
                 "server_public_key": WG_SERVER_PUBLIC_KEY,
@@ -180,10 +308,11 @@ def enroll(req: EnrollRequest):
             raise HTTPException(status_code=401, detail="enrollment token expired")
 
         vpn_ip = next_router_ip(conn)
+        heartbeat_token = secrets.token_urlsafe(24)
         wg_helper("add", req.public_key, vpn_ip)
         conn.execute(
-            "INSERT INTO routers(site_name,identity,serial,public_key,vpn_ip,created_at) VALUES(?,?,?,?,?,?)",
-            (token["site_name"], req.identity, req.serial, req.public_key, vpn_ip, iso(now)),
+            "INSERT INTO routers(site_name,identity,serial,public_key,vpn_ip,public_ip,last_seen_at,heartbeat_hash,created_at) VALUES(?,?,?,?,?,?,?,?,?)",
+            (token["site_name"], req.identity, req.serial, req.public_key, vpn_ip, public_ip, iso(now), hash_token(heartbeat_token), iso(now)),
         )
         conn.execute(
             "UPDATE enrollment_tokens SET used_at=? WHERE id=?",
@@ -195,4 +324,24 @@ def enroll(req: EnrollRequest):
         "server_public_key": WG_SERVER_PUBLIC_KEY,
         "endpoint": WG_ENDPOINT,
         "allowed_network": WG_ALLOWED_NETWORK,
+        "heartbeat_token": heartbeat_token,
     }
+
+
+@app.post("/api/heartbeat")
+def heartbeat(req: HeartbeatRequest, request: Request):
+    now = utcnow()
+    with db() as conn:
+        router = conn.execute(
+            "SELECT id,heartbeat_hash,enabled FROM routers WHERE public_key=?",
+            (req.public_key,),
+        ).fetchone()
+        if not router or not router["enabled"]:
+            raise HTTPException(status_code=404, detail="router not found")
+        if not router["heartbeat_hash"] or not secrets.compare_digest(router["heartbeat_hash"], hash_token(req.heartbeat_token)):
+            raise HTTPException(status_code=401, detail="invalid heartbeat token")
+        conn.execute(
+            "UPDATE routers SET identity=?,serial=?,public_ip=?,last_seen_at=? WHERE id=?",
+            (req.identity, req.serial, client_ip(request), iso(now), router["id"]),
+        )
+    return {"ok": True}
