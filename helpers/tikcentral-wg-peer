@@ -11,6 +11,9 @@ case "${1:-}" in
     wg show "$WG_IF" >/dev/null 2>&1 || fail
     echo ok
     ;;
+  dump)
+    wg show "$WG_IF" dump
+    ;;
   add)
     key="${2:-}"
     ip="${3:-}"
@@ -33,7 +36,7 @@ PY
     echo ok
     ;;
   *)
-    echo "usage: $0 {status|add <public-key> <ip>|remove <public-key>}" >&2
+    echo "usage: $0 {status|dump|add <public-key> <ip>|remove <public-key>}" >&2
     exit 2
     ;;
 esac
