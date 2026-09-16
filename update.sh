@@ -87,16 +87,17 @@ fi
   "$APP/app/fleet_runner.py" \
   "$APP/app/fleet_web.py" \
   "$APP/app/production.py" \
+  "$APP/app/final.py" \
   "$APP/app/winbox_proxy.py"
 
 set -a
 source "$ENV_FILE"
 set +a
 
-ROUTES="$(cd "$APP" && "$ROOT/venv/bin/python3" -c 'from app.production import app; print("\n".join(sorted({r.path for r in app.routes})))')"
-for REQUIRED_ROUTE in /enroll /enroll/generate /routers /settings /automation /automation/command /automation/backup /automation/update/check /automation/update/install /ssh '/ssh/{router_id}'; do
+ROUTES="$(cd "$APP" && "$ROOT/venv/bin/python3" -c 'from app.final import app; print("\n".join(sorted({r.path for r in app.routes})))')"
+for REQUIRED_ROUTE in /enroll /enroll/generate /routers /settings /automation /automation/command /automation/backup /automation/update/check /automation/update/install /ssh '/ssh/{router_id}' /audit '/audit/{router_id}' '/audit/{router_id}/normalize'; do
   if ! grep -Fxq "$REQUIRED_ROUTE" <<<"$ROUTES"; then
-    echo "Required route $REQUIRED_ROUTE is missing from app.production." >&2
+    echo "Required route $REQUIRED_ROUTE is missing from app.final." >&2
     echo "$ROUTES" >&2
     exit 1
   fi
@@ -109,6 +110,14 @@ if ! grep -Fq 'Tikcentral managed service identity' <<<"$MANAGED_SCRIPT"; then
 fi
 if ! grep -Fq 'password=' <<<"$MANAGED_SCRIPT" || ! grep -Fq 'name="tikcentral"' <<<"$MANAGED_SCRIPT"; then
   echo "Enrollment script is missing the VM-held RouterOS API credential." >&2
+  exit 1
+fi
+if grep -Fq 'key-owner=' <<<"$MANAGED_SCRIPT"; then
+  echo "Enrollment script contains invalid direct SSH key syntax (key-owner=)." >&2
+  exit 1
+fi
+if ! grep -Fq 'dst-port=22,8291,8728' <<<"$MANAGED_SCRIPT"; then
+  echo "Enrollment script is missing the canonical Tikcentral management firewall rule." >&2
   exit 1
 fi
 if ! grep -Fxq '{' <<<"$MANAGED_SCRIPT" || ! grep -Fxq '}' <<<"$MANAGED_SCRIPT"; then
@@ -163,7 +172,7 @@ if [[ "$API_OK" -ne 1 ]]; then
   exit 1
 fi
 
-for PATH_TO_CHECK in /enroll /routers /automation /ssh; do
+for PATH_TO_CHECK in /enroll /routers /automation /ssh /audit; do
   CODE="$(curl -sS -o /dev/null -w '%{http_code}' "http://127.0.0.1:8080$PATH_TO_CHECK" || true)"
   if [[ "$CODE" != "200" && "$CODE" != "303" ]]; then
     echo "Tikcentral $PATH_TO_CHECK failed directly on the application (HTTP $CODE)." >&2
@@ -173,9 +182,9 @@ for PATH_TO_CHECK in /enroll /routers /automation /ssh; do
   fi
 done
 
-CADDY_CODE="$(curl -ksS --resolve "$DOMAIN:443:127.0.0.1" -o /dev/null -w '%{http_code}' "https://$DOMAIN/automation" || true)"
+CADDY_CODE="$(curl -ksS --resolve "$DOMAIN:443:127.0.0.1" -o /dev/null -w '%{http_code}' "https://$DOMAIN/audit" || true)"
 if [[ "$CADDY_CODE" != "200" && "$CADDY_CODE" != "303" ]]; then
-  echo "Tikcentral /automation failed through Caddy (HTTP $CADDY_CODE)." >&2
+  echo "Tikcentral /audit failed through Caddy (HTTP $CADDY_CODE)." >&2
   cat /etc/caddy/Caddyfile >&2 || true
   exit 1
 fi
@@ -189,7 +198,8 @@ echo "Deployed commit: $DEPLOYED_COMMIT"
 echo "Fleet SSH identity: ready"
 echo "Router API credential: ready (secret retained on VPS)"
 echo "Router backup scheduler: enabled"
-echo "Automation Caddy check: HTTP $CADDY_CODE"
+echo "Live router audit/normalization: ready"
+echo "Audit Caddy check: HTTP $CADDY_CODE"
 echo "Persistent state preserved: users, routers, WireGuard assignments, authorized IPs and existing configuration."
 echo "Pre-update backup: /var/backups/tikcentral/pre-update-$STAMP.db"
 echo "Dashboard: https://$DOMAIN/"
@@ -197,4 +207,5 @@ echo "Routers: https://$DOMAIN/routers"
 echo "Enrollment: https://$DOMAIN/enroll"
 echo "Automation: https://$DOMAIN/automation"
 echo "Web SSH: https://$DOMAIN/ssh"
+echo "Audit: https://$DOMAIN/audit"
 echo "Settings: https://$DOMAIN/settings"
