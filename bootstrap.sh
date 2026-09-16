@@ -148,6 +148,7 @@ if ! sudo -u tikcentral "$ROOT/venv/bin/python3" --version >/dev/null 2>&1; then
 fi
 
 install -o root -g root -m 0644 "$APP/deploy/tikcentral.service" /etc/systemd/system/tikcentral.service
+install -o root -g root -m 0644 "$APP/deploy/tikcentral-enroll-ui.service" /etc/systemd/system/tikcentral-enroll-ui.service
 install -o root -g root -m 0644 "$APP/deploy/tikcentral-winbox-proxy.service" /etc/systemd/system/tikcentral-winbox-proxy.service
 install -o root -g root -m 0644 "$APP/deploy/tikcentral-backup.service" /etc/systemd/system/tikcentral-backup.service
 install -o root -g root -m 0644 "$APP/deploy/tikcentral-backup.timer" /etc/systemd/system/tikcentral-backup.timer
@@ -159,7 +160,15 @@ cat > /etc/caddy/Caddyfile <<EOF
 
 $DOMAIN {
     encode zstd gzip
-    reverse_proxy 127.0.0.1:8080
+
+    @enrollment_ui path /enroll /enroll/*
+    handle @enrollment_ui {
+        reverse_proxy 127.0.0.1:8081
+    }
+
+    handle {
+        reverse_proxy 127.0.0.1:8080
+    }
 }
 EOF
 caddy fmt --overwrite /etc/caddy/Caddyfile >/dev/null
@@ -182,6 +191,8 @@ systemctl enable --now caddy
 systemctl restart caddy
 systemctl enable --now tikcentral
 systemctl restart tikcentral
+systemctl enable --now tikcentral-enroll-ui
+systemctl restart tikcentral-enroll-ui
 systemctl enable --now tikcentral-winbox-proxy
 systemctl restart tikcentral-winbox-proxy
 systemctl enable --now tikcentral-backup.timer
@@ -204,12 +215,21 @@ if [[ "$API_OK" -ne 1 ]]; then
   exit 1
 fi
 
+if ! systemctl is-active --quiet tikcentral-enroll-ui; then
+  echo >&2
+  echo "Tikcentral enrollment UI failed to start. Service diagnostics:" >&2
+  systemctl --no-pager --full status tikcentral-enroll-ui || true
+  journalctl -u tikcentral-enroll-ui -n 80 --no-pager || true
+  exit 1
+fi
+
 jq . /tmp/tikcentral-health.json
 rm -f /tmp/tikcentral-health.json
 
 echo
 echo "Tikcentral installed."
 echo "Dashboard: https://$DOMAIN/"
+echo "Router enrollment: https://$DOMAIN/enroll"
 echo "Admin email: $ADMIN_EMAIL"
 echo "Initial/migration password: $DASHBOARD_PASSWORD"
 echo "After login, change it at: https://$DOMAIN/account/password"
