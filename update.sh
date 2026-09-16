@@ -86,6 +86,8 @@ fi
   "$APP/app/fleet.py" \
   "$APP/app/fleet_runner.py" \
   "$APP/app/fleet_web.py" \
+  "$APP/app/guardian.py" \
+  "$APP/app/changes.py" \
   "$APP/app/production.py" \
   "$APP/app/final.py" \
   "$APP/app/winbox_proxy.py"
@@ -95,7 +97,7 @@ source "$ENV_FILE"
 set +a
 
 ROUTES="$(cd "$APP" && "$ROOT/venv/bin/python3" -c 'from app.final import app; print("\n".join(sorted({r.path for r in app.routes})))')"
-for REQUIRED_ROUTE in /enroll /enroll/generate /routers /settings /automation /automation/command /automation/backup /automation/update/check /automation/update/install /ssh '/ssh/{router_id}' /audit '/audit/{router_id}' '/audit/{router_id}/normalize'; do
+for REQUIRED_ROUTE in /enroll /enroll/generate /routers /settings /automation /automation/command /automation/backup /automation/update/check /automation/update/install /ssh '/ssh/{router_id}' /guardian '/guardian/{router_id}/repair' /changes '/changes/{router_id}' /audit '/audit/{router_id}' '/audit/{router_id}/normalize'; do
   if ! grep -Fxq "$REQUIRED_ROUTE" <<<"$ROUTES"; then
     echo "Required route $REQUIRED_ROUTE is missing from app.final." >&2
     echo "$ROUTES" >&2
@@ -127,6 +129,7 @@ fi
 
 cd "$APP"
 "$ROOT/venv/bin/python3" -c 'from app.fleet import ensure_schema; ensure_schema()'
+"$ROOT/venv/bin/python3" -c 'from app.guardian import ensure_schema; ensure_schema()'
 
 install -o root -g root -m 0644 "$APP/deploy/tikcentral.service" /etc/systemd/system/tikcentral.service
 install -o root -g root -m 0644 "$APP/deploy/tikcentral-winbox-proxy.service" /etc/systemd/system/tikcentral-winbox-proxy.service
@@ -172,7 +175,7 @@ if [[ "$API_OK" -ne 1 ]]; then
   exit 1
 fi
 
-for PATH_TO_CHECK in /enroll /routers /automation /ssh /audit; do
+for PATH_TO_CHECK in /enroll /routers /automation /ssh /guardian /changes /audit; do
   CODE="$(curl -sS -o /dev/null -w '%{http_code}' "http://127.0.0.1:8080$PATH_TO_CHECK" || true)"
   if [[ "$CODE" != "200" && "$CODE" != "303" ]]; then
     echo "Tikcentral $PATH_TO_CHECK failed directly on the application (HTTP $CODE)." >&2
@@ -182,9 +185,9 @@ for PATH_TO_CHECK in /enroll /routers /automation /ssh /audit; do
   fi
 done
 
-CADDY_CODE="$(curl -ksS --resolve "$DOMAIN:443:127.0.0.1" -o /dev/null -w '%{http_code}' "https://$DOMAIN/audit" || true)"
+CADDY_CODE="$(curl -ksS --resolve "$DOMAIN:443:127.0.0.1" -o /dev/null -w '%{http_code}' "https://$DOMAIN/guardian" || true)"
 if [[ "$CADDY_CODE" != "200" && "$CADDY_CODE" != "303" ]]; then
-  echo "Tikcentral /audit failed through Caddy (HTTP $CADDY_CODE)." >&2
+  echo "Tikcentral /guardian failed through Caddy (HTTP $CADDY_CODE)." >&2
   cat /etc/caddy/Caddyfile >&2 || true
   exit 1
 fi
@@ -197,13 +200,17 @@ echo "Tikcentral updated successfully."
 echo "Deployed commit: $DEPLOYED_COMMIT"
 echo "Fleet SSH identity: ready"
 echo "Router API credential: ready (secret retained on VPS)"
+echo "Access Guardian: enabled (5-minute checks)"
+echo "Configuration change history: ready"
 echo "Router backup scheduler: enabled"
 echo "Live router audit/normalization: ready"
-echo "Audit Caddy check: HTTP $CADDY_CODE"
+echo "Guardian Caddy check: HTTP $CADDY_CODE"
 echo "Persistent state preserved: users, routers, WireGuard assignments, authorized IPs and existing configuration."
 echo "Pre-update backup: /var/backups/tikcentral/pre-update-$STAMP.db"
 echo "Dashboard: https://$DOMAIN/"
 echo "Routers: https://$DOMAIN/routers"
+echo "Guardian: https://$DOMAIN/guardian"
+echo "Changes: https://$DOMAIN/changes"
 echo "Enrollment: https://$DOMAIN/enroll"
 echo "Automation: https://$DOMAIN/automation"
 echo "Web SSH: https://$DOMAIN/ssh"
