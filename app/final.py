@@ -6,13 +6,12 @@ from fastapi import HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app import changes
+from app import enrollment_v2
 from app import fleet
 from app import guardian
 from app import main as core
-from app import performance_profile
 from app import portal
 from app import production
-from app import provisioning
 
 app = production.app
 
@@ -124,9 +123,6 @@ async def normalize_router(router_id: int, request: Request):
     return final_page("Normalize Tikcentral", body, user, "audit")
 
 
-# Extend the fresh-router baseline before the enhanced enrollment routes are
-# registered. Existing-router Tikcentral-only enrollment is unaffected.
-performance_profile.install()
 guardian.register(app, final_page)
 changes.register(app, final_page)
-provisioning.register(app, final_page)
+enrollment_v2.register(app, final_page)
