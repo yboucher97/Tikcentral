@@ -11,6 +11,7 @@ from app import main as core
 from app import performance_profile
 from app import portal
 from app import provisioning
+from app import ui_time
 
 
 PROFILE_LABELS = {
@@ -161,5 +162,6 @@ def register(app, page_func):
             summary = f"Opticable default config + Tikcentral · {vlan_count} VLANs · {lan_count} LANs · {wan_down}/{wan_up} Mbps · {PROFILE_LABELS[profile]}"
         warning = "" if mode == "enroll" else '<div class="error"><strong>Fresh-router provisioning:</strong> use after RouterOS/RouterBOOT update and reset with no defaults.</div>'
         admin_note = f"Personal admin <code>{html.escape(admin_user)}</code> will be reconciled." if admin_user and admin_password else "No personal admin credential is configured yet."
-        body = f'''{warning}<div class="panel pad"><h2>{html.escape(site_name)}</h2><div>{html.escape(summary)}</div><div class="muted">One-time token expires {html.escape(expires.strftime("%Y-%m-%d %H:%M UTC"))}. {admin_note}</div><div class="inline" style="margin-top:14px"><button type="button" class="primary" onclick="copyScript()">Copy script</button><a href="/enroll"><button type="button">Back</button></a></div></div><div class="panel pad"><textarea class="script" id="script" readonly>{html.escape(script)}</textarea></div><script>async function copyScript(){{const el=document.getElementById('script');try{{await navigator.clipboard.writeText(el.value);}}catch(e){{el.select();document.execCommand('copy');}}}}</script>'''
+        expiry_local = ui_time.format_montreal(core.iso(expires))
+        body = f'''{warning}<div class="panel pad"><h2>{html.escape(site_name)}</h2><div>{html.escape(summary)}</div><div class="muted">One-time token expires {html.escape(expiry_local)} (Montréal time). {admin_note}</div><div class="inline" style="margin-top:14px"><button type="button" class="primary" onclick="copyScript()">Copy script</button><a href="/enroll"><button type="button">Back</button></a></div></div><div class="panel pad"><textarea class="script" id="script" readonly>{html.escape(script)}</textarea></div><script>async function copyScript(){{const el=document.getElementById('script');try{{await navigator.clipboard.writeText(el.value);}}catch(e){{el.select();document.execCommand('copy');}}}}</script>'''
         return page_func("Enrollment Script", body, user, "enroll")
