@@ -45,18 +45,26 @@ fi
 "$ROOT/venv/bin/python3" -m py_compile \
   "$APP/app/main.py" \
   "$APP/app/portal.py" \
+  "$APP/app/entrypoint.py" \
   "$APP/app/winbox_proxy.py"
 
-# Verify the portal module actually registers the required web routes before restart.
-ROUTES="$(cd "$APP" && set -a && source "$ENV_FILE" && set +a && "$ROOT/venv/bin/python3" -c 'from app.portal import app; print("\n".join(sorted({r.path for r in app.routes})))')"
+# Verify the production entrypoint actually registers the required web routes.
+ROUTES="$(cd "$APP" && set -a && source "$ENV_FILE" && set +a && "$ROOT/venv/bin/python3" -c 'from app.entrypoint import app; print("\n".join(sorted({r.path for r in app.routes})))')"
 for REQUIRED_ROUTE in /enroll /enroll/generate /routers /settings; do
   if ! grep -Fxq "$REQUIRED_ROUTE" <<<"$ROUTES"; then
-    echo "Required route $REQUIRED_ROUTE is missing from app.portal." >&2
+    echo "Required route $REQUIRED_ROUTE is missing from app.entrypoint." >&2
     echo "Registered routes:" >&2
     echo "$ROUTES" >&2
     exit 1
   fi
 done
+
+# Verify the generated RouterOS script is wrapped in a single local scope.
+SCOPED_SCRIPT="$(cd "$APP" && set -a && source "$ENV_FILE" && set +a && "$ROOT/venv/bin/python3" -c 'from app.entrypoint import build_routeros_script_scoped; print(build_routeros_script_scoped("scope-check", "scope-check-token"))')"
+if ! grep -Fxq '{' <<<"$SCOPED_SCRIPT" || ! grep -Fxq '}' <<<"$SCOPED_SCRIPT"; then
+  echo "RouterOS enrollment script is not wrapped in a local scope." >&2
+  exit 1
+fi
 
 install -o root -g root -m 0644 "$APP/deploy/tikcentral.service" /etc/systemd/system/tikcentral.service
 install -o root -g root -m 0644 "$APP/deploy/tikcentral-winbox-proxy.service" /etc/systemd/system/tikcentral-winbox-proxy.service
@@ -111,7 +119,6 @@ if [[ "$APP_CODE" != "200" && "$APP_CODE" != "303" ]]; then
   exit 1
 fi
 
-# Verify the exact public HTTPS route through Caddy while resolving the hostname locally.
 CADDY_CODE="$(curl -ksS --resolve "$DOMAIN:443:127.0.0.1" -o /dev/null -w '%{http_code}' "https://$DOMAIN/enroll" || true)"
 if [[ "$CADDY_CODE" != "200" && "$CADDY_CODE" != "303" ]]; then
   echo "Tikcentral /enroll failed through Caddy (HTTP $CADDY_CODE)." >&2
@@ -130,6 +137,7 @@ echo "Tikcentral updated successfully."
 echo "Deployed commit: $DEPLOYED_COMMIT"
 echo "Enrollment app check: HTTP $APP_CODE"
 echo "Enrollment Caddy check: HTTP $CADDY_CODE"
+echo "RouterOS enrollment scope check: OK"
 echo "Persistent state preserved:"
 echo "  - users and password hashes"
 echo "  - sessions"
