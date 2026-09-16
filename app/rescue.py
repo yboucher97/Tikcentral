@@ -7,14 +7,14 @@ port, with a pre-change backup and access preflight.
 
 import html
 
-from fastapi import HTTPException, Request
+from fastapi import Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
+from app import events
 from app import fleet
 from app import guardian
 from app import main as core
 from app import operations
-from app import events
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS router_rescue_ports (
@@ -74,7 +74,7 @@ def enable_rescue(router_id: int, interface: str, created_by: str):
 /ip/pool remove [find where name="Tikcentral-Rescue-Pool"];
 /ip/address remove [find where comment="Tikcentral rescue address"];
 /interface/list/member remove [find where comment="Tikcentral rescue LAN membership"];
-/interface/list/member add interface={interface} list=LAN comment="Tikcentral rescue LAN membership";
+:if ([:len [/interface/list/member find where interface={interface} list=LAN]] = 0) do={{ /interface/list/member add interface={interface} list=LAN comment="Tikcentral rescue LAN membership" }};
 /ip/address add address=10.255.255.1/24 interface={interface} comment="Tikcentral rescue address";
 /ip/pool add name="Tikcentral-Rescue-Pool" ranges=10.255.255.100-10.255.255.200;
 /ip/dhcp-server/network add address=10.255.255.0/24 gateway=10.255.255.1 dns-server=1.1.1.1 comment="Tikcentral rescue network";
@@ -145,7 +145,7 @@ def register(app, page_func):
             disable = f'''<form method="post" action="/rescue/{r['id']}/disable" style="display:inline"><input type="hidden" name="csrf" value="{csrf}"><button class="danger" onclick="return confirm('Disable the static rescue port?')">Disable</button></form>'''
             status = f"Enabled · {r['rescue_interface']} · {r['rescue_address'] or '10.255.255.1/24'}" if r["rescue_enabled"] else "Disabled"
             body_rows.append(f'''<tr><td><strong>{html.escape(r['site_name'])}</strong><div class="muted">{html.escape(r['model'] or '')} · {html.escape(r['vpn_ip'])}</div></td><td>{'Healthy' if r['management_ok'] else 'Degraded'}</td><td>{html.escape(status)}</td><td>{enable} {disable if r['rescue_enabled'] else ''}</td></tr>''')
-        body = f'''<div class="panel pad"><h2>Local Rescue Ports</h2><div class="muted">Optional static recovery path. Tikcentral refuses to use a port that already has non-rescue IP/DHCP configuration. Enabled ports use 10.255.255.1/24 and hand out 10.255.255.100-200. No Netwatch or RouterOS scheduler/script is installed.</div></div><div class="panel"><table><thead><tr><th>Router</th><th>Access</th><th>Rescue</th><th>Action</th></tr></thead><tbody>{''.join(body_rows) or '<tr><td colspan="4">No routers.</td></tr>'}</tbody></table></div>'''
+        body = f'''<div class="panel pad"><h2>Local Rescue Ports</h2><div class="muted">Optional static recovery path. Tikcentral refuses to use a port that already has non-rescue IP/DHCP configuration. Enabled ports use 10.255.255.1/24 and hand out 10.255.255.100-200. Existing LAN-list membership is reused. No Netwatch or RouterOS scheduler/script is installed.</div></div><div class="panel"><table><thead><tr><th>Router</th><th>Access</th><th>Rescue</th><th>Action</th></tr></thead><tbody>{''.join(body_rows) or '<tr><td colspan="4">No routers.</td></tr>'}</tbody></table></div>'''
         return page_func("Rescue Ports", body, user, "rescue")
 
     @app.post("/rescue/{router_id}/enable")
