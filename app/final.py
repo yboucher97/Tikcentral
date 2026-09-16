@@ -1,11 +1,14 @@
 """Tikcentral final production entrypoint with live audit, Guardian and Operations."""
 
 import html
+from pathlib import Path
 
 from fastapi import HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
 
 from app import backup_tiers  # installs tiered retention monkeypatch
+from app import branding
 from app import changes
 from app import enrollment_v3
 from app import fleet
@@ -26,6 +29,8 @@ from app import ui_enhancements
 from app import ui_time
 
 app = production.app
+STATIC_DIR = Path(__file__).with_name("static")
+app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 _base_page = production.production_page
 
@@ -33,7 +38,7 @@ _base_page = production.production_page
 def final_page(title: str, body: str, user=None, active: str = "") -> HTMLResponse:
     response = _base_page(title, body, user, active)
     if not user:
-        return response
+        return branding.enhance_response(response)
     text = response.body.decode("utf-8")
     audit_cls = "active" if active == "audit" else ""
     guardian_cls = "active" if active == "guardian" else ""
@@ -51,7 +56,8 @@ def final_page(title: str, body: str, user=None, active: str = "") -> HTMLRespon
     )
     text = ui_time.localize_html_iso_timestamps(text)
     text = text.replace("Created UTC", "Created (Montréal)").replace("Detected UTC", "Detected (Montréal)")
-    return ui_enhancements.enhance_response(HTMLResponse(text, status_code=response.status_code))
+    enhanced = ui_enhancements.enhance_response(HTMLResponse(text, status_code=response.status_code))
+    return branding.enhance_response(enhanced)
 
 
 # Patch every page renderer used by old and new modules. _base_page above keeps a
