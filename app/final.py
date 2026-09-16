@@ -5,6 +5,7 @@ import html
 from fastapi import HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
+from app import changes
 from app import fleet
 from app import guardian
 from app import main as core
@@ -23,9 +24,11 @@ def final_page(title: str, body: str, user=None, active: str = "") -> HTMLRespon
     text = response.body.decode("utf-8")
     audit_cls = "active" if active == "audit" else ""
     guardian_cls = "active" if active == "guardian" else ""
+    changes_cls = "active" if active == "changes" else ""
     text = text.replace(
         "</nav>",
         f'<a class="{guardian_cls}" href="/guardian">Guardian</a>'
+        f'<a class="{changes_cls}" href="/changes">Changes</a>'
         f'<a class="{audit_cls}" href="/audit">Audit</a></nav>',
         1,
     )
@@ -120,3 +123,4 @@ async def normalize_router(router_id: int, request: Request):
 
 
 guardian.register(app, final_page)
+changes.register(app, final_page)
