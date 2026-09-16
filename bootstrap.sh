@@ -30,7 +30,15 @@ export DEBIAN_FRONTEND=noninteractive
 apt-get update
 apt-get upgrade -y
 apt-get install -y --no-install-recommends \
-  ca-certificates caddy curl git jq python3 python3-venv sqlite3 sudo ufw wireguard-tools
+  apt-transport-https ca-certificates curl debian-archive-keyring debian-keyring git gnupg jq python3 python3-venv sqlite3 sudo ufw wireguard-tools
+
+# Install/upgrade Caddy from the official stable repository so the Caddyfile syntax
+# is consistent across Ubuntu releases.
+curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | tee /etc/apt/sources.list.d/caddy-stable.list >/dev/null
+chmod o+r /usr/share/keyrings/caddy-stable-archive-keyring.gpg /etc/apt/sources.list.d/caddy-stable.list
+apt-get update
+apt-get install -y caddy
 
 id tikcentral >/dev/null 2>&1 || useradd --system --home "$DATA_DIR" --shell /usr/sbin/nologin tikcentral
 install -d -o root -g root -m 0755 "$ROOT" "$ENV_DIR" /etc/wireguard
