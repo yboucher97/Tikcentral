@@ -14,16 +14,18 @@ case "$ACTION" in
     install -o root -g root -m 0755 "$APP/helpers/tikcentral-wg-peer" /usr/local/sbin/tikcentral-wg-peer
     "$VENV/bin/pip" install -r "$APP/app/requirements.txt"
     install -o root -g root -m 0644 "$APP/deploy/tikcentral.service" /etc/systemd/system/tikcentral.service
+    install -o root -g root -m 0644 "$APP/deploy/tikcentral-winbox-proxy.service" /etc/systemd/system/tikcentral-winbox-proxy.service
     install -o root -g root -m 0644 "$APP/deploy/tikcentral-backup.service" /etc/systemd/system/tikcentral-backup.service
     install -o root -g root -m 0644 "$APP/deploy/tikcentral-backup.timer" /etc/systemd/system/tikcentral-backup.timer
     systemctl daemon-reload
     systemctl restart tikcentral
+    systemctl enable --now tikcentral-winbox-proxy
     systemctl restart caddy
     "$APP/scripts/status.sh"
     ;;
   restart)
     [[ "$EUID" -eq 0 ]] || exec sudo "$0" "$@"
-    systemctl restart wg-quick@wg0 tikcentral caddy
+    systemctl restart wg-quick@wg0 tikcentral tikcentral-winbox-proxy caddy
     "$APP/scripts/status.sh"
     ;;
   backup)
