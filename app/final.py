@@ -11,6 +11,7 @@ from app import guardian
 from app import main as core
 from app import portal
 from app import production
+from app import provisioning
 
 app = production.app
 
@@ -124,3 +125,4 @@ async def normalize_router(router_id: int, request: Request):
 
 guardian.register(app, final_page)
 changes.register(app, final_page)
+provisioning.register(app, final_page)
