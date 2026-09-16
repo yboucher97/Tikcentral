@@ -1,19 +1,19 @@
 # Tikcentral
 
-A deliberately small MikroTik remote-management hub for RouterOS 7 devices behind NAT/CGNAT.
+A small, stable MikroTik remote-management hub for RouterOS 7 devices behind NAT/CGNAT.
 
-This repo takes the useful operational ideas from `Tik-Central_Management` and `tikcentral-tenant-factory`, but removes the multi-tenant factory, OpenTofu, Ansible, worker queues, broad metrics/alerting, Docker, and PostgreSQL from v1.
+This repo keeps the strongest operational ideas from `Tik-Central_Management` and `tikcentral-tenant-factory`, but intentionally avoids the heavier multi-tenant factory, OpenTofu, Ansible, worker queues, Docker, and PostgreSQL in v1.
 
 ## v1 design
 
 ```text
 Internet
    |
-   | UDP 51820
+   | tikcentral.opticable.ca
    v
 Ubuntu 24.04 OVH VPS
-   |- WireGuard wg0        10.250.0.1/16
-   |- FastAPI API          127.0.0.1:8080
+   |- WireGuard wg0        UDP 51820 / 10.250.0.1/16
+   |- FastAPI              127.0.0.1:8080
    |- SQLite/WAL           /var/lib/tikcentral/tikcentral.db
    |- Caddy HTTPS          80/443
    |- UFW
@@ -24,21 +24,47 @@ Ubuntu 24.04 OVH VPS
         `-- Admin devices     10.250.254.0/24
 ```
 
-Customer Internet traffic does not traverse this VPS. The overlay is for management traffic.
+Customer Internet traffic does not traverse this VPS. The overlay is only for management traffic.
+
+## Simple web dashboard
+
+After installation, browse to:
+
+```text
+https://tikcentral.opticable.ca/
+```
+
+The bootstrap prints a generated dashboard password. Login username is:
+
+```text
+admin
+```
+
+The dashboard shows:
+
+- online/offline status from the live WireGuard handshake;
+- MikroTik identity;
+- RouterBOARD serial number;
+- current public/WAN egress IP observed by WireGuard;
+- assigned VPN IP;
+- a directly copyable WinBox target such as `10.250.1.12:8291`;
+- last WireGuard handshake time.
+
+The public IP and online status come directly from WireGuard, so no heartbeat scheduler is required on the MikroTik.
 
 ## Why this version is smaller
 
-For fewer than 100 routers, stability is improved by minimizing moving parts:
+For fewer than 100 routers, fewer moving parts makes recovery and maintenance easier:
 
 - WireGuard runs directly on the host.
-- The API runs as a dedicated unprivileged `tikcentral` service account.
-- SQLite runs in WAL mode; there is no database daemon to maintain.
-- Only a small root-owned helper may modify WireGuard peers.
-- Caddy handles public HTTPS.
-- systemd handles startup/restart and the backup timer.
-- configuration and data live outside the Git checkout.
+- The API runs as a dedicated unprivileged `tikcentral` account.
+- SQLite runs in WAL mode; there is no database daemon.
+- A small root-owned helper is the only application component allowed to modify WireGuard peers.
+- Caddy handles HTTPS and dashboard authentication.
+- systemd handles startup/restart and database backup scheduling.
+- configuration/data live outside the Git checkout.
 
-Paths:
+Persistent paths:
 
 ```text
 /opt/tikcentral/current                 Git checkout
@@ -52,27 +78,22 @@ Paths:
 
 ## One-command install
 
-First create a DNS A record, for example:
+`tikcentral.opticable.ca` should resolve to the public IPv4 of the OVH VPS.
 
-```text
-vpn.example.com -> YOUR_OVH_VPS_IPV4
-```
-
-Then on a fresh Ubuntu 24.04 VPS:
+On a fresh Ubuntu 24.04 VPS:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/yboucher97/Tikcentral/main/bootstrap.sh | \
-  sudo bash -s -- --domain vpn.example.com --email you@example.com
+  sudo bash -s -- --domain tikcentral.opticable.ca --email YOUR_EMAIL
 ```
 
-If SSH is not on port 22:
+If SSH is not on port 22, add:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/yboucher97/Tikcentral/main/bootstrap.sh | \
-  sudo bash -s -- --domain vpn.example.com --email you@example.com --ssh-port 2222
+--ssh-port 2222
 ```
 
-The bootstrap installs/upgrades required Ubuntu packages, clones this repo, creates the service account and persistent directories, generates the WireGuard server key if needed, creates `wg0`, generates the API key, configures Caddy/UFW/systemd, starts services, enables the backup timer, and runs a local health check.
+The bootstrap installs/upgrades required Ubuntu packages, clones this repo, creates the service account and persistent directories, generates the WireGuard server key if required, creates `wg0`, generates the administrative API key and dashboard password, configures Caddy/UFW/systemd, starts services, enables the backup timer, and runs a health check.
 
 Secrets and private keys are generated on the VM and are never committed to Git.
 
@@ -87,96 +108,80 @@ sudo ./scripts/new-router.sh "Customer - Site"
 
 That creates a 24-hour one-time enrollment token and prints a RouterOS 7 script. Paste the generated output into the remote MikroTik terminal.
 
-The MikroTik generates its own WireGuard private key locally. Only its public key is sent to the server. The server then:
+The MikroTik creates its own WireGuard private key locally. Only its public key, identity, and serial number are sent to Tikcentral.
+
+The server then:
 
 1. validates and consumes the one-time token;
 2. allocates the next address from `10.250.1.0/24`;
-3. adds the peer to the live `wg0` interface;
+3. adds the peer to live `wg0`;
 4. persists the peer in `wg0.conf`;
-5. records the router in SQLite;
+5. records identity/serial/VPN address in SQLite;
 6. returns the hub public key, endpoint, and assigned address.
 
-The generated MikroTik config uses `persistent-keepalive=25`, adds a route for the management overlay, and only permits WinBox/SSH/ICMP to the router from the technician subnet `10.250.254.0/24`.
+The generated MikroTik configuration uses a 25-second persistent keepalive and only permits WinBox/SSH/ICMP management from the technician overlay `10.250.254.0/24`.
 
 ## Add your laptop
 
-Generate the private/public WireGuard pair on your laptop. Keep the private key there.
+Generate the WireGuard keypair on your laptop and keep its private key there.
 
-Pass only its public key to the VPS:
+Pass only the public key to the VPS:
 
 ```bash
 cd /opt/tikcentral/current
 sudo ./scripts/add-admin-peer.sh "Yan-Erik Laptop" '<PUBLIC_KEY>' 10.250.254.2
 ```
 
-The command prints the client config. Replace the private-key placeholder locally.
-
-After connecting your laptop VPN, routers are reachable directly by management IP, for example:
+The command prints your client configuration. Once the laptop VPN is connected, the dashboard WinBox value can be pasted directly into WinBox:
 
 ```text
-WinBox -> 10.250.1.1
-WinBox -> 10.250.1.2
-SSH    -> 10.250.1.3
+10.250.1.1:8291
+10.250.1.2:8291
+10.250.1.3:8291
 ```
 
-The VM permits technician-to-router forwarding but denies router-to-router forwarding by default.
+The VPS permits technician-to-router forwarding but denies router-to-router forwarding by default.
 
 ## Operations
 
 ```bash
 cd /opt/tikcentral/current
 
-# health/services/WireGuard
 sudo ./scripts/manage.sh status
-
-# update the repo, Python deps and installed service files
 sudo ./scripts/manage.sh update
-
-# restart core services
 sudo ./scripts/manage.sh restart
-
-# make an immediate SQLite backup
 sudo ./scripts/manage.sh backup
-
-# list router inventory
 sudo ./scripts/list-routers.sh
-
-# inspect WireGuard handshakes
 sudo wg show wg0
-
-# API logs
 sudo journalctl -u tikcentral -f
-
-# Caddy logs
 sudo journalctl -u caddy -f
 ```
 
-The scheduled local database backup runs daily and keeps 14 days. Enable OVH snapshots/backups as well because local backups do not protect against total VPS loss.
+The scheduled local SQLite backup runs daily and keeps 14 days. OVH snapshots/backups should also be enabled because local backups do not protect against complete VPS loss.
 
 ## Security model
 
 - No private WireGuard keys or API secrets in Git.
 - One-time enrollment tokens are stored only as SHA-256 hashes and expire after 24 hours.
-- API is bound to `127.0.0.1`; only Caddy exposes it over HTTPS.
-- API process is not root.
-- The service account only has passwordless sudo access to one root-owned helper, which validates WireGuard keys and router IPs before changing `wg0`.
-- UFW exposes only SSH, HTTP/HTTPS and WireGuard.
+- FastAPI is bound to `127.0.0.1`; Caddy is the public HTTPS entry point.
+- The dashboard is protected with generated HTTP Basic credentials.
+- `/api/enroll` remains public so routers can enroll from behind NAT/CGNAT.
+- The API process is not root.
+- The `tikcentral` account only has passwordless sudo access to a narrow, root-owned WireGuard helper.
+- UFW exposes only SSH, HTTP/HTTPS, and WireGuard.
 - Routers cannot route to one another through the hub by default.
 - Router management rules only trust the technician overlay range.
 
-## Intentionally not in v1
+## Later additions
 
-The older system contains useful features that can be added after the tunnel/enrollment foundation is proven:
+Possible later features, without making WireGuard depend on the web application:
 
-- simple web dashboard
-- online/offline handshake status
-- RouterOS version/model inventory
-- config/export backups
-- temporary LAN-device access
-- alerts
-- bulk jobs
-- multiple technicians/roles
-- OVH API provisioning
-- external/offsite backups
-
-The principle is to add each feature without making WireGuard reachability depend on the dashboard or automation layer.
+- add-router button directly in the dashboard;
+- RouterOS/model/version inventory;
+- config/export backups;
+- temporary LAN-device access;
+- alerts;
+- bulk jobs;
+- technician accounts/roles;
+- OVH API provisioning;
+- external/offsite backups.
