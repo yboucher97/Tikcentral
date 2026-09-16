@@ -41,6 +41,10 @@ chown root:tikcentral "$SSH_DIR/tikcentral_ed25519.pub"
 chmod 0644 "$SSH_DIR/tikcentral_ed25519.pub"
 
 install -d -o tikcentral -g tikcentral -m 0750 "$ROUTER_BACKUP_DIR"
+# Older installs may contain router subdirectories created by root. This is a
+# dedicated Tikcentral backup tree, so normalize ownership during deployment.
+chown -R tikcentral:tikcentral "$ROUTER_BACKUP_DIR" 2>/dev/null || true
+install -d -o tikcentral -g tikcentral -m 0750 /var/lib/tikcentral/router-backups
 if [[ ! -f /var/lib/tikcentral/known_hosts ]]; then
   install -o tikcentral -g tikcentral -m 0600 /dev/null /var/lib/tikcentral/known_hosts
 else
@@ -82,6 +86,13 @@ if ! sudo -u tikcentral "$ROOT/venv/bin/python3" --version >/dev/null 2>&1; then
   exit 1
 fi
 
+for BRAND_ASSET in \
+  "$APP/app/static/opticable-logo-light.png" \
+  "$APP/app/static/opticable-logo-dark.png" \
+  "$APP/app/static/opticable-icon.png"; do
+  [[ -s "$BRAND_ASSET" ]] || { echo "Missing Opticable UI asset: $BRAND_ASSET" >&2; exit 1; }
+done
+
 "$ROOT/venv/bin/python3" -m py_compile \
   "$APP/app/main.py" \
   "$APP/app/portal.py" \
@@ -102,12 +113,15 @@ fi
   "$APP/app/operations.py" \
   "$APP/app/operations_safety.py" \
   "$APP/app/operations_stability.py" \
+  "$APP/app/operations_compat.py" \
   "$APP/app/operations_safe_routes.py" \
   "$APP/app/operations_robust.py" \
   "$APP/app/rescue.py" \
   "$APP/app/rescue_v2.py" \
+  "$APP/app/rescue_safe_routes.py" \
   "$APP/app/ui_time.py" \
   "$APP/app/ui_enhancements.py" \
+  "$APP/app/branding.py" \
   "$APP/app/production.py" \
   "$APP/app/final.py" \
   "$APP/app/winbox_proxy.py"
@@ -161,6 +175,14 @@ UI_CHECK="$("$ROOT/venv/bin/python3" -c 'from fastapi.responses import HTMLRespo
 for UI_TEXT in 'tcGlobalSearch' 'tcTheme' 'tc-table-search' 'tikcentral:columns:' 'Light mode'; do
   if ! grep -Fq "$UI_TEXT" <<<"$UI_CHECK"; then
     echo "Tikcentral shared UI enhancement validation failed: missing $UI_TEXT" >&2
+    exit 1
+  fi
+done
+
+BRAND_CHECK="$("$ROOT/venv/bin/python3" -c 'from fastapi.responses import HTMLResponse; from app.branding import enhance_response; print(enhance_response(HTMLResponse("<html><head></head><body><div class=\"brand\"><h1>Tikcentral</h1><div class=\"sub\">MikroTik remote management</div></div></body></html>")).body.decode())')"
+for BRAND_TEXT in '/static/opticable-logo-light.png' '/static/opticable-logo-dark.png' '/static/opticable-icon.png' 'opticable-brand-theme' 'tc-status-ok'; do
+  if ! grep -Fq "$BRAND_TEXT" <<<"$BRAND_CHECK"; then
+    echo "Opticable branding validation failed: missing $BRAND_TEXT" >&2
     exit 1
   fi
 done
@@ -258,6 +280,15 @@ for PATH_TO_CHECK in /enroll /routers /automation /ssh /guardian /operations /re
   fi
 done
 
+for STATIC_ASSET in /static/opticable-logo-light.png /static/opticable-logo-dark.png /static/opticable-icon.png; do
+  STATIC_CODE="$(curl -sS -o /dev/null -w '%{http_code}' "http://127.0.0.1:8080$STATIC_ASSET" || true)"
+  if [[ "$STATIC_CODE" != "200" ]]; then
+    echo "Tikcentral branding asset $STATIC_ASSET failed directly on the application (HTTP $STATIC_CODE)." >&2
+    journalctl -u tikcentral -n 100 --no-pager >&2 || true
+    exit 1
+  fi
+done
+
 CADDY_CODE="$(curl -ksS --resolve "$DOMAIN:443:127.0.0.1" -o /dev/null -w '%{http_code}' "https://$DOMAIN/operations" || true)"
 if [[ "$CADDY_CODE" != "200" && "$CADDY_CODE" != "303" ]]; then
   echo "Tikcentral /operations failed through Caddy (HTTP $CADDY_CODE)." >&2
@@ -288,6 +319,7 @@ echo "Configuration change history: ready"
 echo "Live router audit/normalization: ready"
 echo "Searchable/sortable tables + saved column visibility: ready"
 echo "Persistent light/dark UI mode: ready"
+echo "Opticable branded light/dark logos, colors and status visuals: ready"
 echo "Operations Caddy check: HTTP $CADDY_CODE"
 echo "Persistent state preserved: users, routers, WireGuard assignments, authorized IPs and existing configuration."
 echo "Pre-update backup: /var/backups/tikcentral/pre-update-$STAMP.db"
