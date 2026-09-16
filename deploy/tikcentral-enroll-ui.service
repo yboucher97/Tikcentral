@@ -1,0 +1,22 @@
+[Unit]
+Description=Tikcentral Router Enrollment UI
+After=network-online.target tikcentral.service
+Wants=network-online.target
+Requires=tikcentral.service
+
+[Service]
+Type=simple
+User=tikcentral
+Group=tikcentral
+WorkingDirectory=/opt/tikcentral/current
+EnvironmentFile=/etc/tikcentral/tikcentral.env
+ExecStart=/opt/tikcentral/venv/bin/python3 -m uvicorn app.enroll_ui:app --host 127.0.0.1 --port 8081 --workers 1
+Restart=on-failure
+RestartSec=3
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/tikcentral
+
+[Install]
+WantedBy=multi-user.target
