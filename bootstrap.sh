@@ -158,6 +158,7 @@ $DOMAIN {
     }
 }
 EOF
+caddy fmt --overwrite /etc/caddy/Caddyfile >/dev/null
 caddy validate --config /etc/caddy/Caddyfile
 
 ufw allow "$SSH_PORT/tcp"
@@ -178,8 +179,28 @@ systemctl enable --now tikcentral
 systemctl enable --now tikcentral-winbox-proxy
 systemctl enable --now tikcentral-backup.timer
 
-sleep 2
-curl -fsS http://127.0.0.1:8080/healthz | jq .
+# Give the API a few seconds to initialize, then fail with useful diagnostics if it
+# still is not listening. This makes first-install failures self-diagnosing.
+API_OK=0
+for _ in {1..10}; do
+  if curl -fsS http://127.0.0.1:8080/healthz >/tmp/tikcentral-health.json 2>/dev/null; then
+    API_OK=1
+    break
+  fi
+  sleep 1
+done
+
+if [[ "$API_OK" -ne 1 ]]; then
+  echo >&2
+  echo "Tikcentral API failed to start. Service diagnostics:" >&2
+  systemctl --no-pager --full status tikcentral || true
+  echo >&2
+  journalctl -u tikcentral -n 80 --no-pager || true
+  exit 1
+fi
+
+jq . /tmp/tikcentral-health.json
+rm -f /tmp/tikcentral-health.json
 
 echo
 echo "Tikcentral installed."
