@@ -1,15 +1,17 @@
-"""Tikcentral final production entrypoint with live audit and Access Guardian."""
+"""Tikcentral final production entrypoint with live audit, Guardian and Operations."""
 
 import html
 
 from fastapi import HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
+from app import backup_tiers  # installs tiered retention monkeypatch
 from app import changes
 from app import enrollment_v2
 from app import fleet
 from app import guardian
 from app import main as core
+from app import operations
 from app import portal
 from app import production
 
@@ -26,9 +28,11 @@ def final_page(title: str, body: str, user=None, active: str = "") -> HTMLRespon
     audit_cls = "active" if active == "audit" else ""
     guardian_cls = "active" if active == "guardian" else ""
     changes_cls = "active" if active == "changes" else ""
+    operations_cls = "active" if active == "operations" else ""
     text = text.replace(
         "</nav>",
         f'<a class="{guardian_cls}" href="/guardian">Guardian</a>'
+        f'<a class="{operations_cls}" href="/operations">Operations</a>'
         f'<a class="{changes_cls}" href="/changes">Changes</a>'
         f'<a class="{audit_cls}" href="/audit">Audit</a></nav>',
         1,
@@ -124,5 +128,6 @@ async def normalize_router(router_id: int, request: Request):
 
 
 guardian.register(app, final_page)
+operations.register(app, final_page)
 changes.register(app, final_page)
 enrollment_v2.register(app, final_page)
