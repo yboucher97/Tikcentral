@@ -14,6 +14,7 @@ Internet
 Ubuntu 24.04 OVH VPS
    |- WireGuard wg0        UDP 51820 / 10.250.0.1/16
    |- FastAPI              127.0.0.1:8080
+   |- WinBox relay         random TCP 20000-49999
    |- SQLite/WAL           /var/lib/tikcentral/tikcentral.db
    |- Caddy HTTPS          80/443
    |- UFW
@@ -34,11 +35,7 @@ After installation, browse to:
 https://tikcentral.opticable.ca/
 ```
 
-The bootstrap prints a generated dashboard password. Login username is:
-
-```text
-admin
-```
+The bootstrap prints a generated dashboard password. Login username is `admin`.
 
 The dashboard shows:
 
@@ -47,17 +44,41 @@ The dashboard shows:
 - RouterBOARD serial number;
 - current public/WAN egress IP observed by WireGuard;
 - assigned VPN IP;
-- a directly copyable WinBox target such as `10.250.1.12:8291`;
+- a public Remote WinBox target such as `tikcentral.opticable.ca:23194`;
+- a private VPN WinBox target such as `10.250.1.12:8291`;
 - last WireGuard handshake time.
 
 The public IP and online status come directly from WireGuard, so no heartbeat scheduler is required on the MikroTik.
+
+## Remote WinBox access control
+
+Every router gets a unique random public TCP port in the range `20000-49999`.
+
+Example:
+
+```text
+tikcentral.opticable.ca:23194 -> 10.250.1.12:8291
+tikcentral.opticable.ca:38422 -> 10.250.1.13:8291
+```
+
+The WinBox relay only forwards connections from IP addresses authorized in the Tikcentral database.
+
+The dashboard includes:
+
+- **Authorize my current IP for 5 days** — Tikcentral detects the public IPv4 used to access the dashboard and grants it access to all Remote WinBox ports for five days. Re-authorizing refreshes the five-day expiry.
+- **Always Authorized IPs** — manually add stable office/home/technician public IPv4 addresses that never expire until removed.
+- a list showing every authorized IP, label, authorization type, expiry, and a Remove button.
+
+This allows travel/borrowed-computer access without requiring the technician WireGuard profile, while the private VPN method remains available as the preferred management path.
+
+Unauthorized source IPs can establish a TCP connection to the VPS port range but the Tikcentral relay immediately rejects them before opening any connection to the MikroTik.
 
 ## Why this version is smaller
 
 For fewer than 100 routers, fewer moving parts makes recovery and maintenance easier:
 
 - WireGuard runs directly on the host.
-- The API runs as a dedicated unprivileged `tikcentral` account.
+- The API and WinBox relay run as the dedicated unprivileged `tikcentral` account.
 - SQLite runs in WAL mode; there is no database daemon.
 - A small root-owned helper is the only application component allowed to modify WireGuard peers.
 - Caddy handles HTTPS and dashboard authentication.
@@ -71,7 +92,7 @@ Persistent paths:
 /opt/tikcentral/venv                    Python environment
 /etc/tikcentral/tikcentral.env          secrets/config
 /etc/wireguard/wg0.conf                 WireGuard configuration
-/var/lib/tikcentral/tikcentral.db       inventory database
+/var/lib/tikcentral/tikcentral.db       inventory/access database
 /var/backups/tikcentral/                local DB backups
 /usr/local/sbin/tikcentral-wg-peer      restricted WireGuard helper
 ```
@@ -87,13 +108,9 @@ curl -fsSL https://raw.githubusercontent.com/yboucher97/Tikcentral/main/bootstra
   sudo bash -s -- --domain tikcentral.opticable.ca --email YOUR_EMAIL
 ```
 
-If SSH is not on port 22, add:
+If SSH is not on port 22, add `--ssh-port 2222`.
 
-```bash
---ssh-port 2222
-```
-
-The bootstrap installs/upgrades required Ubuntu packages, clones this repo, creates the service account and persistent directories, generates the WireGuard server key if required, creates `wg0`, generates the administrative API key and dashboard password, configures Caddy/UFW/systemd, starts services, enables the backup timer, and runs a health check.
+The bootstrap installs/upgrades required Ubuntu packages, clones this repo, creates the service account and persistent directories, generates the WireGuard server key if required, creates `wg0`, generates the administrative API key and dashboard password, configures Caddy/UFW/systemd, starts the API and WinBox relay services, enables the backup timer, and runs a health check.
 
 Secrets and private keys are generated on the VM and are never committed to Git.
 
@@ -114,14 +131,18 @@ The server then:
 
 1. validates and consumes the one-time token;
 2. allocates the next address from `10.250.1.0/24`;
-3. adds the peer to live `wg0`;
-4. persists the peer in `wg0.conf`;
-5. records identity/serial/VPN address in SQLite;
-6. returns the hub public key, endpoint, and assigned address.
+3. allocates a unique random public WinBox relay port;
+4. adds the peer to live `wg0`;
+5. persists the peer in `wg0.conf`;
+6. records identity/serial/VPN/public-port information in SQLite;
+7. returns the hub public key, endpoint, assigned address, and Remote WinBox name.
 
-The generated MikroTik configuration uses a 25-second persistent keepalive and only permits WinBox/SSH/ICMP management from the technician overlay `10.250.254.0/24`.
+The generated MikroTik configuration uses a 25-second persistent keepalive. It permits:
 
-## Add your laptop
+- technician VPN WinBox/SSH from `10.250.254.0/24`;
+- WinBox on TCP 8291 from only the Tikcentral hub address `10.250.0.1`, which is needed for the public relay.
+
+## Add your laptop VPN
 
 Generate the WireGuard keypair on your laptop and keep its private key there.
 
@@ -132,15 +153,9 @@ cd /opt/tikcentral/current
 sudo ./scripts/add-admin-peer.sh "Yan-Erik Laptop" '<PUBLIC_KEY>' 10.250.254.2
 ```
 
-The command prints your client configuration. Once the laptop VPN is connected, the dashboard WinBox value can be pasted directly into WinBox:
+The command prints your client configuration. Once the laptop VPN is connected, use the private dashboard address, for example `10.250.1.12:8291`.
 
-```text
-10.250.1.1:8291
-10.250.1.2:8291
-10.250.1.3:8291
-```
-
-The VPS permits technician-to-router forwarding but denies router-to-router forwarding by default.
+If you do not have the VPN profile available, authorize your current public IP in the dashboard and use the public Remote WinBox target instead, for example `tikcentral.opticable.ca:23194`.
 
 ## Operations
 
@@ -154,6 +169,7 @@ sudo ./scripts/manage.sh backup
 sudo ./scripts/list-routers.sh
 sudo wg show wg0
 sudo journalctl -u tikcentral -f
+sudo journalctl -u tikcentral-winbox-proxy -f
 sudo journalctl -u caddy -f
 ```
 
@@ -166,11 +182,10 @@ The scheduled local SQLite backup runs daily and keeps 14 days. OVH snapshots/ba
 - FastAPI is bound to `127.0.0.1`; Caddy is the public HTTPS entry point.
 - The dashboard is protected with generated HTTP Basic credentials.
 - `/api/enroll` remains public so routers can enroll from behind NAT/CGNAT.
-- The API process is not root.
+- The API and public WinBox relay processes are not root.
 - The `tikcentral` account only has passwordless sudo access to a narrow, root-owned WireGuard helper.
-- UFW exposes only SSH, HTTP/HTTPS, and WireGuard.
+- Remote WinBox connections are checked against the temporary/permanent source-IP allowlist before they are proxied to a router.
 - Routers cannot route to one another through the hub by default.
-- Router management rules only trust the technician overlay range.
 
 ## Later additions
 
