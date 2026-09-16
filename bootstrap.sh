@@ -64,8 +64,13 @@ chmod 0440 /etc/sudoers.d/tikcentral-wg
 visudo -cf /etc/sudoers.d/tikcentral-wg >/dev/null
 
 if [[ ! -f /etc/wireguard/server.key ]]; then
+  # Keep restrictive permissions only while creating WireGuard private material.
+  # Restore the caller's umask immediately afterwards so later app files/venvs
+  # remain readable/executable by the dedicated tikcentral service account.
+  OLD_UMASK="$(umask)"
   umask 077
   wg genkey | tee /etc/wireguard/server.key | wg pubkey > /etc/wireguard/server.pub
+  umask "$OLD_UMASK"
 fi
 WG_PRIVATE="$(cat /etc/wireguard/server.key)"
 WG_PUBLIC="$(cat /etc/wireguard/server.pub)"
@@ -132,6 +137,12 @@ python3 -m venv "$ROOT/venv"
 # Reconcile only Tikcentral's Python dependencies to the versions declared by the repo.
 "$ROOT/venv/bin/pip" install -r "$APP/app/requirements.txt"
 
+# Repair permissions from older bootstrap runs that leaked umask 077 into venv creation.
+# Root owns the environment; the service account only receives read/traverse/execute rights.
+chown -R root:root "$ROOT/venv"
+chmod -R a+rX "$ROOT/venv"
+chmod 0755 "$ROOT" "$ROOT/venv" "$ROOT/venv/bin"
+
 install -o root -g root -m 0644 "$APP/deploy/tikcentral.service" /etc/systemd/system/tikcentral.service
 install -o root -g root -m 0644 "$APP/deploy/tikcentral-winbox-proxy.service" /etc/systemd/system/tikcentral-winbox-proxy.service
 install -o root -g root -m 0644 "$APP/deploy/tikcentral-backup.service" /etc/systemd/system/tikcentral-backup.service
@@ -176,7 +187,9 @@ systemctl daemon-reload
 systemctl enable --now wg-quick@wg0
 systemctl enable --now caddy
 systemctl enable --now tikcentral
+systemctl restart tikcentral
 systemctl enable --now tikcentral-winbox-proxy
+systemctl restart tikcentral-winbox-proxy
 systemctl enable --now tikcentral-backup.timer
 
 # Give the API a few seconds to initialize, then fail with useful diagnostics if it
