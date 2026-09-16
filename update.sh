@@ -67,11 +67,13 @@ DOMAIN="${PUBLIC_HOSTNAME:-${WG_ENDPOINT%:*}}"
 [[ -n "$DOMAIN" ]] || { echo "Could not determine Tikcentral hostname from $ENV_FILE" >&2; exit 1; }
 
 # Refresh reverse-proxy routing for application services only.
+# Preserve /enroll in the upstream request because enroll_ui.py defines /enroll routes.
 cat > /etc/caddy/Caddyfile <<EOF
 $DOMAIN {
     encode zstd gzip
 
-    handle_path /enroll* {
+    @enrollment_ui path /enroll /enroll/*
+    handle @enrollment_ui {
         reverse_proxy 127.0.0.1:8081
     }
 
@@ -104,6 +106,13 @@ if [[ "$API_OK" -ne 1 ]]; then
   echo "Tikcentral API failed after update. Existing DB/config were preserved and a pre-update backup was created." >&2
   systemctl --no-pager --full status tikcentral || true
   journalctl -u tikcentral -n 80 --no-pager || true
+  exit 1
+fi
+
+if ! systemctl is-active --quiet tikcentral-enroll-ui; then
+  echo "Tikcentral enrollment UI failed after update." >&2
+  systemctl --no-pager --full status tikcentral-enroll-ui || true
+  journalctl -u tikcentral-enroll-ui -n 80 --no-pager || true
   exit 1
 fi
 
