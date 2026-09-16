@@ -9,7 +9,8 @@ DOMAIN="${WG_ENDPOINT%:*}"
 
 cat <<EOF
 # Tikcentral enrollment for: $SITE
-# Paste into a RouterOS 7 terminal.
+# Paste this entire block into a RouterOS 7 terminal.
+{
 :local token "$TOKEN"
 :local apiUrl "https://$DOMAIN/api/enroll"
 :local wgName "opticable-wg"
@@ -55,4 +56,5 @@ cat <<EOF
 }
 :put ("Tikcentral enrolled: " . \$vpnIP)
 :put ("Remote WinBox: " . (\$cfg->"remote_winbox"))
+}
 EOF
