@@ -109,6 +109,7 @@ def collect_telemetry(router_id: int, record_event: bool = False):
 
 def install():
     operations.collect_telemetry = collect_telemetry
+    events.ensure_schema()
     with core.db() as conn:
         conn.execute(
             """UPDATE router_events
