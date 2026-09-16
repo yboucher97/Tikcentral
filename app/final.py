@@ -7,16 +7,17 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app import backup_tiers  # installs tiered retention monkeypatch
 from app import changes
-from app import enrollment_v2
+from app import enrollment_v3
 from app import fleet
 from app import guardian
 from app import main as core
 from app import operations
+from app import operations_robust
 from app import guardian_events  # patches Guardian transition event logging
 from app import operations_safety  # patches normalized version/profile behavior
 from app import portal
 from app import production
-from app import rescue
+from app import rescue_v2
 from app import ui_time
 
 app = production.app
@@ -43,8 +44,6 @@ def final_page(title: str, body: str, user=None, active: str = "") -> HTMLRespon
         f'<a class="{audit_cls}" href="/audit">Audit</a></nav>',
         1,
     )
-    # All persisted timestamps stay UTC internally. Convert ISO timestamps only
-    # when rendering the authenticated UI so operators always see Montreal time.
     text = ui_time.localize_html_iso_timestamps(text)
     return HTMLResponse(text, status_code=response.status_code)
 
@@ -136,8 +135,9 @@ async def normalize_router(router_id: int, request: Request):
     return final_page("Normalize Tikcentral", body, user, "audit")
 
 
+operations_robust.install()
 guardian.register(app, final_page)
 operations.register(app, final_page)
-rescue.register(app, final_page)
+rescue_v2.register(app, final_page)
 changes.register(app, final_page)
-enrollment_v2.register(app, final_page)
+enrollment_v3.register(app, final_page)
