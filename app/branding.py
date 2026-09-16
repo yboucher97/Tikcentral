@@ -2,6 +2,18 @@
 
 from fastapi.responses import HTMLResponse
 
+PRETHEME = r'''
+<script id="opticable-theme-init">
+(function(){
+  try{
+    const saved=localStorage.getItem('tikcentral:theme');
+    const theme=saved||(window.matchMedia&&window.matchMedia('(prefers-color-scheme: light)').matches?'light':'dark');
+    document.documentElement.dataset.theme=theme;
+  }catch(_){document.documentElement.dataset.theme='dark';}
+})();
+</script>
+'''
+
 BRAND_CSS = r'''
 <style id="opticable-brand-theme">
 :root{
@@ -69,7 +81,8 @@ html[data-theme="light"] .tc-logo-dark{display:none}html[data-theme="light"] .tc
 .account{padding:6px 7px 6px 12px;border:1px solid var(--tc-line);border-radius:12px;background:color-mix(in srgb,var(--tc-panel2) 78%,transparent)}
 .tc-page-tools{border-color:color-mix(in srgb,var(--oc-green) 18%,var(--tc-line))!important;background:linear-gradient(90deg,color-mix(in srgb,var(--tc-panel) 96%,var(--oc-green) 4%),var(--tc-panel))!important}
 .tc-toolbar-label{color:var(--oc-green)!important}
-.panel,.card{position:relative;overflow:hidden!important}
+.panel,.card{position:relative}
+.card{overflow:hidden!important}
 .panel::after,.card::after{content:"";position:absolute;left:0;right:0;top:0;height:1px;background:linear-gradient(90deg,transparent,color-mix(in srgb,var(--oc-green) 46%,transparent),transparent);pointer-events:none}
 .panel:hover,.card:hover{border-color:color-mix(in srgb,var(--oc-green) 30%,var(--tc-line))!important}
 .cards{gap:16px!important}
@@ -97,6 +110,7 @@ html[data-theme="light"] .tc-status-warn{color:#976410;background:#fff7e5;border
 .tc-status-bad{color:#f17d8c;background:color-mix(in srgb,#e95f73 11%,transparent);border-color:color-mix(in srgb,#e95f73 25%,transparent)}
 html[data-theme="light"] .tc-status-bad{color:#b5364a;background:#fff0f2;border-color:#f0c3ca}
 .tc-status-neutral{color:var(--tc-muted);background:var(--tc-panel2);border-color:var(--tc-line)}
+.login{max-width:460px!important;margin-top:64px!important}.login.panel,.login .panel{border-color:color-mix(in srgb,var(--oc-green) 24%,var(--tc-line))!important}
 code{padding:2px 5px;border-radius:5px;background:color-mix(in srgb,var(--oc-green) 6%,var(--tc-code))}
 pre{box-shadow:inset 0 1px 0 color-mix(in srgb,var(--oc-green) 10%,transparent)}
 ::-webkit-scrollbar{height:10px;width:10px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:color-mix(in srgb,var(--oc-green) 26%,var(--tc-line));border-radius:99px;border:2px solid transparent;background-clip:padding-box}
@@ -113,7 +127,12 @@ BRAND_JS = r'''
     'warning':'warn','partial':'warn','degraded':'warn','pending':'warn','queued':'warn','running':'warn','rebooting':'warn','routerboot required':'warn','drift':'warn','drift detected':'warn',
     'failed':'bad','error':'bad','critical':'bad','offline':'bad','disabled':'neutral','not checked':'neutral','not_checked':'neutral','none':'neutral','unknown':'neutral'
   };
+  function syncThemeColor(){
+    const meta=document.querySelector('meta[name="theme-color"]');
+    if(meta)meta.content=document.documentElement.dataset.theme==='light'?'#f3f8f5':'#101a15';
+  }
   function brandStatuses(){
+    syncThemeColor();
     document.querySelectorAll('td').forEach(td=>{
       if(td.dataset.ocStatus==='1'||td.children.length)return;
       const raw=(td.textContent||'').trim(); const key=raw.toLowerCase(); const tone=stateMap[key];
@@ -125,6 +144,8 @@ BRAND_JS = r'''
       if(tr.cells.length===1&&tr.cells[0].colSpan>1&&/^no\s/i.test((tr.textContent||'').trim())) tr.classList.add('tc-empty-row');
     });
   }
+  const observer=new MutationObserver(m=>{if(m.some(x=>x.attributeName==='data-theme'))syncThemeColor();});
+  observer.observe(document.documentElement,{attributes:true});
   if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',brandStatuses); else brandStatuses();
 })();
 </script>
@@ -138,7 +159,7 @@ def enhance_response(response: HTMLResponse) -> HTMLResponse:
     old = '<div class="brand"><h1>Tikcentral</h1><div class="sub">MikroTik remote management</div></div>'
     text = text.replace(old, BRAND_HTML)
     if '/static/opticable-icon.png' not in text.split('</head>', 1)[0]:
-        head = '<link rel="icon" type="image/png" href="/static/opticable-icon.png"><meta name="theme-color" content="#101a15">' + BRAND_CSS
+        head = PRETHEME + '<link rel="icon" type="image/png" href="/static/opticable-icon.png"><meta name="theme-color" content="#101a15">' + BRAND_CSS
         text = text.replace('</head>', head + '</head>', 1)
     if 'opticable-brand-js' not in text:
         text = text.replace('</body>', BRAND_JS + '</body>', 1)
