@@ -12,6 +12,8 @@ from app import fleet
 from app import guardian
 from app import main as core
 from app import operations
+from app import guardian_events  # patches Guardian transition event logging
+from app import operations_safety  # patches normalized version/profile behavior
 from app import portal
 from app import production
 
