@@ -16,6 +16,7 @@ from app import guardian_events  # patches Guardian transition event logging
 from app import operations_safety  # patches normalized version/profile behavior
 from app import portal
 from app import production
+from app import rescue
 
 app = production.app
 
@@ -31,10 +32,12 @@ def final_page(title: str, body: str, user=None, active: str = "") -> HTMLRespon
     guardian_cls = "active" if active == "guardian" else ""
     changes_cls = "active" if active == "changes" else ""
     operations_cls = "active" if active == "operations" else ""
+    rescue_cls = "active" if active == "rescue" else ""
     text = text.replace(
         "</nav>",
         f'<a class="{guardian_cls}" href="/guardian">Guardian</a>'
         f'<a class="{operations_cls}" href="/operations">Operations</a>'
+        f'<a class="{rescue_cls}" href="/rescue">Rescue</a>'
         f'<a class="{changes_cls}" href="/changes">Changes</a>'
         f'<a class="{audit_cls}" href="/audit">Audit</a></nav>',
         1,
@@ -131,5 +134,6 @@ async def normalize_router(router_id: int, request: Request):
 
 guardian.register(app, final_page)
 operations.register(app, final_page)
+rescue.register(app, final_page)
 changes.register(app, final_page)
 enrollment_v2.register(app, final_page)
