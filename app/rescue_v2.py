@@ -13,23 +13,38 @@ from app import rescue
 def enable_rescue(router_id: int, interface: str, created_by: str):
     if interface not in interface_choices.INTERFACE_SET:
         raise ValueError("invalid rescue interface")
-    # Reuse the existing access-first implementation after temporarily bypassing
-    # its legacy ether2-5 validator by executing equivalent guarded logic here.
     router = rescue._router(router_id)
     if not router or not router["enabled"]:
         raise RuntimeError("enabled router not found")
     from app import fleet, guardian, operations, events
     if not guardian.probe_router(router)["management_ok"]:
         raise RuntimeError("Guardian access preflight failed")
+
     check = fleet.ssh_exec(
         router["vpn_ip"],
         f':put ("TC|addresses|" . [/ip/address print count-only where interface={interface} comment!="Tikcentral rescue address"]); '
-        f':put ("TC|dhcp|" . [/ip/dhcp-server print count-only where interface={interface} name!="Tikcentral-Rescue-DHCP"])',
+        f':put ("TC|dhcp_server|" . [/ip/dhcp-server print count-only where interface={interface} name!="Tikcentral-Rescue-DHCP"]); '
+        f':put ("TC|dhcp_client|" . [/ip/dhcp-client print count-only where interface={interface}]); '
+        f':put ("TC|pppoe|" . [/interface/pppoe-client print count-only where interface={interface}]); '
+        f':put ("TC|vlans|" . [/interface/vlan print count-only where interface={interface}]); '
+        f':put ("TC|bridge_ports|" . [/interface/bridge/port print count-only where interface={interface}]); '
+        f':put ("TC|wan_member|" . [/interface/list/member print count-only where interface={interface} list=WAN])',
         timeout=45,
     )
     m = rescue._markers(check)
-    if int(m.get("addresses", "0") or 0) > 0 or int(m.get("dhcp", "0") or 0) > 0:
-        raise RuntimeError(f"{interface} already has non-rescue IP/DHCP configuration; Tikcentral will not overwrite it")
+    blockers = {
+        "IP address": int(m.get("addresses", "0") or 0),
+        "DHCP server": int(m.get("dhcp_server", "0") or 0),
+        "DHCP client": int(m.get("dhcp_client", "0") or 0),
+        "PPPoE client": int(m.get("pppoe", "0") or 0),
+        "VLAN parent": int(m.get("vlans", "0") or 0),
+        "bridge membership": int(m.get("bridge_ports", "0") or 0),
+        "WAN membership": int(m.get("wan_member", "0") or 0),
+    }
+    active = [name for name, count in blockers.items() if count > 0]
+    if active:
+        raise RuntimeError(f"{interface} is already in use ({', '.join(active)}); Tikcentral will not repurpose it as a rescue port")
+
     operations.backup_router(router_id, "pre-change", created_by)
     command = f'''
 /ip/dhcp-server remove [find where name="Tikcentral-Rescue-DHCP"];
@@ -82,7 +97,7 @@ def register(app, page_func):
             disable = f'''<form method="post" action="/rescue/{r['id']}/disable" style="display:inline"><input type="hidden" name="csrf" value="{csrf}"><button class="danger" onclick="return confirm('Disable the static rescue port?')">Disable</button></form>'''
             status = f"Enabled · {r['rescue_interface']} · {r['rescue_address'] or '10.255.255.1/24'}" if r["rescue_enabled"] else "Disabled"
             body_rows.append(f'''<tr><td><strong>{html.escape(r['site_name'])}</strong><div class="muted">{html.escape(r['model'] or '')} · {html.escape(r['vpn_ip'])}</div></td><td>{'Healthy' if r['management_ok'] else 'Degraded'}</td><td>{html.escape(status)}</td><td>{enable} {disable if r['rescue_enabled'] else ''}</td></tr>''')
-        body = f'''<div class="panel pad"><h2>Local Rescue Ports</h2><div class="muted">Available choices: ether1–ether10 and sfp-sfpplus1–sfp-sfpplus24. Tikcentral refuses to use an interface that already has non-rescue IP/DHCP configuration. Rescue uses 10.255.255.1/24 with DHCP 10.255.255.100-200.</div></div><div class="panel"><table><thead><tr><th>Router</th><th>Access</th><th>Rescue</th><th>Action</th></tr></thead><tbody>{''.join(body_rows) or '<tr><td colspan="4">No routers.</td></tr>'}</tbody></table></div>'''
+        body = f'''<div class="panel pad"><h2>Local Rescue Ports</h2><div class="muted">Available choices: ether1–ether10 and sfp-sfpplus1–sfp-sfpplus24. Tikcentral refuses to repurpose interfaces already used by IP, DHCP, PPPoE, VLANs, a bridge, or the WAN list. Rescue uses 10.255.255.1/24 with DHCP 10.255.255.100-200.</div></div><div class="panel"><table><thead><tr><th>Router</th><th>Access</th><th>Rescue</th><th>Action</th></tr></thead><tbody>{''.join(body_rows) or '<tr><td colspan="4">No routers.</td></tr>'}</tbody></table></div>'''
         return page_func("Rescue Ports", body, user, "rescue")
 
     @app.post("/rescue/{router_id}/enable")
