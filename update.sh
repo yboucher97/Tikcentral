@@ -31,7 +31,6 @@ printf 'tikcentral ALL=(root) NOPASSWD: /usr/local/sbin/tikcentral-wg-peer *\n' 
 chmod 0440 /etc/sudoers.d/tikcentral-wg
 visudo -cf /etc/sudoers.d/tikcentral-wg >/dev/null
 
-# Persistent fleet SSH identity. The private key never leaves the VPS.
 install -d -o root -g tikcentral -m 0750 "$SSH_DIR"
 if [[ ! -f "$SSH_DIR/tikcentral_ed25519" ]]; then
   ssh-keygen -q -t ed25519 -N '' -C 'tikcentral-vps' -f "$SSH_DIR/tikcentral_ed25519"
@@ -49,7 +48,6 @@ else
   chmod 0600 /var/lib/tikcentral/known_hosts
 fi
 
-# Add new fleet settings only when missing. Never replace existing credentials.
 grep -q '^TIKCENTRAL_ROUTER_USER=' "$ENV_FILE" || echo 'TIKCENTRAL_ROUTER_USER=tikcentral' >> "$ENV_FILE"
 grep -q '^TIKCENTRAL_SSH_KEY=' "$ENV_FILE" || echo 'TIKCENTRAL_SSH_KEY=/etc/tikcentral/ssh/tikcentral_ed25519' >> "$ENV_FILE"
 grep -q '^TIKCENTRAL_KNOWN_HOSTS=' "$ENV_FILE" || echo 'TIKCENTRAL_KNOWN_HOSTS=/var/lib/tikcentral/known_hosts' >> "$ENV_FILE"
@@ -95,7 +93,6 @@ set -a
 source "$ENV_FILE"
 set +a
 
-# Verify production routes and initialize fleet tables before restarting.
 ROUTES="$(cd "$APP" && "$ROOT/venv/bin/python3" -c 'from app.production import app; print("\n".join(sorted({r.path for r in app.routes})))')"
 for REQUIRED_ROUTE in /enroll /enroll/generate /routers /settings /automation /automation/command /automation/backup /automation/update/check /automation/update/install /ssh '/ssh/{router_id}'; do
   if ! grep -Fxq "$REQUIRED_ROUTE" <<<"$ROUTES"; then
@@ -110,14 +107,9 @@ if ! grep -Fq 'Tikcentral managed service identity' <<<"$MANAGED_SCRIPT"; then
   echo "Enrollment script is missing the managed Tikcentral identity." >&2
   exit 1
 fi
-if ! grep -Fq '/user set [find where name="tikcentral"] password=' <<<"$MANAGED_SCRIPT"; then
-  # The pattern above is shell-safe but some grep builds display quotes differently; check a simpler invariant too.
-  if ! grep -Fq 'name="tikcentral"] password=' <<<"$MANAGED_SCRIPT"; then
-    if ! grep -Fq 'tikcentral"] password=' <<<"$MANAGED_SCRIPT"; then
-      echo "Enrollment script is missing the VM-held RouterOS API credential." >&2
-      exit 1
-    fi
-  fi
+if ! grep -Fq 'password=' <<<"$MANAGED_SCRIPT" || ! grep -Fq 'name="tikcentral"' <<<"$MANAGED_SCRIPT"; then
+  echo "Enrollment script is missing the VM-held RouterOS API credential." >&2
+  exit 1
 fi
 if ! grep -Fxq '{' <<<"$MANAGED_SCRIPT" || ! grep -Fxq '}' <<<"$MANAGED_SCRIPT"; then
   echo "RouterOS enrollment script is not wrapped in a single local scope." >&2
