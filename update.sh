@@ -4,13 +4,12 @@ set -euo pipefail
 ROOT="/opt/tikcentral"
 APP="$ROOT/current"
 ENV_FILE="/etc/tikcentral/tikcentral.env"
-REPO="https://github.com/yboucher97/Tikcentral.git"
 
 [[ "$EUID" -eq 0 ]] || { echo "Run as root (use sudo)." >&2; exit 1; }
 [[ -f "$ENV_FILE" ]] || { echo "Tikcentral is not installed: $ENV_FILE is missing. Run bootstrap.sh once first." >&2; exit 1; }
 [[ -d "$APP/.git" ]] || { echo "Tikcentral app repository is missing at $APP. Run bootstrap.sh once first." >&2; exit 1; }
 
-# Preserve all persistent state before touching code.
+# Preserve persistent state before touching code.
 STAMP="$(date -u +%Y%m%d-%H%M%S)"
 mkdir -p /var/backups/tikcentral
 if [[ -f /var/lib/tikcentral/tikcentral.db ]]; then
@@ -18,16 +17,22 @@ if [[ -f /var/lib/tikcentral/tikcentral.db ]]; then
 fi
 cp -a "$ENV_FILE" "/var/backups/tikcentral/pre-update-$STAMP.env"
 
-# Update only Tikcentral source code. Persistent data/config are outside the repo.
+# Update application source only. Persistent data/config are outside the repository.
 git -C "$APP" fetch --prune origin
 git -C "$APP" reset --hard origin/main
+
+# Update the narrowly-scoped root helper if its implementation changed.
+chmod +x "$APP/helpers/tikcentral-wg-peer"
+install -o root -g root -m 0755 "$APP/helpers/tikcentral-wg-peer" /usr/local/sbin/tikcentral-wg-peer
+printf 'tikcentral ALL=(root) NOPASSWD: /usr/local/sbin/tikcentral-wg-peer *\n' > /etc/sudoers.d/tikcentral-wg
+chmod 0440 /etc/sudoers.d/tikcentral-wg
+visudo -cf /etc/sudoers.d/tikcentral-wg >/dev/null
 
 # Reconcile Tikcentral's Python environment only.
 python3 -m venv "$ROOT/venv"
 "$ROOT/venv/bin/pip" install --upgrade pip wheel
 "$ROOT/venv/bin/pip" install -r "$APP/app/requirements.txt"
 
-# Keep the venv executable by the unprivileged service account.
 chown -R root:root "$ROOT/venv"
 find "$ROOT/venv" -type d -exec chmod 0755 {} +
 find "$ROOT/venv" -type f -exec chmod a+r {} +
@@ -40,21 +45,21 @@ if ! sudo -u tikcentral "$ROOT/venv/bin/python3" --version >/dev/null 2>&1; then
   exit 1
 fi
 
-# Install/update unit files. This does not modify users, routers, WireGuard keys, DB rows, or passwords.
+# Update service definitions only; do not recreate runtime data.
 install -o root -g root -m 0644 "$APP/deploy/tikcentral.service" /etc/systemd/system/tikcentral.service
 install -o root -g root -m 0644 "$APP/deploy/tikcentral-winbox-proxy.service" /etc/systemd/system/tikcentral-winbox-proxy.service
 install -o root -g root -m 0644 "$APP/deploy/tikcentral-enroll-ui.service" /etc/systemd/system/tikcentral-enroll-ui.service
 install -o root -g root -m 0644 "$APP/deploy/tikcentral-backup.service" /etc/systemd/system/tikcentral-backup.service
 install -o root -g root -m 0644 "$APP/deploy/tikcentral-backup.timer" /etc/systemd/system/tikcentral-backup.timer
 
-# Read existing hostname; do not rewrite the env file or any credentials.
+# Read existing configuration. Never rewrite credentials during update.
 set -a
 source "$ENV_FILE"
 set +a
 DOMAIN="${PUBLIC_HOSTNAME:-${WG_ENDPOINT%:*}}"
 [[ -n "$DOMAIN" ]] || { echo "Could not determine Tikcentral hostname from $ENV_FILE" >&2; exit 1; }
 
-# Keep Caddy routing current without changing auth data or application state.
+# Refresh reverse-proxy routing for application services only.
 cat > /etc/caddy/Caddyfile <<EOF
 $DOMAIN {
     encode zstd gzip
