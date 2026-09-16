@@ -96,10 +96,16 @@ fi
   "$APP/app/backup_tiers.py" \
   "$APP/app/provisioning.py" \
   "$APP/app/performance_profile.py" \
+  "$APP/app/interface_choices.py" \
   "$APP/app/enrollment_v2.py" \
+  "$APP/app/enrollment_v3.py" \
   "$APP/app/operations.py" \
   "$APP/app/operations_safety.py" \
+  "$APP/app/operations_robust.py" \
   "$APP/app/rescue.py" \
+  "$APP/app/rescue_v2.py" \
+  "$APP/app/ui_time.py" \
+  "$APP/app/ui_enhancements.py" \
   "$APP/app/production.py" \
   "$APP/app/final.py" \
   "$APP/app/winbox_proxy.py"
@@ -113,6 +119,14 @@ for REQUIRED_ROUTE in /enroll /enroll/generate /enroll/admin-credentials /router
   if ! grep -Fxq "$REQUIRED_ROUTE" <<<"$ROUTES"; then
     echo "Required route $REQUIRED_ROUTE is missing from app.final." >&2
     echo "$ROUTES" >&2
+    exit 1
+  fi
+done
+
+UI_CHECK="$(cd "$APP" && "$ROOT/venv/bin/python3" -c 'from fastapi.responses import HTMLResponse; from app.ui_enhancements import enhance_response; print(enhance_response(HTMLResponse("<html><head></head><body><table><thead><tr><th>A</th></tr></thead><tbody><tr><td>1</td></tr></tbody></table></body></html>")).body.decode())')"
+for UI_TEXT in 'tcGlobalSearch' 'tcTheme' 'tc-table-search' 'tikcentral:columns:' 'Light mode'; do
+  if ! grep -Fq "$UI_TEXT" <<<"$UI_CHECK"; then
+    echo "Tikcentral shared UI enhancement validation failed: missing $UI_TEXT" >&2
     exit 1
   fi
 done
@@ -235,6 +249,8 @@ echo "Router event timeline: ready"
 echo "Static local rescue-port management: ready"
 echo "Configuration change history: ready"
 echo "Live router audit/normalization: ready"
+echo "Searchable/sortable tables + saved column visibility: ready"
+echo "Persistent light/dark UI mode: ready"
 echo "Operations Caddy check: HTTP $CADDY_CODE"
 echo "Persistent state preserved: users, routers, WireGuard assignments, authorized IPs and existing configuration."
 echo "Pre-update backup: /var/backups/tikcentral/pre-update-$STAMP.db"
