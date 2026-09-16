@@ -60,6 +60,9 @@ fi
 if ! grep -q '^TIKCENTRAL_ROUTER_API_PASSWORD=' "$ENV_FILE"; then
   echo "TIKCENTRAL_ROUTER_API_PASSWORD=$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')" >> "$ENV_FILE"
 fi
+if ! grep -q '^TIKCENTRAL_PROVISIONING_KEY=' "$ENV_FILE"; then
+  echo "TIKCENTRAL_PROVISIONING_KEY=$(python3 -c 'import base64,secrets; print(base64.urlsafe_b64encode(secrets.token_bytes(32)).decode())')" >> "$ENV_FILE"
+fi
 chmod 0640 "$ENV_FILE"
 chown root:tikcentral "$ENV_FILE"
 
@@ -88,6 +91,7 @@ fi
   "$APP/app/fleet_web.py" \
   "$APP/app/guardian.py" \
   "$APP/app/changes.py" \
+  "$APP/app/provisioning.py" \
   "$APP/app/production.py" \
   "$APP/app/final.py" \
   "$APP/app/winbox_proxy.py"
@@ -97,7 +101,7 @@ source "$ENV_FILE"
 set +a
 
 ROUTES="$(cd "$APP" && "$ROOT/venv/bin/python3" -c 'from app.final import app; print("\n".join(sorted({r.path for r in app.routes})))')"
-for REQUIRED_ROUTE in /enroll /enroll/generate /routers /settings /automation /automation/command /automation/backup /automation/update/check /automation/update/install /ssh '/ssh/{router_id}' /guardian '/guardian/{router_id}/repair' /changes '/changes/{router_id}' /audit '/audit/{router_id}' '/audit/{router_id}/normalize'; do
+for REQUIRED_ROUTE in /enroll /enroll/generate /enroll/admin-credentials /routers /settings /automation /automation/command /automation/backup /automation/update/check /automation/update/install /ssh '/ssh/{router_id}' /guardian '/guardian/{router_id}/repair' /changes '/changes/{router_id}' /audit '/audit/{router_id}' '/audit/{router_id}/normalize'; do
   if ! grep -Fxq "$REQUIRED_ROUTE" <<<"$ROUTES"; then
     echo "Required route $REQUIRED_ROUTE is missing from app.final." >&2
     echo "$ROUTES" >&2
@@ -127,9 +131,16 @@ if ! grep -Fxq '{' <<<"$MANAGED_SCRIPT" || ! grep -Fxq '}' <<<"$MANAGED_SCRIPT";
   exit 1
 fi
 
+DEFAULT_SCRIPT="$(cd "$APP" && "$ROOT/venv/bin/python3" -c 'from app.provisioning import default_config_script; print(default_config_script("scope-check",12,4,500,500,80,40,"ether2"))')"
+if ! grep -Fq 'Default WAN DHCP' <<<"$DEFAULT_SCRIPT" || ! grep -Fq 'Bell PPPoE - enter credentials onsite' <<<"$DEFAULT_SCRIPT" || ! grep -Fq 'Opticable FastTrack' <<<"$DEFAULT_SCRIPT"; then
+  echo "Opticable default provisioning profile failed validation." >&2
+  exit 1
+fi
+
 cd "$APP"
 "$ROOT/venv/bin/python3" -c 'from app.fleet import ensure_schema; ensure_schema()'
 "$ROOT/venv/bin/python3" -c 'from app.guardian import ensure_schema; ensure_schema()'
+"$ROOT/venv/bin/python3" -c 'from app.provisioning import ensure_schema; ensure_schema()'
 
 install -o root -g root -m 0644 "$APP/deploy/tikcentral.service" /etc/systemd/system/tikcentral.service
 install -o root -g root -m 0644 "$APP/deploy/tikcentral-winbox-proxy.service" /etc/systemd/system/tikcentral-winbox-proxy.service
@@ -200,7 +211,9 @@ echo "Tikcentral updated successfully."
 echo "Deployed commit: $DEPLOYED_COMMIT"
 echo "Fleet SSH identity: ready"
 echo "Router API credential: ready (secret retained on VPS)"
-echo "Access Guardian: enabled (5-minute checks)"
+echo "Encrypted personal-router credential store: ready"
+echo "Enrollment modes: Tikcentral-only + Opticable default config"
+echo "Access Guardian: enabled (1-minute checks)"
 echo "Configuration change history: ready"
 echo "Router backup scheduler: enabled"
 echo "Live router audit/normalization: ready"
