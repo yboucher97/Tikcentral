@@ -24,7 +24,7 @@ done
 
 [[ -n "$DOMAIN" ]] || { echo "--domain is required" >&2; exit 2; }
 [[ -n "$EMAIL" ]] || { echo "--email is required" >&2; exit 2; }
-[[ "$EUID" -eq 0 ]] || exec sudo bash "$0" "$@"
+[[ "$EUID" -eq 0 ]] || { echo "Run this bootstrap as root (use: curl ... | sudo bash -s -- ...)" >&2; exit 1; }
 
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
