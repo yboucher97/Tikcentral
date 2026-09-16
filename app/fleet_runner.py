@@ -4,6 +4,8 @@ from app import backup_tiers  # installs tiered backup retention
 from app import fleet
 from app import guardian
 from app import operations
+from app import guardian_events  # records Guardian transitions
+from app import operations_safety  # normalizes versions/profile operations
 
 
 def main():
