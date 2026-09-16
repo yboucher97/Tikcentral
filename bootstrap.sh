@@ -76,8 +76,10 @@ sysctl --system >/dev/null
 
 if [[ ! -f "$ENV_FILE" ]]; then
   ADMIN_API_KEY="$(python3 -c 'import secrets; print(secrets.token_urlsafe(40))')"
+  DASHBOARD_PASSWORD="$(python3 -c 'import secrets; print(secrets.token_urlsafe(18))')"
   cat > "$ENV_FILE" <<EOF
 ADMIN_API_KEY=$ADMIN_API_KEY
+DASHBOARD_PASSWORD=$DASHBOARD_PASSWORD
 DB_PATH=$DATA_DIR/tikcentral.db
 WG_HELPER=/usr/local/sbin/tikcentral-wg-peer
 WG_SERVER_PUBLIC_KEY=$WG_PUBLIC
@@ -85,13 +87,21 @@ WG_ENDPOINT=$DOMAIN:51820
 WG_ROUTER_POOL=10.250.1.0/24
 WG_ALLOWED_NETWORK=10.250.0.0/16
 TOKEN_TTL_HOURS=24
+ONLINE_SECONDS=180
 EOF
   chmod 0640 "$ENV_FILE"
   chown root:tikcentral "$ENV_FILE"
 else
   sed -i "s|^WG_SERVER_PUBLIC_KEY=.*|WG_SERVER_PUBLIC_KEY=$WG_PUBLIC|" "$ENV_FILE"
   sed -i "s|^WG_ENDPOINT=.*|WG_ENDPOINT=$DOMAIN:51820|" "$ENV_FILE"
+  grep -q '^DASHBOARD_PASSWORD=' "$ENV_FILE" || echo "DASHBOARD_PASSWORD=$(python3 -c 'import secrets; print(secrets.token_urlsafe(18))')" >> "$ENV_FILE"
+  grep -q '^ONLINE_SECONDS=' "$ENV_FILE" || echo 'ONLINE_SECONDS=180' >> "$ENV_FILE"
 fi
+
+set -a
+source "$ENV_FILE"
+set +a
+DASHBOARD_HASH="$(caddy hash-password --plaintext "$DASHBOARD_PASSWORD")"
 
 python3 -m venv "$ROOT/venv"
 "$ROOT/venv/bin/pip" install --upgrade pip wheel
@@ -108,7 +118,18 @@ cat > /etc/caddy/Caddyfile <<EOF
 
 $DOMAIN {
     encode zstd gzip
-    reverse_proxy 127.0.0.1:8080
+
+    @router_api path /api/enroll /healthz
+    handle @router_api {
+        reverse_proxy 127.0.0.1:8080
+    }
+
+    handle {
+        basic_auth {
+            admin $DASHBOARD_HASH
+        }
+        reverse_proxy 127.0.0.1:8080
+    }
 }
 EOF
 caddy validate --config /etc/caddy/Caddyfile
@@ -134,6 +155,8 @@ curl -fsS http://127.0.0.1:8080/healthz | jq .
 
 echo
 echo "Tikcentral installed."
-echo "Domain: https://$DOMAIN"
+echo "Dashboard: https://$DOMAIN/"
+echo "Dashboard username: admin"
+echo "Dashboard password: $DASHBOARD_PASSWORD"
 echo "WireGuard public key: $WG_PUBLIC"
 echo "Run: cd $APP && sudo ./scripts/status.sh"
