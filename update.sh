@@ -101,6 +101,8 @@ fi
   "$APP/app/enrollment_v3.py" \
   "$APP/app/operations.py" \
   "$APP/app/operations_safety.py" \
+  "$APP/app/operations_stability.py" \
+  "$APP/app/operations_safe_routes.py" \
   "$APP/app/operations_robust.py" \
   "$APP/app/rescue.py" \
   "$APP/app/rescue_v2.py" \
@@ -123,7 +125,39 @@ for REQUIRED_ROUTE in /enroll /enroll/generate /enroll/admin-credentials /router
   fi
 done
 
-UI_CHECK="$(cd "$APP" && "$ROOT/venv/bin/python3" -c 'from fastapi.responses import HTMLResponse; from app.ui_enhancements import enhance_response; print(enhance_response(HTMLResponse("<html><head></head><body><table><thead><tr><th>A</th></tr></thead><tbody><tr><td>1</td></tr></tbody></table></body></html>")).body.decode())')"
+# Verify every Operations POST action is the safe wrapper and appears exactly once.
+cd "$APP"
+"$ROOT/venv/bin/python3" - <<'PY'
+from app.final import app
+required = {
+    "/operations/{router_id}/telemetry",
+    "/operations/{router_id}/commission",
+    "/operations/{router_id}/profile/{profile}",
+    "/operations/{router_id}/backup/{tier}",
+    "/operations/{router_id}/drift/check",
+    "/operations/{router_id}/baseline",
+    "/operations/{router_id}/update/check",
+    "/operations/{router_id}/upgrade/{mode}",
+    "/operations/{router_id}/routerboot",
+    "/operations/{router_id}/approve-version",
+}
+for path in required:
+    matches = [r for r in app.routes if getattr(r, "path", None) == path and "POST" in (getattr(r, "methods", set()) or set())]
+    if len(matches) != 1:
+        raise SystemExit(f"Operations route {path} has {len(matches)} POST handlers; expected exactly 1")
+    if matches[0].endpoint.__module__ != "app.operations_safe_routes":
+        raise SystemExit(f"Operations route {path} is not using app.operations_safe_routes")
+PY
+
+# The fleet timer is a separate Python process; verify it installs the same
+# hardened telemetry implementation as the web process.
+RUNNER_PROBE="$("$ROOT/venv/bin/python3" -c 'from app import fleet_runner, operations; print(operations.collect_telemetry.__module__)')"
+if [[ "$RUNNER_PROBE" != "app.operations_stability" ]]; then
+  echo "Fleet runner is not using hardened telemetry: $RUNNER_PROBE" >&2
+  exit 1
+fi
+
+UI_CHECK="$("$ROOT/venv/bin/python3" -c 'from fastapi.responses import HTMLResponse; from app.ui_enhancements import enhance_response; print(enhance_response(HTMLResponse("<html><head></head><body><table><thead><tr><th>A</th></tr></thead><tbody><tr><td>1</td></tr></tbody></table></body></html>")).body.decode())')"
 for UI_TEXT in 'tcGlobalSearch' 'tcTheme' 'tc-table-search' 'tikcentral:columns:' 'Light mode'; do
   if ! grep -Fq "$UI_TEXT" <<<"$UI_CHECK"; then
     echo "Tikcentral shared UI enhancement validation failed: missing $UI_TEXT" >&2
@@ -131,7 +165,7 @@ for UI_TEXT in 'tcGlobalSearch' 'tcTheme' 'tc-table-search' 'tikcentral:columns:
   fi
 done
 
-MANAGED_SCRIPT="$(cd "$APP" && "$ROOT/venv/bin/python3" -c 'from app.production import managed_router_script_with_api_password; print(managed_router_script_with_api_password("scope-check", "scope-check-token"))')"
+MANAGED_SCRIPT="$("$ROOT/venv/bin/python3" -c 'from app.production import managed_router_script_with_api_password; print(managed_router_script_with_api_password("scope-check", "scope-check-token"))')"
 if ! grep -Fq 'Tikcentral managed service identity' <<<"$MANAGED_SCRIPT"; then
   echo "Enrollment script is missing the managed Tikcentral identity." >&2
   exit 1
@@ -153,7 +187,7 @@ if ! grep -Fxq '{' <<<"$MANAGED_SCRIPT" || ! grep -Fxq '}' <<<"$MANAGED_SCRIPT";
   exit 1
 fi
 
-DEFAULT_SCRIPT="$(cd "$APP" && "$ROOT/venv/bin/python3" -c 'from app.performance_profile import performance_ready_default_config_script; from app.enrollment_v2 import _apply_profile; print(_apply_profile(performance_ready_default_config_script("scope-check",12,4,500,500,80,40,"ether2"),"throughput"))')"
+DEFAULT_SCRIPT="$("$ROOT/venv/bin/python3" -c 'from app.performance_profile import performance_ready_default_config_script; from app.enrollment_v2 import _apply_profile; print(_apply_profile(performance_ready_default_config_script("scope-check",12,4,500,500,80,40,"ether2"),"throughput"))')"
 for REQUIRED_TEXT in 'Default WAN DHCP' 'Bell PPPoE - enter credentials onsite' 'Opticable FastTrack' 'Opticable RAW bad source' 'Opticable MSS clamp' 'OPT-QOS-UPLOAD' 'Performance profile active: Maximum throughput'; do
   if ! grep -Fq "$REQUIRED_TEXT" <<<"$DEFAULT_SCRIPT"; then
     echo "Opticable default provisioning profile failed validation: missing $REQUIRED_TEXT" >&2
@@ -161,7 +195,6 @@ for REQUIRED_TEXT in 'Default WAN DHCP' 'Bell PPPoE - enter credentials onsite' 
   fi
 done
 
-cd "$APP"
 "$ROOT/venv/bin/python3" -c 'from app.fleet import ensure_schema; ensure_schema()'
 "$ROOT/venv/bin/python3" -c 'from app.guardian import ensure_schema; ensure_schema()'
 "$ROOT/venv/bin/python3" -c 'from app.provisioning import ensure_schema; ensure_schema()'
@@ -190,6 +223,9 @@ caddy validate --config /etc/caddy/Caddyfile
 systemctl daemon-reload
 systemctl enable tikcentral tikcentral-winbox-proxy tikcentral-backup.timer tikcentral-fleet.timer >/dev/null
 systemctl disable --now tikcentral-enroll-ui >/dev/null 2>&1 || true
+# Kill any one-shot fleet job that may still be running legacy code loaded before
+# this deployment, then restart the timer so the next run imports the new code.
+systemctl stop tikcentral-fleet.service >/dev/null 2>&1 || true
 systemctl restart tikcentral
 systemctl restart tikcentral-winbox-proxy
 systemctl restart caddy
@@ -240,7 +276,8 @@ echo "Router API credential: ready (secret retained on VPS)"
 echo "Encrypted personal-router credential store: ready"
 echo "Enrollment modes: Tikcentral-only + Opticable default config"
 echo "Access Guardian: enabled (1-minute checks)"
-echo "Operations telemetry: enabled (5-minute collection)"
+echo "Operations telemetry: hardened isolated probes (web + fleet runner)"
+echo "Operations actions: router failures handled without HTTP 500 pages"
 echo "Configuration drift: enabled (30-minute checks after baseline)"
 echo "Serialized RouterOS upgrades: ready"
 echo "Approved-version tracking: ready"
