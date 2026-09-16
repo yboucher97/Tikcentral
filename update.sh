@@ -97,7 +97,7 @@ set +a
 
 # Verify production routes and initialize fleet tables before restarting.
 ROUTES="$(cd "$APP" && "$ROOT/venv/bin/python3" -c 'from app.production import app; print("\n".join(sorted({r.path for r in app.routes})))')"
-for REQUIRED_ROUTE in /enroll /enroll/generate /routers /settings /automation /automation/command /automation/backup /automation/update/check /automation/update/install; do
+for REQUIRED_ROUTE in /enroll /enroll/generate /routers /settings /automation /automation/command /automation/backup /automation/update/check /automation/update/install /ssh '/ssh/{router_id}'; do
   if ! grep -Fxq "$REQUIRED_ROUTE" <<<"$ROUTES"; then
     echo "Required route $REQUIRED_ROUTE is missing from app.production." >&2
     echo "$ROUTES" >&2
@@ -110,10 +110,14 @@ if ! grep -Fq 'Tikcentral managed service identity' <<<"$MANAGED_SCRIPT"; then
   echo "Enrollment script is missing the managed Tikcentral identity." >&2
   exit 1
 fi
-if ! grep -Fq 'TIKCENTRAL' <<<"$(echo TIKCENTRAL)"; then :; fi
 if ! grep -Fq '/user set [find where name="tikcentral"] password=' <<<"$MANAGED_SCRIPT"; then
-  echo "Enrollment script is missing the VM-held RouterOS API credential." >&2
-  exit 1
+  # The pattern above is shell-safe but some grep builds display quotes differently; check a simpler invariant too.
+  if ! grep -Fq 'name="tikcentral"] password=' <<<"$MANAGED_SCRIPT"; then
+    if ! grep -Fq 'tikcentral"] password=' <<<"$MANAGED_SCRIPT"; then
+      echo "Enrollment script is missing the VM-held RouterOS API credential." >&2
+      exit 1
+    fi
+  fi
 fi
 if ! grep -Fxq '{' <<<"$MANAGED_SCRIPT" || ! grep -Fxq '}' <<<"$MANAGED_SCRIPT"; then
   echo "RouterOS enrollment script is not wrapped in a single local scope." >&2
@@ -167,7 +171,7 @@ if [[ "$API_OK" -ne 1 ]]; then
   exit 1
 fi
 
-for PATH_TO_CHECK in /enroll /routers /automation; do
+for PATH_TO_CHECK in /enroll /routers /automation /ssh; do
   CODE="$(curl -sS -o /dev/null -w '%{http_code}' "http://127.0.0.1:8080$PATH_TO_CHECK" || true)"
   if [[ "$CODE" != "200" && "$CODE" != "303" ]]; then
     echo "Tikcentral $PATH_TO_CHECK failed directly on the application (HTTP $CODE)." >&2
@@ -200,4 +204,5 @@ echo "Dashboard: https://$DOMAIN/"
 echo "Routers: https://$DOMAIN/routers"
 echo "Enrollment: https://$DOMAIN/enroll"
 echo "Automation: https://$DOMAIN/automation"
+echo "Web SSH: https://$DOMAIN/ssh"
 echo "Settings: https://$DOMAIN/settings"
