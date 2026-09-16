@@ -166,4 +166,8 @@ def enhance_response(response: HTMLResponse) -> HTMLResponse:
         text = text.replace("</head>", HEAD + "</head>", 1)
     if "</body>" in text:
         text = text.replace("</body>", SCRIPT + "</body>", 1)
-    return HTMLResponse(text, status_code=response.status_code, headers=dict(response.headers))
+    headers = {
+        key: value for key, value in response.headers.items()
+        if key.lower() not in {"content-length", "content-type"}
+    }
+    return HTMLResponse(text, status_code=response.status_code, headers=headers)
