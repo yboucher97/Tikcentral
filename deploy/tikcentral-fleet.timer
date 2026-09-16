@@ -1,10 +1,10 @@
 [Unit]
-Description=Run Tikcentral fleet scheduler every 5 minutes
+Description=Run Tikcentral access guardian and fleet scheduler every minute
 
 [Timer]
-OnBootSec=2min
-OnUnitActiveSec=5min
-AccuracySec=30s
+OnBootSec=30s
+OnUnitActiveSec=1min
+AccuracySec=10s
 Persistent=true
 
 [Install]
