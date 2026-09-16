@@ -15,7 +15,7 @@ ADMIN_API_KEY = os.environ["ADMIN_API_KEY"]
 WG_ENDPOINT = os.environ["WG_ENDPOINT"]
 TOKEN_TTL_HOURS = int(os.getenv("TOKEN_TTL_HOURS", "24"))
 
-app = FastAPI(title="Tikcentral Enrollment UI", version="1.0.0")
+app = FastAPI(title="Tikcentral Enrollment UI", version="1.1.0")
 
 
 def utcnow() -> datetime:
@@ -80,12 +80,12 @@ async def form_data(request: Request) -> dict[str, str]:
 
 def page(body: str, email: str) -> HTMLResponse:
     return HTMLResponse(f"""<!doctype html>
-<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Add Router - Tikcentral</title>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Enrollment - Tikcentral</title>
 <style>
 :root{{--bg:#0b1020;--panel:#121a2d;--line:#26324c;--text:#ecf2ff;--muted:#92a0bb;--accent:#5b86e5}}
-*{{box-sizing:border-box}}body{{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 system-ui,-apple-system,Segoe UI,sans-serif}}main{{max-width:1100px;margin:36px auto;padding:0 20px}}header{{display:flex;justify-content:space-between;align-items:center;gap:18px;flex-wrap:wrap;margin-bottom:22px}}a{{color:#9dbaff;text-decoration:none}}.nav{{display:flex;gap:12px;align-items:center;flex-wrap:wrap}}.panel{{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px;margin-bottom:20px}}h1{{margin:0}}h2{{margin-top:0}}.muted{{color:var(--muted)}}input,textarea{{width:100%;background:#0d1528;color:var(--text);border:1px solid var(--line);border-radius:8px;padding:10px}}textarea{{min-height:520px;font:13px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre}}button{{border:1px solid #395182;background:#294d8f;color:var(--text);border-radius:7px;padding:9px 13px;cursor:pointer}}.actions{{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:12px}}
+*{{box-sizing:border-box}}body{{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 system-ui,-apple-system,Segoe UI,sans-serif}}main{{max-width:1700px;margin:0 auto;padding:24px 20px 48px}}a{{color:#9dbaff;text-decoration:none}}.shell-head{{display:flex;align-items:center;gap:18px;flex-wrap:wrap;padding:8px 0 22px;border-bottom:1px solid var(--line);margin-bottom:24px}}.brand{{min-width:180px}}.brand h1{{font-size:23px;margin:0}}.sub,.muted{{color:var(--muted)}}.topnav{{display:flex;gap:7px;align-items:center;flex:1;flex-wrap:wrap}}.topnav a{{padding:8px 11px;border-radius:8px;color:#b8c5df}}.topnav a:hover,.topnav a.active{{background:#1a2846;color:#fff}}.account{{display:flex;align-items:center;gap:10px;color:var(--muted);flex-wrap:wrap}}.panel{{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px;margin-bottom:20px}}h2{{margin-top:0}}input,textarea{{width:100%;background:#0d1528;color:var(--text);border:1px solid var(--line);border-radius:8px;padding:10px}}textarea{{min-height:520px;font:13px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre}}button{{border:1px solid #395182;background:#294d8f;color:var(--text);border-radius:7px;padding:9px 13px;cursor:pointer}}.actions{{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:12px}}
 </style></head><body><main>
-<header><div><h1>Add MikroTik Router</h1><div class="muted">Generate a one-time RouterOS enrollment script</div></div><div class="nav"><span>{html.escape(email)}</span><a href="/">Dashboard</a><a href="/admin/users">Users</a></div></header>
+<div class="shell-head"><div class="brand"><h1>Tikcentral</h1><div class="sub">MikroTik remote management</div></div><nav class="topnav"><a href="/">Dashboard</a><a href="/routers">Routers</a><a class="active" href="/enroll">Enrollment</a><a href="/admin/users">Users</a><a href="/settings">Settings</a></nav><div class="account"><span>{html.escape(email)}</span></div></div>
 {body}
 </main></body></html>""")
 
