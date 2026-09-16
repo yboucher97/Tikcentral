@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+WG_IF="${WG_INTERFACE:-wg0}"
+ROUTER_CIDR="${WG_ROUTER_POOL:-10.250.1.0/24}"
+
+fail() { echo "error" >&2; exit 1; }
+
+case "${1:-}" in
+  status)
+    wg show "$WG_IF" >/dev/null 2>&1 || fail
+    echo ok
+    ;;
+  add)
+    key="${2:-}"
+    ip="${3:-}"
+    [[ "$key" =~ ^[A-Za-z0-9+/]{43}=$ ]] || fail
+    python3 - "$ip" "$ROUTER_CIDR" <<'PY' || fail
+import ipaddress, sys
+ip = ipaddress.ip_address(sys.argv[1])
+net = ipaddress.ip_network(sys.argv[2])
+assert ip in net and ip not in (net.network_address, net.broadcast_address)
+PY
+    wg set "$WG_IF" peer "$key" allowed-ips "$ip/32"
+    wg-quick save "$WG_IF"
+    echo ok
+    ;;
+  remove)
+    key="${2:-}"
+    [[ "$key" =~ ^[A-Za-z0-9+/]{43}=$ ]] || fail
+    wg set "$WG_IF" peer "$key" remove
+    wg-quick save "$WG_IF"
+    echo ok
+    ;;
+  *)
+    echo "usage: $0 {status|add <public-key> <ip>|remove <public-key>}" >&2
+    exit 2
+    ;;
+esac
