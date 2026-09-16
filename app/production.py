@@ -50,6 +50,9 @@ def managed_router_script_with_api_password(site_name: str, token: str) -> str:
         '/user ssh-keys remove [find where user="tikcentral"]',
         ':if ([:len [/user ssh-keys find where user="tikcentral"]] > 0) do={ /user ssh-keys remove [find where user="tikcentral"] }',
     )
+    # RouterOS direct public-key add accepts user= and key=. key-owner= belongs
+    # to the file-import form and causes a parser error on direct add.
+    script = script.replace(' key-owner="Tikcentral VPS"', '')
     password = os.getenv("TIKCENTRAL_ROUTER_API_PASSWORD", "").replace('"', "")
     if not password:
         return script
