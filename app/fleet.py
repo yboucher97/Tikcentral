@@ -1,22 +1,23 @@
 import hashlib
-import os
-import shutil
-import sqlite3
-import subprocess
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from app import main as core
+from app import migrations
+from app import router_exec
+from app import settings
 
-SSH_USER = os.getenv("TIKCENTRAL_ROUTER_USER", "tikcentral")
-SSH_KEY = os.getenv("TIKCENTRAL_SSH_KEY", "/etc/tikcentral/ssh/tikcentral_ed25519")
-KNOWN_HOSTS = os.getenv("TIKCENTRAL_KNOWN_HOSTS", "/var/lib/tikcentral/known_hosts")
-ROUTER_BACKUP_DIR = os.getenv("ROUTER_BACKUP_DIR", "/var/backups/tikcentral/routers")
-BACKUP_PASSWORD = os.getenv("ROUTER_BACKUP_PASSWORD", "")
-SSH_TIMEOUT = int(os.getenv("TIKCENTRAL_SSH_TIMEOUT", "20"))
-MAX_WORKERS = int(os.getenv("TIKCENTRAL_FLEET_WORKERS", "8"))
+# Compatibility names used by a few older call sites. Execution itself is owned
+# by router_exec.py.
+SSH_USER = settings.SSH_USER
+SSH_KEY = settings.SSH_KEY
+KNOWN_HOSTS = settings.KNOWN_HOSTS
+ROUTER_BACKUP_DIR = str(settings.BACKUP_ROOT)
+BACKUP_PASSWORD = settings.BACKUP_PASSWORD
+SSH_TIMEOUT = settings.SSH_TIMEOUT
+MAX_WORKERS = settings.MAX_WORKERS
 
 FLEET_SCHEMA = """
 CREATE TABLE IF NOT EXISTS fleet_settings (
@@ -79,66 +80,24 @@ def now_iso():
 
 
 def ensure_schema():
+    migrations.migrate()
     with core.db() as conn:
         conn.executescript(FLEET_SCHEMA)
         conn.execute("INSERT OR IGNORE INTO fleet_settings(id) VALUES(1)")
 
 
 def ssh_base(ip: str):
-    return [
-        "ssh", "-T", "-i", SSH_KEY,
-        "-o", "BatchMode=yes",
-        "-o", f"ConnectTimeout={SSH_TIMEOUT}",
-        "-o", "StrictHostKeyChecking=accept-new",
-        "-o", f"UserKnownHostsFile={KNOWN_HOSTS}",
-        f"{SSH_USER}@{ip}",
-    ]
+    return router_exec.ssh_base(ip)
 
 
 def routeros_single_line(command: str) -> str:
-    """Normalize a RouterOS command block for non-interactive SSH.
-
-    RouterOS SSH does not support multiline remote commands when invoked as
-    ``ssh -T host command``. Tikcentral keeps readable multiline command blocks
-    in Python, but sends a single CLI line to the router.
-    """
-    text = (command or "").replace("\r\n", "\n").replace("\r", "\n").strip()
-    if "\n" not in text:
-        return text
-
-    parts = []
-    for raw in text.split("\n"):
-        line = raw.strip()
-        if not line or line.startswith("#"):
-            continue
-        # Lines opening a RouterOS block should flow directly into the first
-        # command. All other physical lines get a statement terminator unless
-        # one is already present. This keeps if/do/else blocks valid while
-        # removing literal newlines from the SSH command argument.
-        if line.endswith("{"):
-            parts.append(line)
-        elif line.endswith(";"):
-            parts.append(line)
-        else:
-            parts.append(line + ";")
-    return " ".join(parts)
+    return router_exec.routeros_single_line(command)
 
 
 def ssh_exec(ip: str, command: str, timeout: int | None = None):
-    Path(KNOWN_HOSTS).parent.mkdir(parents=True, exist_ok=True)
-    Path(KNOWN_HOSTS).touch(exist_ok=True)
-    remote_command = routeros_single_line(command)
-    p = subprocess.run(
-        ssh_base(ip) + [remote_command], capture_output=True, text=True,
-        timeout=timeout or SSH_TIMEOUT + 15,
-    )
-    if p.returncode != 0:
-        message = (p.stderr or p.stdout or f"ssh exited {p.returncode}").strip()
-        # Never echo a very large generated RouterOS command back into the UI.
-        if len(message) > 1200:
-            message = message[-1200:]
-        raise RuntimeError(message)
-    return p.stdout.strip()
+    # Compatibility adapter. New code should call router_exec.read/mutate so it
+    # declares whether retrying is safe.
+    return router_exec.execute(ip, command, timeout=timeout, label="RouterOS command", mutating=False)
 
 
 def enabled_routers():
@@ -172,7 +131,8 @@ def _finish_job(job_id):
             "SELECT COUNT(*) total, SUM(CASE WHEN status='success' THEN 1 ELSE 0 END) ok FROM fleet_job_results WHERE job_id=?",
             (job_id,),
         ).fetchone()
-        total = int(row["total"] or 0); ok = int(row["ok"] or 0)
+        total = int(row["total"] or 0)
+        ok = int(row["ok"] or 0)
         conn.execute(
             "UPDATE fleet_jobs SET status=?,finished_at=?,total=?,succeeded=?,failed=? WHERE id=?",
             ("success" if total == ok else "completed_with_errors", now_iso(), total, ok, total-ok, job_id),
@@ -188,7 +148,7 @@ def run_mass_command(command: str, created_by: str = "admin"):
     def one(router):
         started = now_iso()
         try:
-            out = ssh_exec(router["vpn_ip"], command, timeout=max(SSH_TIMEOUT + 15, 45))
+            out = router_exec.read(router["vpn_ip"], command, timeout=max(SSH_TIMEOUT + 15, 45), label="Fleet command")
             return router, "success", out, "", started, now_iso()
         except Exception as exc:
             return router, "error", "", str(exc), started, now_iso()
@@ -201,10 +161,32 @@ def run_mass_command(command: str, created_by: str = "admin"):
     return job_id
 
 
-def _backup_one(router, stamp):
-    base = Path(ROUTER_BACKUP_DIR) / str(router["id"])
+def _root_is_writable(root: Path, router_id=None) -> bool:
+    try:
+        root.mkdir(parents=True, exist_ok=True)
+        target = root / str(router_id) if router_id is not None else root
+        target.mkdir(parents=True, exist_ok=True)
+        probe = target / ".tikcentral-write-test"
+        probe.write_text("ok", encoding="utf-8")
+        probe.unlink(missing_ok=True)
+        return True
+    except Exception:
+        return False
+
+
+def backup_root(router_id=None) -> Path:
+    for root in (settings.BACKUP_ROOT, settings.BACKUP_FALLBACK_ROOT):
+        if _root_is_writable(root, router_id):
+            return root
+    raise PermissionError("Tikcentral cannot write to either configured router-backup location")
+
+
+def _backup_one(router, stamp, tier="daily"):
+    if tier not in {"daily", "pre-change", "commissioning"}:
+        raise ValueError("invalid backup tier")
+    base = backup_root(router["id"]) / str(router["id"]) / tier
     base.mkdir(parents=True, exist_ok=True)
-    export = ssh_exec(router["vpn_ip"], "/export show-sensitive=no terse", timeout=60)
+    export = router_exec.read(router["vpn_ip"], "/export show-sensitive=no terse", timeout=60, label="Configuration export")
     export_path = base / f"{stamp}.rsc"
     export_path.write_text(export + "\n", encoding="utf-8")
 
@@ -212,18 +194,12 @@ def _backup_one(router, stamp):
     if BACKUP_PASSWORD:
         remote_name = f"tikcentral-{stamp}"
         safe_pw = BACKUP_PASSWORD.replace('"', '')
-        ssh_exec(router["vpn_ip"], f'/system backup save name={remote_name} password="{safe_pw}"', timeout=90)
+        router_exec.mutate(router["vpn_ip"], f'/system backup save name={remote_name} password="{safe_pw}"', timeout=90, label="Router binary backup")
         binary_path = base / f"{stamp}.backup"
-        batch = f"get {remote_name}.backup {binary_path}\nrm {remote_name}.backup\n"
-        p = subprocess.run(
-            ["sftp", "-b", "-", "-i", SSH_KEY,
-             "-o", "BatchMode=yes", "-o", f"ConnectTimeout={SSH_TIMEOUT}",
-             "-o", "StrictHostKeyChecking=accept-new", "-o", f"UserKnownHostsFile={KNOWN_HOSTS}",
-             f"{SSH_USER}@{router['vpn_ip']}"],
-            input=batch, capture_output=True, text=True, timeout=120,
-        )
-        if p.returncode != 0:
-            binary_note = f"; binary backup retrieval failed: {(p.stderr or p.stdout).strip()}"
+        try:
+            router_exec.sftp_get_remove(router["vpn_ip"], f"{remote_name}.backup", str(binary_path), timeout=120)
+        except Exception as exc:
+            binary_note = f"; binary backup retrieval failed: {exc}"
     digest = hashlib.sha256(export.encode()).hexdigest()
     with core.db() as conn:
         conn.execute(
@@ -244,7 +220,7 @@ def run_backup_job(created_by="scheduler"):
     def one(router):
         started = now_iso()
         try:
-            out = _backup_one(router, stamp)
+            out = _backup_one(router, stamp, tier="daily")
             return router, "success", out, "", started, now_iso()
         except Exception as exc:
             return router, "error", "", str(exc), started, now_iso()
@@ -262,11 +238,16 @@ def cleanup_backups():
     with core.db() as conn:
         days = int(conn.execute("SELECT backup_retention_days FROM fleet_settings WHERE id=1").fetchone()[0])
     cutoff = datetime.now(timezone.utc).timestamp() - days * 86400
-    root = Path(ROUTER_BACKUP_DIR)
-    if root.exists():
-        for p in root.rglob("*"):
-            if p.is_file() and p.stat().st_mtime < cutoff:
-                p.unlink(missing_ok=True)
+    # Only daily backups rotate. Pre-change and commissioning are retained.
+    for root in (settings.BACKUP_ROOT, settings.BACKUP_FALLBACK_ROOT):
+        if not root.exists():
+            continue
+        for daily in root.glob("*/daily"):
+            if not daily.is_dir():
+                continue
+            for p in daily.rglob("*"):
+                if p.is_file() and p.stat().st_mtime < cutoff:
+                    p.unlink(missing_ok=True)
 
 
 def run_analysis_job(created_by="scheduler"):
@@ -298,9 +279,9 @@ def scheduled_tick():
     if not s["backups_enabled"]:
         return None
     try:
-        local = datetime.now(ZoneInfo(s["timezone"]))
+        local = datetime.now(ZoneInfo(s["timezone"] or settings.TIMEZONE))
     except Exception:
-        local = datetime.now(ZoneInfo("America/Toronto"))
+        local = datetime.now(ZoneInfo(settings.TIMEZONE))
     today = local.date().isoformat()
     if local.strftime("%H:%M") < s["backup_time"] or s["last_backup_date"] == today:
         return None
