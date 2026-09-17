@@ -1,0 +1,40 @@
+name: Validate Tikcentral
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      ADMIN_API_KEY: ci-admin-key
+      WG_SERVER_PUBLIC_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+      WG_ENDPOINT: tikcentral.example.invalid:51820
+      PUBLIC_HOSTNAME: tikcentral.example.invalid
+      TIKCENTRAL_PROVISIONING_KEY: MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA=
+      TIKCENTRAL_ROUTER_API_PASSWORD: ci-router-password
+      ROUTER_BACKUP_PASSWORD: ci-backup-password
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: app/requirements.txt
+      - name: Install dependencies
+        run: python -m pip install -r app/requirements.txt
+      - name: Compile Python
+        run: python -m compileall -q app scripts
+      - name: Check shell syntax
+        run: |
+          bash -n bootstrap.sh
+          bash -n update.sh
+          for file in helpers/* scripts/*.sh; do bash -n "$file"; done
+      - name: Validate release architecture
+        run: python scripts/validate_release.py
