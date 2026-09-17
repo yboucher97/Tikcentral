@@ -3,7 +3,7 @@
 import hashlib
 import json
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from app import main as core, migrations, router_exec
 
@@ -44,6 +44,24 @@ def _router(router_id: int):
             "SELECT id,site_name,vpn_ip,enabled FROM routers WHERE id=?",
             (router_id,),
         ).fetchone()
+
+
+def store_config_snapshot_content(
+    router_id: int,
+    content: str,
+    *,
+    source_kind: str = "",
+    source_id: int | None = None,
+    actor: str = "",
+):
+    migrations.migrate()
+    return store_config_snapshot_content(
+        router_id,
+        content,
+        source_kind=source_kind,
+        source_id=source_id,
+        actor=actor,
+    )
 
 
 def capture_config_snapshot(router_id: int, *, source_kind: str = "", source_id: int | None = None, actor: str = ""):
@@ -102,6 +120,19 @@ def capture_management_known_good(
             (router_id, captured, digest, content, source_kind[:60], source_id, actor[:160]),
         )
     return {"captured_at": captured, "sha256": digest, "content": content}
+
+
+def refresh_known_good_if_due(router_id: int, *, hours: int = 6):
+    migrations.migrate()
+    cutoff = (datetime.now(timezone.utc) - timedelta(hours=max(1, hours))).isoformat()
+    with core.db() as conn:
+        row = conn.execute(
+            "SELECT captured_at FROM router_management_known_good WHERE router_id=?",
+            (router_id,),
+        ).fetchone()
+    if row and row["captured_at"] >= cutoff:
+        return None
+    return capture_management_known_good(router_id, source_kind="guardian_healthy", actor="scheduler")
 
 
 def compare_management_known_good(router_id: int):
