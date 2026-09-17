@@ -1,7 +1,7 @@
-"""Tikcentral production entrypoint.
+"""Tikcentral production ASGI entrypoint.
 
-Runtime composition is intentionally small: one UI renderer, one Operations
-module, one Rescue module and one Guardian implementation.
+Routes are registered directly on one FastAPI app. There are no renderer or
+route monkey-patch layers in the production runtime.
 """
 
 import html
@@ -11,43 +11,27 @@ from fastapi import Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
+# Import route modules once; their decorators register directly on core.app.
 from app import changes
-from app import enrollment_v3
+from app import enrollment
 from app import errors
 from app import events
-from app import fleet_web
+from app import fleet_web  # noqa: F401
 from app import guardian
 from app import jobs
 from app import main as core
-from app import migrations
 from app import operations
-from app import portal
-from app import production
+from app import portal  # noqa: F401
+from app import production  # noqa: F401
 from app import rescue
 from app import router_exec
 from app import ui
 
-app = production.app
-
-
-@app.on_event("startup")
-def _final_startup_migrations():
-    # Deployment runs migrations explicitly before activation. This startup hook
-    # keeps service restarts/fresh installs safe without mutating the DB on import.
-    migrations.migrate()
-
+app = core.app
 
 STATIC_DIR = Path(__file__).with_name("static")
-# final.py is the only place that owns static assets.
-if not any(getattr(r, "path", None) == "/static" for r in app.routes):
+if not any(getattr(route, "path", None) == "/static" for route in app.routes):
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
-
-# One renderer for every legacy/current route. Route handlers resolve these
-# globals when called, so existing pages immediately use the consolidated UI.
-core.page = ui.page
-portal.portal_page = ui.page
-production.production_page = ui.page
-fleet_web.fleet_page = ui.page
 
 
 def _admin(request: Request):
@@ -62,7 +46,6 @@ def _router(router_id: int):
         ).fetchone()
 
 
-# ---- Audit ---------------------------------------------------------------------
 AUDIT_COMMAND = '''/system resource print; /system identity print; /ip service print; /user print; /user ssh-keys print; /interface/wireguard print; /interface/wireguard/peers print; /ip/address print where interface="opticable-wg"; /ip/route print where comment~"Tikcentral"; /ip/firewall/filter print detail where comment~"Tikcentral"; /ip/firewall/nat print detail where comment~"Tikcentral"; /export show-sensitive=no'''
 
 NORMALIZE_COMMAND = '''
@@ -121,33 +104,35 @@ async def normalize_router(router_id: int, request: Request):
     router = _router(router_id)
     if not router or not router["enabled"]:
         return RedirectResponse("/audit", status_code=303)
-    job_id = None
+    actor = user["email"] if "email" in user.keys() else "admin"
     try:
         if not guardian.probe_router(router)["management_ok"]:
             raise errors.OperationError("GUARDIAN_UNHEALTHY", "Guardian access preflight failed; normalization blocked")
-        actor = user["email"] if "email" in user.keys() else "admin"
-        job_id = jobs.create(router_id, "audit_normalize", actor, serialize_router=True)
-        jobs.running(job_id)
-        operations.backup_router(router_id, "pre-change", actor, track_job=False)
-        output = router_exec.mutate(router["vpn_ip"], NORMALIZE_COMMAND, timeout=90, label="Tikcentral rule normalization")
-        jobs.verifying(job_id)
-        if not guardian.probe_router(router)["management_ok"]:
-            raise errors.OperationError("ACCESS_VERIFY_FAILED", "Rules normalized but management verification failed", severity="critical")
-        jobs.succeeded(job_id)
+        with jobs.operation(
+            router_id,
+            "audit_normalize",
+            actor,
+            serialize_router=True,
+            fail_code="AUDIT_NORMALIZE_FAILED",
+            fail_message="Tikcentral rule normalization failed",
+        ) as job_id:
+            operations.backup_router(router_id, "pre-change", actor, track_job=False)
+            output = router_exec.mutate(router["vpn_ip"], NORMALIZE_COMMAND, timeout=90, label="Tikcentral rule normalization")
+            jobs.verifying(job_id)
+            if not guardian.probe_router(router)["management_ok"]:
+                raise errors.OperationError("ACCESS_VERIFY_FAILED", "Rules normalized but management verification failed", severity="critical")
         events.record(router_id, "audit", "Tikcentral management rules normalized", output[-800:])
         return RedirectResponse(f"/audit/{router_id}", status_code=303)
     except Exception as exc:
-        if job_id:
-            jobs.failed(job_id, exc, code="AUDIT_NORMALIZE_FAILED", message="Tikcentral rule normalization failed")
         err = errors.from_exception(exc)
         events.record(router_id, "audit", "Tikcentral rule normalization failed", f"{err.code}: {err.detail}", err.severity)
         body = f'''<div class="panel pad"><h2>Normalization not completed</h2><div class="error"><strong>{html.escape(err.code)}</strong><div>{html.escape(err.message)}</div><div class="muted">{html.escape(err.detail)}</div></div><div style="margin-top:12px"><a href="/audit/{router_id}"><button class="primary">Back to audit</button></a></div></div>'''
         return ui.page("Audit", body, user, "audit")
 
 
-# Register each feature exactly once. No route replacement/monkey-patch layers.
+# Feature modules without decorator-time routes register exactly once here.
 guardian.register(app, ui.page)
 operations.register(app, ui.page)
 rescue.register(app, ui.page)
 changes.register(app, ui.page)
-enrollment_v3.register(app, ui.page)
+enrollment.register(app, ui.page)
