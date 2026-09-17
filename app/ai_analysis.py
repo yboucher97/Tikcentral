@@ -12,13 +12,17 @@ import os
 import re
 import subprocess
 import tempfile
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import Request
+from fastapi import BackgroundTasks, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app import errors, events, main as core, migrations, operations, router_exec, settings
+
+_ACTIVE: set[int] = set()
+_ACTIVE_LOCK = threading.Lock()
 
 
 def _now() -> str:
@@ -44,9 +48,9 @@ def _sanitize(text: str) -> str:
     return value[: settings.AI_MAX_SECTION_CHARS]
 
 
-def _safe_read(ip: str, command: str, label: str, timeout: int = 60) -> dict:
+def _safe_read(ip: str, command: str, label: str) -> dict:
     try:
-        return {"ok": True, "data": _sanitize(router_exec.read(ip, command, timeout=timeout, label=label))}
+        return {"ok": True, "data": _sanitize(router_exec.read(ip, command, timeout=settings.AI_ROUTER_READ_TIMEOUT, label=label))}
     except Exception as exc:
         return {"ok": False, "error": errors.short(exc)}
 
@@ -75,12 +79,12 @@ def collect_snapshot(router_id: int) -> dict:
         return dict(row) if row else None
 
     live = {
-        "configuration": _safe_read(router["vpn_ip"], "/export show-sensitive=no", "AI configuration export", settings.AI_ROUTER_READ_TIMEOUT),
-        "logs": _safe_read(router["vpn_ip"], "/log print without-paging", "AI log collection", settings.AI_ROUTER_READ_TIMEOUT),
-        "interfaces": _safe_read(router["vpn_ip"], "/interface print stats-detail without-paging", "AI interface collection", settings.AI_ROUTER_READ_TIMEOUT),
-        "routes": _safe_read(router["vpn_ip"], "/ip route print detail without-paging", "AI route collection", settings.AI_ROUTER_READ_TIMEOUT),
-        "dhcp_clients": _safe_read(router["vpn_ip"], "/ip dhcp-client print detail without-paging", "AI DHCP collection", settings.AI_ROUTER_READ_TIMEOUT),
-        "pppoe_clients": _safe_read(router["vpn_ip"], "/interface pppoe-client print detail without-paging", "AI PPPoE collection", settings.AI_ROUTER_READ_TIMEOUT),
+        "configuration": _safe_read(router["vpn_ip"], "/export show-sensitive=no", "AI configuration export"),
+        "logs": _safe_read(router["vpn_ip"], "/log print without-paging", "AI log collection"),
+        "interfaces": _safe_read(router["vpn_ip"], "/interface print stats-detail without-paging", "AI interface collection"),
+        "routes": _safe_read(router["vpn_ip"], "/ip route print detail without-paging", "AI route collection"),
+        "dhcp_clients": _safe_read(router["vpn_ip"], "/ip dhcp-client print detail without-paging", "AI DHCP collection"),
+        "pppoe_clients": _safe_read(router["vpn_ip"], "/interface pppoe-client print detail without-paging", "AI PPPoE collection"),
     }
 
     return {
@@ -131,44 +135,42 @@ def run_analysis(router_id: int, actor: str) -> int:
     os.chmod(codex_home, 0o700)
     os.chmod(temp_root, 0o700)
 
+    with tempfile.TemporaryDirectory(prefix="tikcentral-ai-", dir=str(temp_root)) as tmp:
+        tmp_path = Path(tmp)
+        os.chmod(tmp_path, 0o700)
+        (tmp_path / "snapshot.json").write_text(json.dumps(snapshot, indent=2, ensure_ascii=False), encoding="utf-8")
+        env = os.environ.copy()
+        env["HOME"] = str(codex_home)
+        command = [settings.AI_CODEX_BIN, "exec", "--ephemeral", "--ignore-user-config", "--skip-git-repo-check", "--sandbox", "read-only", "-"]
+        proc = subprocess.run(command, input=_prompt(snapshot), text=True, capture_output=True, cwd=tmp, env=env, timeout=settings.AI_TIMEOUT)
+
+    if proc.returncode != 0:
+        detail = _sanitize((proc.stderr or proc.stdout or "Codex returned an error")[-4000:])
+        raise errors.OperationError("AI_CODEX_FAILED", "Codex analysis failed", detail)
+    report = (proc.stdout or "").strip()
+    if not report:
+        raise errors.OperationError("AI_EMPTY_RESULT", "Codex returned an empty analysis")
+    report = _sanitize(report)[: settings.AI_MAX_REPORT_CHARS]
+    with core.db() as conn:
+        cur = conn.execute(
+            "INSERT INTO router_events(router_id,event_at,severity,category,summary,details) VALUES(?,?,?,?,?,?)",
+            (router_id, _now(), "info", "ai-analysis", f"AI router analysis by {actor}", report),
+        )
+        return int(cur.lastrowid)
+
+
+def _background_analysis(router_id: int, actor: str):
     try:
-        with tempfile.TemporaryDirectory(prefix="tikcentral-ai-", dir=str(temp_root)) as tmp:
-            tmp_path = Path(tmp)
-            os.chmod(tmp_path, 0o700)
-            (tmp_path / "snapshot.json").write_text(json.dumps(snapshot, indent=2, ensure_ascii=False), encoding="utf-8")
-            env = os.environ.copy()
-            env["HOME"] = str(codex_home)
-            command = [
-                settings.AI_CODEX_BIN, "exec", "--ephemeral", "--ignore-user-config",
-                "--skip-git-repo-check", "--sandbox", "read-only", "-",
-            ]
-            proc = subprocess.run(
-                command,
-                input=_prompt(snapshot),
-                text=True,
-                capture_output=True,
-                cwd=tmp,
-                env=env,
-                timeout=settings.AI_TIMEOUT,
-            )
-        if proc.returncode != 0:
-            detail = _sanitize((proc.stderr or proc.stdout or "Codex returned an error")[-4000:])
-            raise errors.OperationError("AI_CODEX_FAILED", "Codex analysis failed", detail)
-        report = (proc.stdout or "").strip()
-        if not report:
-            raise errors.OperationError("AI_EMPTY_RESULT", "Codex returned an empty analysis")
-        report = _sanitize(report)[: settings.AI_MAX_REPORT_CHARS]
-        with core.db() as conn:
-            cur = conn.execute(
-                "INSERT INTO router_events(router_id,event_at,severity,category,summary,details) VALUES(?,?,?,?,?,?)",
-                (router_id, _now(), "info", "ai-analysis", f"AI router analysis by {actor}", report),
-            )
-            analysis_id = int(cur.lastrowid)
-        return analysis_id
+        run_analysis(router_id, actor)
     except Exception as exc:
         err = errors.from_exception(exc, "AI_ANALYSIS_FAILED", "AI router analysis failed")
-        events.record(router_id, "ai", "AI router analysis failed", f"{err.code}: {err.detail}", "warning")
-        raise
+        try:
+            events.record(router_id, "ai", "AI router analysis failed", f"{err.code}: {err.detail}", "warning")
+        except Exception:
+            pass
+    finally:
+        with _ACTIVE_LOCK:
+            _ACTIVE.discard(router_id)
 
 
 def _render_report(text: str) -> str:
@@ -207,21 +209,26 @@ def register(app, page_func):
                 selected = conn.execute("SELECT details FROM router_events WHERE id=? AND router_id=? AND category='ai-analysis'", (int(requested), router_id)).fetchone()
             if selected:
                 latest_html = _render_report(selected["details"])
-        body = f'''<div class="panel pad"><h2>AI analysis · {html.escape(router['site_name'])}</h2><div class="muted">Read-only. Tikcentral collects and sanitizes router data; Codex never receives SSH credentials and cannot apply RouterOS changes.</div><div class="inline" style="margin-top:12px"><form method="post" action="/ai/{router_id}/analyze"><input type="hidden" name="csrf" value="{csrf}"><button class="primary">Analyze router now</button></form><a href="/operations/{router_id}"><button>Back to router</button></a></div></div><div class="panel pad">{latest_html}</div><div class="panel"><table><thead><tr><th>Time</th><th>Analysis</th></tr></thead><tbody>{history}</tbody></table></div>'''
+        with _ACTIVE_LOCK:
+            running = router_id in _ACTIVE
+        queued_notice = '<div class="panel pad"><strong>AI analysis is running.</strong><div class="muted">Refresh this page in a little while. Router operations and Guardian continue normally.</div></div>' if running or request.query_params.get("queued") else ""
+        button = '<button disabled>Analysis running…</button>' if running else '<button class="primary">Analyze router now</button>'
+        body = f'''<div class="panel pad"><h2>AI analysis · {html.escape(router['site_name'])}</h2><div class="muted">Read-only. Tikcentral collects and sanitizes router data; Codex never receives SSH credentials and cannot apply RouterOS changes.</div><div class="inline" style="margin-top:12px"><form method="post" action="/ai/{router_id}/analyze"><input type="hidden" name="csrf" value="{csrf}">{button}</form><a href="/operations/{router_id}"><button>Back to router</button></a></div></div>{queued_notice}<div class="panel pad">{latest_html}</div><div class="panel"><table><thead><tr><th>Time</th><th>Analysis</th></tr></thead><tbody>{history}</tbody></table></div>'''
         return page_func("AI Analysis", body, user, "operations")
 
     @app.post("/ai/{router_id}/analyze", response_class=HTMLResponse)
-    async def analyze_router(router_id: int, request: Request):
+    async def analyze_router(router_id: int, request: Request, background_tasks: BackgroundTasks):
         user = core.require_web_admin(request)
         if not user:
             return RedirectResponse("/login", status_code=303)
         data = await core.form_data(request)
         core.require_csrf(request, data.get("csrf", ""))
+        router = _router(router_id)
+        if not router or not router["enabled"]:
+            return RedirectResponse("/routers", status_code=303)
         actor = user["email"] if "email" in user.keys() else "admin"
-        try:
-            analysis_id = run_analysis(router_id, actor)
-        except Exception as exc:
-            err = errors.from_exception(exc)
-            body = f'''<div class="panel pad"><h2>AI analysis failed</h2><div class="error"><strong>{html.escape(err.code)}</strong><div>{html.escape(err.message)}</div><div class="muted">{html.escape(err.detail)}</div></div><div style="margin-top:12px"><a href="/ai/{router_id}"><button class="primary">Back</button></a></div></div>'''
-            return page_func("AI Analysis", body, user, "operations")
-        return RedirectResponse(f"/ai/{router_id}?report={analysis_id}", status_code=303)
+        with _ACTIVE_LOCK:
+            if router_id not in _ACTIVE:
+                _ACTIVE.add(router_id)
+                background_tasks.add_task(_background_analysis, router_id, actor)
+        return RedirectResponse(f"/ai/{router_id}?queued=1", status_code=303)
