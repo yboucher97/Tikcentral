@@ -485,6 +485,7 @@ def register(app, page_func):
                           s.checked_at,s.wg_online,s.ssh_open,s.winbox_open,s.api_open,
                           s.management_ok,s.last_good_at,s.last_error,
                           m.end_at AS maintenance_end,m.reason AS maintenance_reason,
+                          a.outage_started_at,a.consecutive_failures,a.escalation_level,a.last_flap_alert_at,a.last_flap_count,
                           (SELECT j.status FROM router_jobs j WHERE j.router_id=r.id AND j.kind='guardian_repair' ORDER BY j.id DESC LIMIT 1) AS repair_status,
                           (SELECT j.updated_at FROM router_jobs j WHERE j.router_id=r.id AND j.kind='guardian_repair' ORDER BY j.id DESC LIMIT 1) AS repair_at,
                           (SELECT j.error_code FROM router_jobs j WHERE j.router_id=r.id AND j.kind='guardian_repair' ORDER BY j.id DESC LIMIT 1) AS repair_error_code,
@@ -492,6 +493,7 @@ def register(app, page_func):
                           (SELECT t.id FROM change_transactions t WHERE t.router_id=r.id AND t.kind='guardian_repair' ORDER BY t.id DESC LIMIT 1) AS repair_tx_id
                    FROM routers r LEFT JOIN router_access_state s ON s.router_id=r.id
                    LEFT JOIN router_maintenance m ON m.router_id=r.id
+                   LEFT JOIN router_access_alert_state a ON a.router_id=r.id
                    ORDER BY r.site_name COLLATE NOCASE,r.id"""
             ).fetchall()
             histories = {
@@ -505,7 +507,7 @@ def register(app, page_func):
             access_events = conn.execute(
                 """SELECT e.event_at,e.severity,e.category,e.summary,e.details,r.site_name
                    FROM router_events e LEFT JOIN routers r ON r.id=e.router_id
-                   WHERE e.category='access'
+                   WHERE e.category IN ('access','access_escalation','access_flap')
                    ORDER BY e.id DESC LIMIT 40"""
             ).fetchall()
 
@@ -568,12 +570,19 @@ def register(app, page_func):
             if quality["consecutive_failures"]:
                 quality_text += f' · {quality["consecutive_failures"]} consecutive failed probes'
             diagnosis = _diagnosis(r, newest_first)
+            escalation_note = ""
+            if r["consecutive_failures"]:
+                level = int(r["escalation_level"] or 0)
+                level_text = {0: "observing", 1: "warning", 2: "critical", 3: "escalated"}.get(level, "observing")
+                escalation_note = f'<div class="muted">Incident: {int(r["consecutive_failures"])} consecutive failed probes · {html.escape(level_text)}{f" · since {html.escape(r["outage_started_at"])}" if r["outage_started_at"] else ""}</div>'
+            if r["last_flap_count"] and int(r["last_flap_count"]) >= settings.GUARDIAN_FLAP_THRESHOLD:
+                escalation_note += f'<div class="muted">Flapping: {int(r["last_flap_count"])} transitions / {settings.GUARDIAN_FLAP_WINDOW_MINUTES} min</div>'
             maintenance_note = f'<div class="muted">Maintenance until {html.escape(r["maintenance_end"])} · {html.escape(r["maintenance_reason"] or "")}</div>' if state == "Maintenance" else ''
             tx_link = f'<div style="margin-top:6px"><a href="/reliability#tx-{r["repair_tx_id"]}">View repair transcript #{r["repair_tx_id"]}</a></div>' if r["repair_tx_id"] else ''
             body_rows.append(
                 f'''<tr><td><strong>{html.escape(r['site_name'])}</strong><div class="muted">{html.escape(r['model'] or '')}</div></td>
 <td><code>{html.escape(r['vpn_ip'])}</code></td><td><span class="tc-status {state_tone} live"><span class="tc-status-dot"></span>{html.escape(state)}</span></td><td><div class="tc-paths">{details}</div></td>
-<td>{html.escape(r['last_good_at'] or 'Never')}<div style="display:flex;gap:2px;margin-top:7px;align-items:end;max-width:280px;overflow:hidden">{strip}</div><div class="muted">{html.escape(quality_text)}</div></td><td><strong>{html.escape(diagnosis)}</strong>{f'<div class="muted">Failure run since {html.escape(quality["failure_since"])}</div>' if quality["failure_since"] else ''}{maintenance_note}</td>
+<td>{html.escape(r['last_good_at'] or 'Never')}<div style="display:flex;gap:2px;margin-top:7px;align-items:end;max-width:280px;overflow:hidden">{strip}</div><div class="muted">{html.escape(quality_text)}</div></td><td><strong>{html.escape(diagnosis)}</strong>{f'<div class="muted">Failure run since {html.escape(quality["failure_since"])}</div>' if quality["failure_since"] else ''}{escalation_note}{maintenance_note}</td>
 <td><div>{repair}</div><div class="muted" style="margin-top:6px">Last repair: {html.escape(repair_detail)}</div>{tx_link}</td></tr>'''
             )
 
@@ -583,7 +592,7 @@ def register(app, page_func):
 <div class="card"><strong>Offline</strong><div class="muted">The WireGuard peer is not currently online. Router-side repair cannot run until the tunnel returns.</div></div>
 <div class="card"><strong>Unknown</strong><div class="muted">Guardian has not yet completed a probe for this router.</div></div>
 <div class="card"><strong>Disabled</strong><div class="muted">The router is disabled in Tikcentral and is not considered available for management.</div></div>
-</div><div class="muted" style="margin-top:10px">Path indicators: ● reachable, ○ unreachable. Repair uses SSH to execute the router-side recovery command; if SSH itself is down, Tikcentral will show that repair cannot be started rather than silently failing.</div></div>'''
+</div><div class="muted" style="margin-top:10px">Escalation: first failure is logged quietly; after {settings.GUARDIAN_WARN_FAILURES} consecutive failed probes it becomes a warning; after {settings.GUARDIAN_CRITICAL_MINUTES} minutes it becomes critical; after {settings.GUARDIAN_ESCALATE_MINUTES} minutes it is escalated. Flapping is flagged after {settings.GUARDIAN_FLAP_THRESHOLD} transitions in {settings.GUARDIAN_FLAP_WINDOW_MINUTES} minutes. Maintenance windows suppress warning/critical escalation.</div><div class="muted" style="margin-top:6px">Path indicators: ● reachable, ○ unreachable. Repair uses SSH to execute the router-side recovery command; if SSH itself is down, Tikcentral will show that repair cannot be started rather than silently failing.</div></div>'''
 
         counts = {"Healthy": 0, "Degraded": 0, "Offline": 0, "Unknown": 0, "Disabled": 0, "Maintenance": 0}
         for r in rows:
