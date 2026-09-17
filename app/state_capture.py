@@ -55,21 +55,6 @@ def store_config_snapshot_content(
     actor: str = "",
 ):
     migrations.migrate()
-    return store_config_snapshot_content(
-        router_id,
-        content,
-        source_kind=source_kind,
-        source_id=source_id,
-        actor=actor,
-    )
-
-
-def capture_config_snapshot(router_id: int, *, source_kind: str = "", source_id: int | None = None, actor: str = ""):
-    migrations.migrate()
-    router = _router(router_id)
-    if not router or not router["enabled"]:
-        return None
-    content = router_exec.read(router["vpn_ip"], "/export terse", timeout=90, label="Configuration snapshot")
     digest = hashlib.sha256(content.encode()).hexdigest()
     captured = now_iso()
     with core.db() as conn:
@@ -86,6 +71,21 @@ def capture_config_snapshot(router_id: int, *, source_kind: str = "", source_id:
             (router_id, digest),
         ).fetchone()
         return int(row["id"]) if row else None
+
+
+def capture_config_snapshot(router_id: int, *, source_kind: str = "", source_id: int | None = None, actor: str = ""):
+    migrations.migrate()
+    router = _router(router_id)
+    if not router or not router["enabled"]:
+        return None
+    content = router_exec.read(router["vpn_ip"], "/export terse", timeout=90, label="Configuration snapshot")
+    return store_config_snapshot_content(
+        router_id,
+        content,
+        source_kind=source_kind,
+        source_id=source_id,
+        actor=actor,
+    )
 
 
 def capture_management_known_good(
