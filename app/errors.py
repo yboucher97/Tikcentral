@@ -5,6 +5,7 @@ operator messages and sanitized technical detail. Raw exceptions should never
 become user-facing HTTP 500 pages or flood the event timeline.
 """
 
+import re
 import sqlite3
 import subprocess
 from dataclasses import dataclass
@@ -25,6 +26,14 @@ class Code:
     GUARDIAN_UNHEALTHY = "GUARDIAN_UNHEALTHY"
 
 
+_SECRET_PATTERNS = (
+    re.compile(r'(?i)(password\s*[=:]\s*)("[^"]*"|[^\s;]+)'),
+    re.compile(r'(?i)(token\s*[=:]\s*)("[^"]*"|[^\s;]+)'),
+    re.compile(r'(?i)(private[-_ ]?key\s*[=:]\s*)("[^"]*"|[^\s;]+)'),
+    re.compile(r'(?i)(passphrase\s*[=:]\s*)("[^"]*"|[^\s;]+)'),
+)
+
+
 @dataclass
 class OperationError(RuntimeError):
     code: str
@@ -33,6 +42,7 @@ class OperationError(RuntimeError):
     severity: str = "warning"
 
     def __post_init__(self):
+        self.detail = _redact(self.detail)
         RuntimeError.__init__(self, self.message)
 
     def as_dict(self) -> dict:
@@ -44,8 +54,15 @@ class OperationError(RuntimeError):
         }
 
 
+def _redact(text: str) -> str:
+    value = str(text or "")
+    for pattern in _SECRET_PATTERNS:
+        value = pattern.sub(r'\1<redacted>', value)
+    return value
+
+
 def _clean(text: str, limit: int = 500) -> str:
-    text = (text or "").strip()
+    text = _redact((text or "").strip())
     if not text:
         return ""
     line = text.splitlines()[-1].strip()
