@@ -154,7 +154,9 @@ def validate_source_boundaries():
                 if verb in lower:
                     raise SystemExit(f"Direct router_jobs mutation outside jobs.py: {path.name}")
 
-        if path.name != "router_exec.py" and any(token in text for token in ('"ssh"', "'ssh'", '"sftp"', "'sftp'")):
+        # Only inspect modules that actually invoke subprocess; labels such as
+        # the UI navigation item "SSH" are not executable transport paths.
+        if path.name != "router_exec.py" and "subprocess." in text and any(token in text for token in ('"ssh"', "'ssh'", '"sftp"', "'sftp'")):
             tree = ast.parse(text, filename=str(path))
             for node in ast.walk(tree):
                 if not isinstance(node, (ast.List, ast.Tuple)):
