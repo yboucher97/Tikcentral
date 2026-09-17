@@ -16,7 +16,7 @@ from pathlib import Path
 _VALIDATION_TMP = tempfile.TemporaryDirectory(prefix="tikcentral-release-test-")
 os.environ["DB_PATH"] = str(Path(_VALIDATION_TMP.name) / "tikcentral.db")
 
-from app import capabilities, enrollment_v2, jobs, migrations, performance_profile, router_exec, settings, ui
+from app import capabilities, enrollment_v2, errors, jobs, migrations, performance_profile, router_exec, scheduler, settings, ui
 from app import main as core
 from app.final import app
 
@@ -48,6 +48,9 @@ FORBIDDEN_RUNTIME_MODULES = {
     "app.operations_safety", "app.operations_stability", "app.operations_compat",
     "app.operations_safe_routes", "app.operations_robust", "app.rescue_v2",
     "app.rescue_safe_routes", "app.ui_enhancements", "app.branding",
+}
+CENTRAL_SETTINGS_MODULES = {
+    "operations.py", "rescue.py", "scheduler.py", "router_exec.py", "jobs.py", "capabilities.py",
 }
 
 
@@ -100,6 +103,24 @@ def validate_runtime_composition():
             if "ssh" in values or "sftp" in values:
                 raise SystemExit(f"Direct SSH/SFTP command outside router_exec.py: {path.name}")
 
+    # router_jobs is a single state model. Other modules may SELECT it, but only
+    # jobs.py/migrations.py may mutate the table directly.
+    for path in (ROOT / "app").glob("*.py"):
+        if path.name in {"jobs.py", "migrations.py"}:
+            continue
+        text = path.read_text(encoding="utf-8").lower()
+        for verb in ("insert into router_jobs", "update router_jobs", "delete from router_jobs"):
+            if verb in text:
+                raise SystemExit(f"Direct router_jobs mutation outside jobs.py: {path.name}")
+
+    # Operational modules consume environment-derived configuration only via
+    # settings.py; this prevents silent per-module defaults from diverging.
+    for name in CENTRAL_SETTINGS_MODULES:
+        path = ROOT / "app" / name
+        text = path.read_text(encoding="utf-8")
+        if "os.getenv(" in text or "os.environ[" in text:
+            raise SystemExit(f"Direct environment access outside settings.py: {name}")
+
 
 def validate_ui():
     rendered = ui.page(
@@ -120,13 +141,19 @@ def validate_ui():
             raise SystemExit(f"Branding asset missing or empty: {asset}")
 
 
-def validate_router_exec():
+def validate_router_exec_and_errors():
     normalized = router_exec.routeros_single_line("/system resource print\n/ip service print")
     if "/system resource print;" not in normalized or "/ip service print;" not in normalized:
         raise SystemExit("RouterOS command normalization failed")
     redacted = router_exec.sanitize('user=x password="supersecret" token=abc123')
     if "supersecret" in redacted or "abc123" in redacted or redacted.count("<redacted>") < 2:
         raise SystemExit("RouterOS secret redaction failed")
+    if errors.from_exception(PermissionError("nope")).code != errors.Code.PERMISSION_DENIED:
+        raise SystemExit("Structured permission error mapping failed")
+    if errors.from_exception(sqlite3.OperationalError("database is locked")).code != errors.Code.DATABASE_BUSY:
+        raise SystemExit("Structured database-busy mapping failed")
+    if errors.from_exception(ValueError("bad field")).code != errors.Code.INVALID_INPUT:
+        raise SystemExit("Structured input error mapping failed")
 
 
 def validate_persistence_smoke():
@@ -149,8 +176,27 @@ def validate_persistence_smoke():
     if cap2.supports_performance_profiles or cap2.managed_baseline:
         raise SystemExit("Tikcentral-only capability policy failed")
 
+    # Seed two healthy routers. One gets an active mutation and therefore must
+    # disappear from the scheduler's read-only eligibility list.
+    with core.db() as conn:
+        for rid in (9001, 9002):
+            conn.execute(
+                """INSERT OR REPLACE INTO routers(id,site_name,public_key,vpn_ip,created_at,enabled)
+                   VALUES(?,?,?,?,?,1)""",
+                (rid, f"Smoke {rid}", f"key-{rid}", f"10.250.250.{rid-9000}", "2026-01-01T00:00:00+00:00"),
+            )
+            conn.execute(
+                """INSERT OR REPLACE INTO router_access_state
+                   (router_id,checked_at,wg_online,ssh_open,winbox_open,api_open,management_ok,last_good_at,last_error)
+                   VALUES(?, ?,1,1,1,1,1,?,'')""",
+                (rid, "2026-01-01T00:00:00+00:00", "2026-01-01T00:00:00+00:00"),
+            )
+
     job_id = jobs.create(9001, "smoke_mutation", "validator", serialize_router=True)
     jobs.running(job_id)
+    eligible = scheduler._eligible_healthy_router_ids()
+    if 9001 in eligible or 9002 not in eligible:
+        raise SystemExit("Read/change scheduler isolation failed")
     jobs.verifying(job_id)
     jobs.succeeded(job_id)
     if jobs.get(job_id)["status"] != "succeeded":
@@ -166,6 +212,21 @@ def validate_persistence_smoke():
         jobs.verifying(context_job)
     if jobs.get(context_job)["status"] != "succeeded":
         raise SystemExit("Unified job context manager smoke test failed")
+
+
+def validate_settings():
+    checks = {
+        "TELEMETRY_WORKERS": settings.TELEMETRY_WORKERS,
+        "DRIFT_WORKERS": settings.DRIFT_WORKERS,
+        "CORE_TELEMETRY_TIMEOUT": settings.CORE_TELEMETRY_TIMEOUT,
+        "POLICY_PROBE_TIMEOUT": settings.POLICY_PROBE_TIMEOUT,
+        "MUTATION_TIMEOUT": settings.MUTATION_TIMEOUT,
+        "MAX_COMMAND_LENGTH": settings.MAX_COMMAND_LENGTH,
+    }
+    if any(int(v) <= 0 for v in checks.values()):
+        raise SystemExit(f"Invalid centralized setting(s): {checks}")
+    if settings.TELEMETRY_INTERVAL_SECONDS < 60 or settings.DRIFT_INTERVAL_SECONDS < 300:
+        raise SystemExit("Read-only scheduler intervals are below safe minimums")
 
 
 def validate_updater_launcher():
@@ -192,8 +253,9 @@ def main():
     validate_routes()
     validate_runtime_composition()
     validate_ui()
-    validate_router_exec()
+    validate_router_exec_and_errors()
     validate_persistence_smoke()
+    validate_settings()
     validate_updater_launcher()
     validate_provisioning()
     print("Tikcentral release validation: OK")
