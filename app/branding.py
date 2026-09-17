@@ -55,9 +55,9 @@ html,body{background:var(--tc-bg)!important}
 body{background:linear-gradient(180deg,var(--tc-bg2) 0,var(--tc-bg) 250px)!important}
 main{max-width:1840px!important;padding:16px 22px 48px!important}
 
-/* Header / brand. Only HEIGHT sizes the wordmark; width is always intrinsic. */
+/* Header / brand: only WIDTH sizes the wordmark. Height always follows image ratio. */
 .shell-head{
-  min-height:86px!important;
+  min-height:82px!important;
   display:flex!important;
   align-items:center!important;
   gap:14px!important;
@@ -71,47 +71,45 @@ main{max-width:1840px!important;padding:16px 22px 48px!important}
   overflow:visible!important;
 }
 .brand{
-  flex:0 0 180px!important;
-  width:180px!important;
-  min-width:180px!important;
-  max-width:180px!important;
-  height:66px!important;
+  flex:0 0 220px!important;
+  width:220px!important;
+  min-width:220px!important;
+  max-width:220px!important;
   display:flex!important;
   align-items:center!important;
   justify-content:flex-start!important;
   overflow:visible!important;
 }
 .tc-brand-home{
-  display:flex!important;
-  align-items:center!important;
-  justify-content:flex-start!important;
-  width:auto!important;
-  height:66px!important;
+  display:block!important;
+  width:100%!important;
+  height:auto!important;
   min-width:0!important;
   max-width:none!important;
   overflow:visible!important;
   text-decoration:none!important;
+  line-height:0!important;
 }
 .tc-brand-logo{
   display:block!important;
-  height:62px!important;
-  width:auto!important;
+  width:200px!important;
+  height:auto!important;
   min-width:0!important;
   max-width:none!important;
   max-height:none!important;
-  aspect-ratio:auto!important;
-  object-fit:contain!important;
-  object-position:left center!important;
-  flex:0 0 auto!important;
+  object-fit:initial!important;
+  object-position:initial!important;
+  flex:none!important;
   transform:none!important;
   clip-path:none!important;
   overflow:visible!important;
   image-rendering:auto!important;
 }
-.tc-logo-dark{display:block!important}.tc-logo-light{display:none!important}
+.tc-logo-dark{display:block!important}
+.tc-logo-light{display:none!important}
 html[data-theme="light"] .tc-logo-dark{display:none!important}
 html[data-theme="light"] .tc-logo-light{display:block!important}
-.tc-brand-mark{display:none!important;width:48px!important;height:48px!important;object-fit:contain!important;flex:0 0 48px!important}
+.tc-brand-mark{display:none!important;width:48px!important;height:auto!important;max-height:none!important;object-fit:initial!important;flex:none!important}
 .tc-brand-caption{display:none!important}
 
 .topnav{
@@ -133,8 +131,6 @@ html[data-theme="light"] .tc-logo-light{display:block!important}
 
 .tc-page-tools{padding:10px 12px!important;border:1px solid var(--tc-line)!important;border-radius:12px!important;background:var(--tc-panel)!important;box-shadow:0 5px 16px rgba(0,0,0,.08)!important;overflow:visible!important}
 .tc-toolbar-label{color:var(--oc-green)!important}
-
-/* Base app sets .panel overflow:auto. Override it so menus are not clipped; table shell owns scrolling. */
 .panel{overflow:visible!important;border-radius:14px!important;background:var(--tc-panel)!important;border-color:var(--tc-line)!important;box-shadow:var(--tc-shadow)!important}
 .card{overflow:hidden!important;border-radius:14px!important;background:var(--tc-panel)!important;border-color:var(--tc-line)!important;box-shadow:var(--tc-shadow)!important;padding:18px!important}
 .panel::after,.card::after{display:none!important}
@@ -176,18 +172,16 @@ pre{box-shadow:none!important}
 ::-webkit-scrollbar{height:10px;width:10px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:color-mix(in srgb,var(--oc-green) 20%,var(--tc-line));border-radius:99px;border:2px solid transparent;background-clip:padding-box}
 
 @media(max-width:1180px){
-  .brand{flex-basis:165px!important;width:165px!important;min-width:165px!important;max-width:165px!important;height:60px!important}
-  .tc-brand-home{height:60px!important}
-  .tc-brand-logo{height:55px!important;width:auto!important;max-width:none!important}
+  .brand{flex-basis:190px!important;width:190px!important;min-width:190px!important;max-width:190px!important}
+  .tc-brand-logo{width:170px!important;height:auto!important}
   .topnav{min-width:360px!important}
 }
 @media(max-width:820px){
   main{padding:10px 10px 36px!important}
   .shell-head{position:relative!important;min-height:auto!important;padding:10px!important}
-  .brand{flex:0 0 54px!important;width:54px!important;min-width:54px!important;max-width:54px!important;height:54px!important}
-  .tc-brand-home{height:54px!important}
+  .brand{flex:0 0 54px!important;width:54px!important;min-width:54px!important;max-width:54px!important}
   .tc-brand-logo{display:none!important}
-  .tc-brand-mark{display:block!important}
+  .tc-brand-mark{display:block!important;width:48px!important;height:auto!important}
   .topnav{order:3;flex:1 1 100%!important;min-width:0!important;overflow:auto!important;flex-wrap:nowrap!important}
   .topnav a{white-space:nowrap!important}
   .account{margin-left:auto!important}
@@ -220,8 +214,8 @@ BRAND_JS = r'''
 </script>
 '''
 
-# Versioned URLs force browsers to stop reusing the earlier tiny 180x48 cached assets.
-BRAND_HTML = '''<div class="brand"><a class="tc-brand-home" href="/" aria-label="Opticable Tikcentral home"><img class="tc-brand-logo tc-logo-light" src="/static/opticable-logo-light.webp?v=2" alt="Opticable"><img class="tc-brand-logo tc-logo-dark" src="/static/opticable-logo-dark.webp?v=2" alt="Opticable"><img class="tc-brand-mark" src="/static/opticable-icon.png?v=2" alt="Opticable"></a></div>'''
+# Correct PNG assets + new version query to bypass any cached broken image/CSS state.
+BRAND_HTML = '''<div class="brand"><a class="tc-brand-home" href="/" aria-label="Opticable Tikcentral home"><img class="tc-brand-logo tc-logo-light" src="/static/opticable-logo-light.png?v=4" alt="Opticable"><img class="tc-brand-logo tc-logo-dark" src="/static/opticable-logo-dark.png?v=4" alt="Opticable"><img class="tc-brand-mark" src="/static/opticable-icon.png?v=4" alt="Opticable"></a></div>'''
 
 
 def enhance_response(response: HTMLResponse) -> HTMLResponse:
@@ -229,7 +223,7 @@ def enhance_response(response: HTMLResponse) -> HTMLResponse:
     old = '<div class="brand"><h1>Tikcentral</h1><div class="sub">MikroTik remote management</div></div>'
     text = text.replace(old, BRAND_HTML)
     if '/static/opticable-icon.png' not in text.split('</head>', 1)[0]:
-        head = PRETHEME + '<link rel="icon" type="image/png" href="/static/opticable-icon.png?v=2"><meta name="theme-color" content="#101713">' + BRAND_CSS
+        head = PRETHEME + '<link rel="icon" type="image/png" href="/static/opticable-icon.png?v=4"><meta name="theme-color" content="#101713">' + BRAND_CSS
         text = text.replace('</head>', head + '</head>', 1)
     if 'opticable-brand-js' not in text:text = text.replace('</body>', BRAND_JS + '</body>', 1)
     headers = {k:v for k,v in response.headers.items() if k.lower() not in {'content-length','content-type'}}
