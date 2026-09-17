@@ -6,11 +6,19 @@ pass this gate before the atomic current symlink moves.
 """
 
 import ast
+import ipaddress
 import os
 import sqlite3
 import sys
 import tempfile
 from pathlib import Path
+
+# Running `python scripts/validate_release.py` sets sys.path[0] to scripts/, not
+# the repository root. The updater uses that exact invocation, so establish the
+# root before importing any app module.
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 _VALIDATION_TMP = tempfile.TemporaryDirectory(prefix="tikcentral-release-test-")
 os.environ["DB_PATH"] = str(Path(_VALIDATION_TMP.name) / "tikcentral.db")
@@ -30,8 +38,6 @@ from app import settings
 from app import ui
 from app import main as core
 from app.final import app
-
-ROOT = Path(__file__).resolve().parents[1]
 
 REQUIRED_ROUTES = {
     ("GET", "/"), ("GET", "/login"), ("POST", "/login"),
@@ -100,6 +106,8 @@ def validate_routes():
         ("POST", "/rescue/{router_id}/enable"): "app.rescue",
         ("POST", "/rescue/{router_id}/disable"): "app.rescue",
         ("POST", "/ssh/{router_id}"): "app.production",
+        ("POST", "/audit/{router_id}/normalize"): "app.final",
+        ("POST", "/guardian/{router_id}/repair"): "app.guardian",
     }
     for path in (
         "/operations/{router_id}/telemetry", "/operations/{router_id}/commission",
@@ -132,24 +140,20 @@ def validate_source_boundaries():
     for path in app_files:
         text = path.read_text(encoding="utf-8")
 
-        # Only settings.py parses environment variables.
         if path.name != "settings.py" and ("os.getenv(" in text or "os.environ[" in text):
             raise SystemExit(f"Direct environment access outside settings.py: {path.name}")
 
-        # Only migrations.py owns persistent schema DDL.
         if path.name != "migrations.py":
             upper = text.upper()
             if "CREATE TABLE" in upper or "ALTER TABLE" in upper:
                 raise SystemExit(f"Schema DDL outside migrations.py: {path.name}")
 
-        # Only jobs.py/migrations.py mutate the serialized router job table.
         if path.name not in {"jobs.py", "migrations.py"}:
             lower = text.lower()
             for verb in ("insert into router_jobs", "update router_jobs", "delete from router_jobs"):
                 if verb in lower:
                     raise SystemExit(f"Direct router_jobs mutation outside jobs.py: {path.name}")
 
-        # Router SSH/SFTP subprocesses belong only in router_exec.py.
         if path.name != "router_exec.py" and any(token in text for token in ('"ssh"', "'ssh'", '"sftp"', "'sftp'")):
             tree = ast.parse(text, filename=str(path))
             for node in ast.walk(tree):
@@ -159,13 +163,21 @@ def validate_source_boundaries():
                 if "ssh" in values or "sftp" in values:
                     raise SystemExit(f"Direct SSH/SFTP command outside router_exec.py: {path.name}")
 
-        # The old route/render monkey-patch model must not return.
         forbidden_fragments = (
             "app.router.routes[:]", "portal.portal_page =", "production.production_page =",
             "fleet_web.fleet_page =", "core.page =", "run_mass_command(",
         )
         if path.name != "main.py" and any(fragment in text for fragment in forbidden_fragments):
             raise SystemExit(f"Legacy runtime patch/mass mutation pattern in {path.name}")
+
+    guardian_text = (ROOT / "app" / "guardian.py").read_text(encoding="utf-8")
+    final_text = (ROOT / "app" / "final.py").read_text(encoding="utf-8")
+    if "REPAIR_COMMAND" in guardian_text or "NORMALIZE_COMMAND" in final_text:
+        raise SystemExit("Duplicate management firewall policy returned outside management_script.py")
+    if "management_script.access_repair_command()" not in guardian_text:
+        raise SystemExit("Guardian repair is not using the canonical management access policy")
+    if "management_script.firewall_reconcile_command(include_print=True)" not in final_text:
+        raise SystemExit("Audit normalization is not using the canonical management firewall policy")
 
 
 def validate_ui_assets():
@@ -199,6 +211,8 @@ def validate_router_execution_and_management_script():
     if errors.from_exception(PermissionError("nope")).code != errors.Code.PERMISSION_DENIED:
         raise SystemExit("Structured permission error mapping failed")
 
+    canonical = management_script.firewall_reconcile_command()
+    repair = management_script.access_repair_command()
     script = management_script.build_routeros_script("validator", "validator-token-123456789")
     required = (
         'name="tikcentral"', "10.250.0.1/32", "Tikcentral management TCP",
@@ -206,10 +220,29 @@ def validate_router_execution_and_management_script():
         "dst-port=22,8291,8728", "dst-port=22,8291",
     )
     for marker in required:
-        if marker not in script:
-            raise SystemExit(f"Management enrollment script missing: {marker}")
+        if marker not in script or marker not in (repair + "\n" + canonical) and marker.startswith("Tikcentral "):
+            raise SystemExit(f"Management policy missing: {marker}")
+    for comment in ("Tikcentral management TCP", "Tikcentral admin TCP", "Tikcentral admin ICMP"):
+        if canonical.count(f'comment="{comment}"') != 1 or script.count(f'comment="{comment}"') != 1:
+            raise SystemExit(f"Management firewall policy is duplicated or missing: {comment}")
     if 'name="winbox"] disabled=no address=10.250.0.1/32' in script or 'name="ssh"] disabled=no address=10.250.0.1/32' in script:
         raise SystemExit("Management script would overwrite local WinBox/SSH address access")
+
+
+def validate_rescue_settings():
+    network = ipaddress.ip_network(settings.RESCUE_NETWORK)
+    address = ipaddress.ip_interface(settings.RESCUE_ADDRESS)
+    start_text, end_text = settings.RESCUE_POOL.split("-", 1)
+    start = ipaddress.ip_address(start_text)
+    end = ipaddress.ip_address(end_text)
+    if address.ip not in network or start not in network or end not in network:
+        raise SystemExit("Rescue address/pool does not fit configured Rescue network")
+    if settings.RESCUE_GATEWAY != str(address.ip):
+        raise SystemExit("Rescue gateway is not derived from Rescue address")
+    rescue_text = (ROOT / "app" / "rescue.py").read_text(encoding="utf-8")
+    for marker in ("settings.RESCUE_NETWORK", "settings.RESCUE_GATEWAY", "settings.RESCUE_DNS", "settings.RESCUE_POOL"):
+        if marker not in rescue_text:
+            raise SystemExit(f"Rescue command bypasses centralized setting: {marker}")
 
 
 def validate_persistence_and_jobs():
@@ -219,6 +252,7 @@ def validate_persistence_and_jobs():
     required_tables = {
         "routers", "router_jobs", "router_capabilities", "router_telemetry", "router_events",
         "fleet_settings", "fleet_jobs", "fleet_job_results", "router_snapshots", "fleet_findings",
+        "router_backup_records", "router_access_state", "router_access_history",
     }
     with sqlite3.connect(settings.DB_PATH) as conn:
         version = conn.execute("SELECT MAX(version) FROM schema_version").fetchone()[0]
@@ -262,10 +296,12 @@ def validate_persistence_and_jobs():
 
     if hasattr(fleet, "run_mass_command"):
         raise SystemExit("Generic fleet mass mutation helper returned")
+    fleet_text = (ROOT / "app" / "fleet.py").read_text(encoding="utf-8")
+    if '"backup",\n                created_by' not in fleet_text or "with jobs.operation(" not in fleet_text:
+        raise SystemExit("Fleet backups are not serialized through router_jobs")
 
 
 def validate_events_and_optional_boundaries():
-    before = 0
     with core.db() as conn:
         before = conn.execute("SELECT COUNT(*) FROM router_events").fetchone()[0]
     events.record(9001, "telemetry", "Telemetry collected: CPU 5%", severity="info")
@@ -299,6 +335,10 @@ def validate_updater():
     launcher = ROOT / "helpers" / "tikcentral-update"
     if not launcher.is_file() or "repository.git" not in launcher.read_text(encoding="utf-8"):
         raise SystemExit("Stable updater launcher missing/invalid")
+    helper = ROOT / "helpers" / "tikcentral-wg-peer"
+    helper_text = helper.read_text(encoding="utf-8") if helper.is_file() else ""
+    if "/etc/tikcentral/tikcentral.env" not in helper_text or "WG_ROUTER_POOL" not in helper_text:
+        raise SystemExit("Privileged WireGuard helper does not honor centralized router pool")
 
 
 def main():
@@ -306,6 +346,7 @@ def main():
     validate_source_boundaries()
     validate_ui_assets()
     validate_router_execution_and_management_script()
+    validate_rescue_settings()
     validate_persistence_and_jobs()
     validate_events_and_optional_boundaries()
     validate_provisioning()
