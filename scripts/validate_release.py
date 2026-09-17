@@ -18,7 +18,7 @@ sys.path.insert(0, str(ROOT))
 _TMP = tempfile.TemporaryDirectory(prefix="tikcentral-release-test-")
 os.environ["DB_PATH"] = str(Path(_TMP.name) / "tikcentral.db")
 
-from app import capabilities, errors, events, fleet, fleet_health, jobs
+from app import ai_analysis, capabilities, errors, events, fleet, fleet_health, jobs
 from app import management_script, migrations, performance_profile, router_exec
 from app import scheduler, settings, ui
 from app import main as core
@@ -50,6 +50,7 @@ REQUIRED_ROUTES = {
     ("GET", "/changes"), ("GET", "/changes/{router_id}"),
     ("GET", "/audit"), ("GET", "/audit/{router_id}"),
     ("POST", "/audit/{router_id}/normalize"),
+    ("GET", "/ai/{router_id}"), ("POST", "/ai/{router_id}/analyze"),
 }
 
 FORBIDDEN_FILES = {
@@ -96,6 +97,7 @@ def validate_routes():
         ("POST", "/rescue/{router_id}/disable"): "app.rescue",
         ("POST", "/ssh/{router_id}"): "app.production",
         ("POST", "/audit/{router_id}/normalize"): "app.final",
+        ("POST", "/ai/{router_id}/analyze"): "app.ai_analysis",
     }
     for path in (
         "/operations/{router_id}/telemetry", "/operations/{router_id}/commission",
@@ -126,7 +128,6 @@ def validate_source_boundaries():
     for path in (ROOT / "app").glob("*.py"):
         text = path.read_text(encoding="utf-8")
         lower, upper = text.lower(), text.upper()
-
         if path.name != "settings.py" and ("os.getenv(" in text or "os.environ[" in text):
             fail(f"Direct environment access outside settings.py: {path.name}")
         if path.name != "migrations.py" and ("CREATE TABLE" in upper or "ALTER TABLE" in upper):
@@ -135,9 +136,6 @@ def validate_source_boundaries():
             x in lower for x in ("insert into router_jobs", "update router_jobs", "delete from router_jobs")
         ):
             fail(f"Direct router_jobs mutation outside jobs.py: {path.name}")
-
-        # Catch an actual subprocess command list containing ssh/sftp. UI labels
-        # and documentation strings do not count as transport implementations.
         if path.name != "router_exec.py" and "subprocess." in text:
             tree = ast.parse(text, filename=str(path))
             for node in ast.walk(tree):
@@ -145,7 +143,6 @@ def validate_source_boundaries():
                     values = [x.value for x in node.elts if isinstance(x, ast.Constant) and isinstance(x.value, str)]
                     if "ssh" in values or "sftp" in values:
                         fail(f"Direct SSH/SFTP command outside router_exec.py: {path.name}")
-
         if path.name != "main.py" and any(x in text for x in (
             "app.router.routes[:]", "portal.portal_page =", "production.production_page =",
             "fleet_web.fleet_page =", "core.page =", "run_mass_command(",
@@ -195,20 +192,15 @@ def validate_router_policy():
     canonical = management_script.firewall_reconcile_command()
     repair = management_script.access_repair_command()
     enroll = management_script.build_routeros_script("validator", "validator-token-123456789")
-    for marker in (
-        'name="tikcentral"', "10.250.0.1/32", "/api/enroll",
-        "dst-port=22,8291,8728", "dst-port=22,8291",
-    ):
+    for marker in ('name="tikcentral"', "10.250.0.1/32", "/api/enroll", "dst-port=22,8291,8728", "dst-port=22,8291"):
         if marker not in enroll:
             fail(f"Enrollment policy missing {marker}")
     for comment in ("Tikcentral management TCP", "Tikcentral admin TCP", "Tikcentral admin ICMP"):
         tag = f'comment="{comment}"'
         if canonical.count(tag) != 1 or enroll.count(tag) != 1 or tag not in repair:
             fail(f"Canonical firewall rule missing/duplicated: {comment}")
-    if 'name="winbox"] disabled=no address=10.250.0.1/32' in enroll:
-        fail("Enrollment would overwrite local WinBox address access")
-    if 'name="ssh"] disabled=no address=10.250.0.1/32' in enroll:
-        fail("Enrollment would overwrite local SSH address access")
+    if 'name="winbox"] disabled=no address=10.250.0.1/32' in enroll or 'name="ssh"] disabled=no address=10.250.0.1/32' in enroll:
+        fail("Enrollment would overwrite local management address access")
 
 
 def validate_rescue():
@@ -234,6 +226,7 @@ def validate_persistence_and_jobs():
         "routers", "router_jobs", "router_capabilities", "router_telemetry", "router_events",
         "router_access_state", "router_access_history", "router_backup_records",
         "fleet_settings", "fleet_jobs", "fleet_job_results", "router_snapshots", "fleet_findings",
+        "router_ai_analyses",
     }
     with sqlite3.connect(settings.DB_PATH) as conn:
         version = conn.execute("SELECT MAX(version) FROM schema_version").fetchone()[0]
@@ -241,7 +234,8 @@ def validate_persistence_and_jobs():
     if version != expected or not required.issubset(tables):
         fail("Fresh migration schema validation failed")
 
-    cap = capabilities.set_mode(9001, capabilities.OPTICABLE_DEFAULT, "2026-01-01T00:00:00+00:00", "smoke")
+    capabilities.set_mode(9001, capabilities.OPTICABLE_DEFAULT, "2026-01-01T00:00:00+00:00", "smoke")
+    cap = capabilities.get(9001)
     if not cap.supports_performance_profiles or not cap.managed_baseline:
         fail("Typed capability persistence failed")
 
@@ -257,6 +251,10 @@ def validate_persistence_and_jobs():
                    VALUES(?, ?,1,1,1,1,1,?,'')""",
                 (rid, "2026-01-01T00:00:00+00:00", "2026-01-01T00:00:00+00:00"),
             )
+
+    ai_id = ai_analysis.queue_analysis(9002, "validator")
+    if ai_analysis.queue_analysis(9002, "validator") != ai_id:
+        fail("AI analysis queue allowed duplicate pending work for one router")
 
     job_id = jobs.create(9001, "smoke_mutation", "validator", serialize_router=True)
     jobs.running(job_id)
@@ -315,9 +313,23 @@ def validate_provisioning_and_updater():
     launcher = ROOT / "helpers/tikcentral-update"
     if not launcher.is_file() or "repository.git" not in launcher.read_text(encoding="utf-8"):
         fail("Stable updater launcher missing/invalid")
-    helper_text = (ROOT / "helpers/tikcentral-wg-peer").read_text(encoding="utf-8")
-    if "/etc/tikcentral/tikcentral.env" not in helper_text or "WG_ROUTER_POOL" not in helper_text:
+    wg_helper = (ROOT / "helpers/tikcentral-wg-peer").read_text(encoding="utf-8")
+    if "/etc/tikcentral/tikcentral.env" not in wg_helper or "WG_ROUTER_POOL" not in wg_helper:
         fail("WireGuard helper ignores centralized router pool")
+
+    codex_helper_path = ROOT / "helpers/tikcentral-codex-analyze"
+    if not codex_helper_path.is_file():
+        fail("Codex analysis helper missing")
+    codex_helper = codex_helper_path.read_text(encoding="utf-8")
+    for marker in ("tikcentral-ai", "env -i", "--sandbox read-only", "--skip-git-repo-check"):
+        if marker not in codex_helper:
+            fail(f"Codex helper missing isolation control: {marker}")
+    for unit in ("deploy/tikcentral-ai.service", "deploy/tikcentral-ai.timer"):
+        if not (ROOT / unit).is_file():
+            fail(f"AI worker unit missing: {unit}")
+    worker_text = (ROOT / "app/ai_worker.py").read_text(encoding="utf-8")
+    if "router_ai_analyses" not in worker_text or "ai_analysis.run_codex" not in worker_text:
+        fail("Persistent AI worker is not wired to the AI queue")
 
 
 def main():
