@@ -18,6 +18,39 @@ def _pick_snapshot(snaps, raw_id, fallback):
     return fallback
 
 
+def _render_diff(diff_text: str):
+    if not diff_text:
+        return '<div class="muted">No differences.</div>'
+    rows = []
+    for line in diff_text.splitlines():
+        if line.startswith("+++") or line.startswith("---"):
+            cls = "muted"
+        elif line.startswith("+"):
+            cls = "ok"
+        elif line.startswith("-"):
+            cls = "bad"
+        elif line.startswith("@@"):
+            cls = "warn"
+        else:
+            cls = ""
+        rows.append(
+            f'<div class="tc-diff-line {cls}"><span>{html.escape(line)}</span></div>'
+        )
+    return "".join(rows)
+
+
+def _diff_counts(diff_text: str):
+    added = removed = 0
+    for line in (diff_text or "").splitlines():
+        if line.startswith("+++") or line.startswith("---"):
+            continue
+        if line.startswith("+"):
+            added += 1
+        elif line.startswith("-"):
+            removed += 1
+    return added, removed
+
+
 def register(app, page_func):
     @app.get("/changes", response_class=HTMLResponse)
     def changes_index(request: Request):
@@ -46,7 +79,8 @@ def register(app, page_func):
         with core.db() as conn:
             router = conn.execute("SELECT id,site_name,model,vpn_ip FROM routers WHERE id=?", (router_id,)).fetchone()
             snaps = conn.execute(
-                "SELECT id,captured_at,sha256,content FROM router_snapshots WHERE router_id=? ORDER BY id DESC LIMIT 60",
+                """SELECT id,captured_at,sha256,content,source_kind,source_id,source_actor
+                   FROM router_snapshots WHERE router_id=? ORDER BY id DESC LIMIT 60""",
                 (router_id,),
             ).fetchall()
         if not router:
@@ -75,6 +109,34 @@ def register(app, page_func):
                 tofile=f"snapshot-{new['id']}-{new['captured_at']}",
                 lineterm="",
             )) or "No text differences."
+
+            pieces = []
+            if new["source_kind"] == "transaction" and new["source_id"]:
+                with core.db() as conn:
+                    tx = conn.execute(
+                        """SELECT t.id,t.kind,t.actor,t.status,t.created_at,t.finished_at,j.id AS job_id,j.target
+                           FROM change_transactions t
+                           LEFT JOIN router_jobs j ON j.id=t.job_id
+                           WHERE t.id=? AND t.router_id=?""",
+                        (new["source_id"], router_id),
+                    ).fetchone()
+                if tx:
+                    pieces.append(
+                        '<div class="tc-status ok"><span class="tc-status-dot"></span>Directly attributed to Tikcentral</div>'
+                    )
+                    pieces.append(
+                        f'''<div style="margin-top:8px"><strong>Transaction #{tx["id"]} · {html.escape(tx["kind"])}</strong>
+<div class="muted">{html.escape(tx["actor"] or "-")} · {html.escape(tx["created_at"])} → {html.escape(tx["finished_at"] or "")}{f' · Job #{tx["job_id"]}' if tx["job_id"] else ''}</div>
+<div><a href="/reliability#tx-{tx["id"]}">Open transaction transcript</a></div></div>'''
+                    )
+            elif new["source_kind"]:
+                pieces.append(
+                    f'<div class="tc-status ok"><span class="tc-status-dot"></span>Captured by Tikcentral · {html.escape(new["source_kind"])}</div>'
+                )
+                pieces.append(
+                    f'<div class="muted" style="margin-top:6px">Actor: {html.escape(new["source_actor"] or "-")} · source ID: {html.escape(str(new["source_id"] or "-"))}</div>'
+                )
+
             lo, hi = sorted([old["captured_at"], new["captured_at"]])
             with core.db() as conn:
                 jobs = conn.execute(
@@ -89,15 +151,17 @@ def register(app, page_func):
                          AND category<>'telemetry' ORDER BY id""",
                     (router_id, lo, hi),
                 ).fetchall()
-            pieces = []
-            if jobs:
-                pieces.append('<div class="tc-status warn"><span class="tc-status-dot"></span>Possible Tikcentral-attributed change</div>')
-                pieces.extend(
-                    f'<div style="margin-top:7px"><strong>Job #{j["id"]} · {html.escape(j["kind"])}</strong> · {html.escape(j["status"])} · {html.escape(j["actor"] or "-")}<div class="muted">{html.escape(j["created_at"])} → {html.escape(j["finished_at"] or "")} · target {html.escape(j["target"] or "-")}</div></div>'
-                    for j in jobs
-                )
-            else:
-                pieces.append('<div class="tc-status warn"><span class="tc-status-dot"></span>No matching Tikcentral mutation job</div><div class="muted" style="margin-top:6px">This does not prove the change was manual, but Tikcentral has no recorded mutation job in the selected snapshot interval.</div>')
+
+            if not pieces:
+                if jobs:
+                    pieces.append('<div class="tc-status warn"><span class="tc-status-dot"></span>Possible Tikcentral-attributed change</div>')
+                    pieces.extend(
+                        f'<div style="margin-top:7px"><strong>Job #{j["id"]} · {html.escape(j["kind"])}</strong> · {html.escape(j["status"])} · {html.escape(j["actor"] or "-")}<div class="muted">{html.escape(j["created_at"])} → {html.escape(j["finished_at"] or "")} · target {html.escape(j["target"] or "-")}</div></div>'
+                        for j in jobs
+                    )
+                else:
+                    pieces.append('<div class="tc-status warn"><span class="tc-status-dot"></span>No matching Tikcentral mutation record</div><div class="muted" style="margin-top:6px">Tikcentral did not record a transaction or mutation job matching this snapshot interval. This suggests an out-of-band/manual change, but does not prove it.</div>')
+
             if evs:
                 pieces.append('<h3 style="margin-top:16px">Events in interval</h3>')
                 pieces.extend(
@@ -106,17 +170,22 @@ def register(app, page_func):
                 )
             attribution = "".join(pieces)
 
+
         history = "".join(
-            f'''<tr><td>#{s['id']}</td><td>{html.escape(s['captured_at'])}</td><td><code>{html.escape(s['sha256'][:12])}</code></td><td>{'Latest' if i == 0 else ''}</td></tr>'''
+            f'''<tr><td>#{s['id']}</td><td>{html.escape(s['captured_at'])}</td><td><code>{html.escape(s['sha256'][:12])}</code></td><td>{html.escape(s['source_kind'] or 'legacy / backup')}</td><td>{html.escape(s['source_actor'] or '-')}</td><td>{'Latest' if i == 0 else ''}</td></tr>'''
             for i, s in enumerate(snaps)
-        ) or '<tr><td colspan="4">No snapshots yet. Run a retained backup.</td></tr>'
+        ) or '<tr><td colspan="6">No snapshots yet. Run a retained backup.</td></tr>'
 
         selector = (
             f'''<form method="get" class="inline"><label>From <select name="old">{old_options}</select></label><label>To <select name="new">{new_options}</select></label><button class="primary">Compare</button></form>'''
             if snaps else '<span class="muted">No snapshots available.</span>'
         )
+        added, removed = _diff_counts(diff_text)
+        rendered_diff = _render_diff(diff_text)
         body = f'''<div class="panel pad"><h2>{html.escape(router['site_name'])}</h2><div class="muted">{html.escape(router['model'] or '')} · <code>{html.escape(router['vpn_ip'])}</code></div><div style="margin-top:12px">{selector}</div></div>
-<div class="panel pad"><h2>Configuration diff</h2><div class="inline" style="margin-bottom:10px"><button type="button" onclick="navigator.clipboard.writeText(document.getElementById('config-diff').innerText)">Copy diff</button><a href="/reliability/{router_id}/support"><button>Download support package</button></a></div><pre id="config-diff" style="white-space:pre-wrap;padding:14px;border:1px solid var(--line);border-radius:8px;max-height:60vh;overflow:auto;user-select:text">{html.escape(diff_text)}</pre></div>
+<div class="panel pad"><h2>Configuration diff</h2>
+<div class="inline" style="margin-bottom:10px"><span class="tc-status ok">+{added} added</span><span class="tc-status bad">-{removed} removed</span><button type="button" onclick="navigator.clipboard.writeText(document.getElementById('config-diff').innerText)">Copy diff</button><a href="/reliability/{router_id}/support"><button>Download support package</button></a></div>
+<div id="config-diff" class="tc-diff" style="max-height:62vh;overflow:auto;border:1px solid var(--line);border-radius:8px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;user-select:text">{rendered_diff}</div></div>
 <div class="panel pad"><h2>Change attribution</h2>{attribution}</div>
-<div class="panel"><table><thead><tr><th>Snapshot</th><th>Captured</th><th>Hash</th><th></th></tr></thead><tbody>{history}</tbody></table></div>'''
+<div class="panel"><table><thead><tr><th>Snapshot</th><th>Captured</th><th>Hash</th><th>Source</th><th>Actor</th><th></th></tr></thead><tbody>{history}</tbody></table></div>'''
         return page_func("Configuration Changes", body, user, "changes")
