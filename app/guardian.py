@@ -78,6 +78,131 @@ def _error_for(result):
     return access_issue(result)
 
 
+def _flap_count(router_id: int, checked: str) -> int:
+    cutoff = (datetime.fromisoformat(checked) - timedelta(minutes=settings.GUARDIAN_FLAP_WINDOW_MINUTES)).isoformat()
+    with core.db() as conn:
+        rows = conn.execute(
+            """SELECT management_ok FROM router_access_history
+               WHERE router_id=? AND checked_at>=? ORDER BY id""",
+            (router_id, cutoff),
+        ).fetchall()
+    if len(rows) < 2:
+        return 0
+    values = [bool(x["management_ok"]) for x in rows]
+    return sum(1 for a, b in zip(values, values[1:]) if a != b)
+
+
+def _update_alert_state(router_id: int, result: dict, checked: str, *, in_maintenance: bool):
+    """Escalate sustained failures and detect repeated access flapping."""
+    with core.db() as conn:
+        state = conn.execute(
+            "SELECT * FROM router_access_alert_state WHERE router_id=?",
+            (router_id,),
+        ).fetchone()
+
+    old_failures = int(state["consecutive_failures"] or 0) if state else 0
+    old_level = int(state["escalation_level"] or 0) if state else 0
+    outage_started = state["outage_started_at"] if state else ""
+    last_flap_alert = state["last_flap_alert_at"] if state else ""
+    last_flap_count = int(state["last_flap_count"] or 0) if state else 0
+
+    if result["management_ok"]:
+        with core.db() as conn:
+            conn.execute(
+                """INSERT INTO router_access_alert_state
+                   (router_id,outage_started_at,consecutive_failures,escalation_level,last_transition_at,last_flap_alert_at,last_flap_count)
+                   VALUES(?, '',0,0,?,?,?)
+                   ON CONFLICT(router_id) DO UPDATE SET
+                     outage_started_at='',consecutive_failures=0,escalation_level=0,
+                     last_transition_at=excluded.last_transition_at,
+                     last_flap_alert_at=excluded.last_flap_alert_at,
+                     last_flap_count=excluded.last_flap_count""",
+                (router_id, checked, last_flap_alert, last_flap_count),
+            )
+        return
+
+    failures = old_failures + 1
+    if not outage_started:
+        outage_started = checked
+    try:
+        elapsed_minutes = max(
+            0.0,
+            (datetime.fromisoformat(checked) - datetime.fromisoformat(outage_started)).total_seconds() / 60.0,
+        )
+    except Exception:
+        elapsed_minutes = 0.0
+
+    desired_level = 0
+    if failures >= settings.GUARDIAN_WARN_FAILURES:
+        desired_level = 1
+    if elapsed_minutes >= settings.GUARDIAN_CRITICAL_MINUTES:
+        desired_level = 2
+    if elapsed_minutes >= settings.GUARDIAN_ESCALATE_MINUTES:
+        desired_level = 3
+
+    if not in_maintenance and desired_level > old_level:
+        detail = access_issue(result)
+        if desired_level == 1:
+            events.record(
+                router_id,
+                "access_escalation",
+                f"Management degradation confirmed after {failures} consecutive failed probes",
+                detail,
+                "warning",
+            )
+        elif desired_level == 2:
+            events.record(
+                router_id,
+                "access_escalation",
+                f"Management outage sustained for {int(elapsed_minutes)} minutes",
+                detail,
+                "critical",
+            )
+        else:
+            events.record(
+                router_id,
+                "access_escalation",
+                f"Management outage escalated after {int(elapsed_minutes)} minutes",
+                f"{detail}; consecutive_failed_probes={failures}",
+                "critical",
+            )
+
+    flaps = _flap_count(router_id, checked)
+    flap_alert = last_flap_alert
+    should_alert_flap = flaps >= settings.GUARDIAN_FLAP_THRESHOLD and flaps > last_flap_count
+    if should_alert_flap and last_flap_alert:
+        try:
+            age = (datetime.fromisoformat(checked) - datetime.fromisoformat(last_flap_alert)).total_seconds()
+            should_alert_flap = age >= max(300, settings.GUARDIAN_FLAP_WINDOW_MINUTES * 30)
+        except Exception:
+            pass
+    if should_alert_flap and not in_maintenance:
+        events.record(
+            router_id,
+            "access_flap",
+            f"Management access flapping detected: {flaps} state changes",
+            f"Window: last {settings.GUARDIAN_FLAP_WINDOW_MINUTES} minutes. Current issue: {access_issue(result)}",
+            "warning",
+        )
+        flap_alert = checked
+        last_flap_count = flaps
+
+    with core.db() as conn:
+        conn.execute(
+            """INSERT INTO router_access_alert_state
+               (router_id,outage_started_at,consecutive_failures,escalation_level,last_transition_at,last_flap_alert_at,last_flap_count)
+               VALUES(?,?,?,?,?,?,?)
+               ON CONFLICT(router_id) DO UPDATE SET
+                 outage_started_at=excluded.outage_started_at,
+                 consecutive_failures=excluded.consecutive_failures,
+                 escalation_level=excluded.escalation_level,
+                 last_transition_at=excluded.last_transition_at,
+                 last_flap_alert_at=excluded.last_flap_alert_at,
+                 last_flap_count=excluded.last_flap_count""",
+            (router_id, outage_started, failures, desired_level, checked, flap_alert, last_flap_count),
+        )
+
+
 def guardian_tick():
     ensure_schema()
     with core.db() as conn:
@@ -141,9 +266,10 @@ def guardian_tick():
             summary = "Management access restored" if now_ok else "Management access degraded"
             if in_maintenance and not now_ok:
                 summary = "Maintenance window: management access degraded"
-            transitions.append((row["id"], summary, last_error, "info" if now_ok or in_maintenance else "critical", in_maintenance))
+            transitions.append((row["id"], summary, last_error, "info", in_maintenance))
         elif not now_ok and before[1] != last_error:
-            transitions.append((row["id"], "Maintenance window: access issue changed" if in_maintenance else "Management access issue changed", last_error, "info" if in_maintenance else "warning", in_maintenance))
+            transitions.append((row["id"], "Maintenance window: access issue changed" if in_maintenance else "Management access issue changed", last_error, "info", in_maintenance))
+        _update_alert_state(int(row["id"]), result, checked, in_maintenance=in_maintenance)
         results.append(result)
 
     for rid, summary, detail, severity, _ in transitions:
