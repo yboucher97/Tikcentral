@@ -14,6 +14,7 @@ from fastapi.staticfiles import StaticFiles
 # Import route modules once; their decorators register directly on core.app.
 from app import ai_analysis
 from app import changes
+from app import change_control
 from app import enrollment
 from app import errors
 from app import events
@@ -122,14 +123,9 @@ async def normalize_router(router_id: int, request: Request):
     if not router or not router["enabled"]:
         return RedirectResponse("/audit", status_code=303)
     actor = user["email"] if "email" in user.keys() else "admin"
+    tx_id = None
     try:
-        preflight = guardian.probe_router(router)
-        if not preflight["management_ok"]:
-            raise errors.OperationError(
-                "GUARDIAN_UNHEALTHY",
-                "Guardian access preflight failed; normalization blocked",
-                guardian.access_issue(preflight),
-            )
+        preflight = change_control.require_management(router, "Tikcentral rule normalization")
         with jobs.operation(
             router_id,
             "audit_normalize",
@@ -138,7 +134,11 @@ async def normalize_router(router_id: int, request: Request):
             fail_code="AUDIT_NORMALIZE_FAILED",
             fail_message="Tikcentral rule normalization failed",
         ) as job_id:
+            tx_id = change_control.begin(router_id, "audit_normalize", actor, job_id=job_id, pre_access=preflight)
+            change_control.step(tx_id, "backup", "info", "Creating retained pre-change backup")
             operations.backup_router(router_id, "pre-change", actor, track_job=False)
+            change_control.step(tx_id, "backup", "ok", "Pre-change backup completed")
+            change_control.step(tx_id, "apply", "info", "Reconciling Tikcentral-owned management firewall rules")
             output = router_exec.mutate(
                 router["vpn_ip"],
                 management_script.firewall_reconcile_command(include_print=True),
@@ -146,17 +146,17 @@ async def normalize_router(router_id: int, request: Request):
                 label="Tikcentral rule normalization",
             )
             jobs.verifying(job_id)
-            verified = guardian.probe_router(router)
-            if not verified["management_ok"]:
-                raise errors.OperationError(
-                    "ACCESS_VERIFY_FAILED",
-                    "Rules normalized but management verification failed",
-                    guardian.access_issue(verified),
-                    severity="critical",
-                )
+            verified = change_control.verify_management(router, "Tikcentral rule normalization")
+            change_control.step(tx_id, "verify", "ok", "Management access verified after normalization")
+            change_control.finish(tx_id, post_access=verified)
         events.record(router_id, "audit", "Tikcentral management rules normalized", output[-800:])
         return RedirectResponse(f"/audit/{router_id}", status_code=303)
     except Exception as exc:
+        if tx_id is not None:
+            try:
+                change_control.fail(tx_id, exc, post_access=guardian.probe_router(router))
+            except Exception:
+                pass
         err = errors.from_exception(exc)
         event_detail = f"{err.code}: {err.message}" + (f" — {err.detail}" if err.detail else "")
         events.record(router_id, "audit", "Tikcentral rule normalization failed", event_detail, err.severity)
