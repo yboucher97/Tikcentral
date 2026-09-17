@@ -52,19 +52,17 @@ html[data-theme="light"]{
   --tc-shadow:0 8px 24px rgba(32,68,48,.08)!important;
 }
 html,body{background:var(--tc-bg)!important}
-body{
-  background:linear-gradient(180deg,var(--tc-bg2) 0,var(--tc-bg) 250px)!important;
-}
+body{background:linear-gradient(180deg,var(--tc-bg2) 0,var(--tc-bg) 250px)!important}
 main{max-width:1840px!important;padding:16px 22px 48px!important}
 
-/* Header / brand */
+/* Header / brand. Only HEIGHT sizes the wordmark; width is always intrinsic. */
 .shell-head{
-  min-height:82px!important;
+  min-height:86px!important;
   display:flex!important;
   align-items:center!important;
   gap:14px!important;
   flex-wrap:wrap!important;
-  padding:12px 14px!important;
+  padding:10px 14px!important;
   margin:0 0 16px!important;
   border:1px solid var(--tc-line)!important;
   border-radius:16px!important;
@@ -73,37 +71,48 @@ main{max-width:1840px!important;padding:16px 22px 48px!important}
   overflow:visible!important;
 }
 .brand{
-  flex:0 0 190px!important;
-  min-width:190px!important;
-  max-width:190px!important;
+  flex:0 0 180px!important;
+  width:180px!important;
+  min-width:180px!important;
+  max-width:180px!important;
+  height:66px!important;
   display:flex!important;
   align-items:center!important;
+  justify-content:flex-start!important;
   overflow:visible!important;
 }
 .tc-brand-home{
   display:flex!important;
   align-items:center!important;
-  gap:10px!important;
-  width:100%!important;
-  min-height:58px!important;
+  justify-content:flex-start!important;
+  width:auto!important;
+  height:66px!important;
+  min-width:0!important;
+  max-width:none!important;
   overflow:visible!important;
   text-decoration:none!important;
 }
 .tc-brand-logo{
-  display:block;
+  display:block!important;
+  height:62px!important;
   width:auto!important;
-  height:58px!important;
-  max-width:170px!important;
+  min-width:0!important;
+  max-width:none!important;
+  max-height:none!important;
+  aspect-ratio:auto!important;
   object-fit:contain!important;
   object-position:left center!important;
   flex:0 0 auto!important;
+  transform:none!important;
+  clip-path:none!important;
   overflow:visible!important;
+  image-rendering:auto!important;
 }
-.tc-logo-dark{display:block}.tc-logo-light{display:none}
-html[data-theme="light"] .tc-logo-dark{display:none}
-html[data-theme="light"] .tc-logo-light{display:block}
-.tc-brand-mark{display:none;width:46px!important;height:46px!important;object-fit:contain!important;flex:0 0 auto}
-.tc-brand-caption{display:none}
+.tc-logo-dark{display:block!important}.tc-logo-light{display:none!important}
+html[data-theme="light"] .tc-logo-dark{display:none!important}
+html[data-theme="light"] .tc-logo-light{display:block!important}
+.tc-brand-mark{display:none!important;width:48px!important;height:48px!important;object-fit:contain!important;flex:0 0 48px!important}
+.tc-brand-caption{display:none!important}
 
 .topnav{
   flex:1 1 720px!important;
@@ -115,111 +124,40 @@ html[data-theme="light"] .tc-logo-light{display:block}
   padding:4px!important;
   border-radius:11px!important;
   background:var(--tc-panel2)!important;
+  overflow:visible!important;
 }
-.topnav a{
-  padding:8px 10px!important;
-  border-radius:8px!important;
-  font-weight:650!important;
-  color:var(--tc-muted)!important;
-}
+.topnav a{padding:8px 10px!important;border-radius:8px!important;font-weight:650!important;color:var(--tc-muted)!important}
 .topnav a:hover{background:color-mix(in srgb,var(--oc-green) 7%,var(--tc-panel2))!important;color:var(--tc-text)!important}
-.topnav a.active{
-  background:var(--tc-accent2)!important;
-  color:var(--tc-text)!important;
-  border-color:color-mix(in srgb,var(--oc-green) 34%,var(--tc-line))!important;
-  box-shadow:none!important;
-}
-.account{
-  flex:0 0 auto!important;
-  padding:6px 7px 6px 10px!important;
-  border:1px solid var(--tc-line)!important;
-  border-radius:10px!important;
-  background:var(--tc-panel2)!important;
-}
+.topnav a.active{background:var(--tc-accent2)!important;color:var(--tc-text)!important;border-color:color-mix(in srgb,var(--oc-green) 34%,var(--tc-line))!important;box-shadow:none!important}
+.account{flex:0 0 auto!important;padding:6px 7px 6px 10px!important;border:1px solid var(--tc-line)!important;border-radius:10px!important;background:var(--tc-panel2)!important}
 
-/* Global tools */
-.tc-page-tools{
-  padding:10px 12px!important;
-  border:1px solid var(--tc-line)!important;
-  border-radius:12px!important;
-  background:var(--tc-panel)!important;
-  box-shadow:0 5px 16px rgba(0,0,0,.08)!important;
-}
+.tc-page-tools{padding:10px 12px!important;border:1px solid var(--tc-line)!important;border-radius:12px!important;background:var(--tc-panel)!important;box-shadow:0 5px 16px rgba(0,0,0,.08)!important;overflow:visible!important}
 .tc-toolbar-label{color:var(--oc-green)!important}
 
-/* Panels and cards */
-.panel{
-  overflow:visible!important;
-  border-radius:14px!important;
-  background:var(--tc-panel)!important;
-  border-color:var(--tc-line)!important;
-  box-shadow:var(--tc-shadow)!important;
-}
-.card{
-  overflow:hidden!important;
-  border-radius:14px!important;
-  background:var(--tc-panel)!important;
-  border-color:var(--tc-line)!important;
-  box-shadow:var(--tc-shadow)!important;
-  padding:18px!important;
-}
+/* Base app sets .panel overflow:auto. Override it so menus are not clipped; table shell owns scrolling. */
+.panel{overflow:visible!important;border-radius:14px!important;background:var(--tc-panel)!important;border-color:var(--tc-line)!important;box-shadow:var(--tc-shadow)!important}
+.card{overflow:hidden!important;border-radius:14px!important;background:var(--tc-panel)!important;border-color:var(--tc-line)!important;box-shadow:var(--tc-shadow)!important;padding:18px!important}
 .panel::after,.card::after{display:none!important}
 .panel:hover,.card:hover{border-color:color-mix(in srgb,var(--oc-green) 20%,var(--tc-line))!important}
 .cards{gap:14px!important}
 .card .value{color:var(--oc-green)!important;letter-spacing:-.035em;font-size:29px!important}
 .panel.pad>h2,.panel.pad>h3{display:flex;align-items:center;gap:9px}
-.panel.pad>h2::before,.panel.pad>h3::before{
-  content:"";
-  width:4px;
-  height:20px;
-  flex:0 0 4px;
-  border-radius:99px;
-  background:var(--oc-green);
-  box-shadow:none;
-}
+.panel.pad>h2::before,.panel.pad>h3::before{content:"";width:4px;height:20px;flex:0 0 4px;border-radius:99px;background:var(--oc-green);box-shadow:none}
 
-/* Buttons / inputs */
 button{border-radius:8px!important}
-button.primary{
-  background:var(--oc-green-strong)!important;
-  color:#fff!important;
-  border-color:var(--oc-green-deep)!important;
-  box-shadow:none!important;
-}
+button.primary{background:var(--oc-green-strong)!important;color:#fff!important;border-color:var(--oc-green-deep)!important;box-shadow:none!important}
 button.primary:hover:not(:disabled){background:#2ba567!important;box-shadow:none!important}
 button:not(.danger):not(.primary):hover:not(:disabled){background:color-mix(in srgb,var(--oc-green) 7%,var(--tc-panel2))!important}
 input,select,textarea{border-radius:8px!important}
-input:focus,select:focus,textarea:focus{
-  border-color:var(--oc-green)!important;
-  box-shadow:0 0 0 3px color-mix(in srgb,var(--oc-green) 14%,transparent)!important;
-}
+input:focus,select:focus,textarea:focus{border-color:var(--oc-green)!important;box-shadow:0 0 0 3px color-mix(in srgb,var(--oc-green) 14%,transparent)!important}
 
-/* Tables */
-.tc-table-tools{
-  position:relative!important;
-  z-index:8!important;
-  background:var(--tc-panel2)!important;
-  border-bottom-color:var(--tc-line)!important;
-  border-radius:13px 13px 0 0!important;
-}
-.tc-table-shell{
-  overflow:auto!important;
-  border-radius:0 0 13px 13px!important;
-}
-thead th{
-  background:var(--tc-panel2)!important;
-  border-bottom:1px solid var(--tc-line)!important;
-}
+.tc-table-tools{position:relative!important;z-index:8!important;background:var(--tc-panel2)!important;border-bottom-color:var(--tc-line)!important;border-radius:13px 13px 0 0!important;overflow:visible!important}
+.tc-table-shell{overflow:auto!important;max-width:100%!important;border-radius:0 0 13px 13px!important}
+thead th{background:var(--tc-panel2)!important;border-bottom:1px solid var(--tc-line)!important}
 tbody tr:nth-child(even){background:color-mix(in srgb,var(--tc-panel2) 28%,transparent)}
 tbody tr:hover{background:color-mix(in srgb,var(--oc-green) 6%,transparent)!important}
-.tc-columns{z-index:40!important}
-.tc-columns-menu{
-  z-index:60!important;
-  border-color:var(--tc-line)!important;
-  box-shadow:0 14px 36px rgba(0,0,0,.24)!important;
-}
+.tc-columns{z-index:40!important}.tc-columns-menu{z-index:60!important;border-color:var(--tc-line)!important;box-shadow:0 14px 36px rgba(0,0,0,.24)!important}
 
-/* Status */
 .dot.online{background:var(--oc-success)!important;box-shadow:0 0 0 3px color-mix(in srgb,var(--oc-success) 13%,transparent)}
 .dot.offline{background:#7e8c84!important}
 .tc-status{display:inline-flex;align-items:center;gap:6px;padding:4px 9px;border-radius:999px;font-size:11px;font-weight:750;letter-spacing:.02em;border:1px solid transparent;line-height:1.2;white-space:nowrap}
@@ -232,33 +170,29 @@ html[data-theme="light"] .tc-status-warn{color:#976410;background:#fff7e5;border
 html[data-theme="light"] .tc-status-bad{color:#b5364a;background:#fff0f2;border-color:#f0c3ca}
 .tc-status-neutral{color:var(--tc-muted);background:var(--tc-panel2);border-color:var(--tc-line)}
 
-/* Misc */
 .login{max-width:460px!important;margin-top:56px!important}
 code{padding:2px 5px;border-radius:5px;background:color-mix(in srgb,var(--oc-green) 5%,var(--tc-code))}
 pre{box-shadow:none!important}
-::-webkit-scrollbar{height:10px;width:10px}
-::-webkit-scrollbar-track{background:transparent}
-::-webkit-scrollbar-thumb{background:color-mix(in srgb,var(--oc-green) 20%,var(--tc-line));border-radius:99px;border:2px solid transparent;background-clip:padding-box}
+::-webkit-scrollbar{height:10px;width:10px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:color-mix(in srgb,var(--oc-green) 20%,var(--tc-line));border-radius:99px;border:2px solid transparent;background-clip:padding-box}
 
 @media(max-width:1180px){
-  .brand{flex-basis:168px!important;min-width:168px!important;max-width:168px!important}
-  .tc-brand-logo{height:52px!important;max-width:155px!important}
+  .brand{flex-basis:165px!important;width:165px!important;min-width:165px!important;max-width:165px!important;height:60px!important}
+  .tc-brand-home{height:60px!important}
+  .tc-brand-logo{height:55px!important;width:auto!important;max-width:none!important}
   .topnav{min-width:360px!important}
 }
 @media(max-width:820px){
   main{padding:10px 10px 36px!important}
   .shell-head{position:relative!important;min-height:auto!important;padding:10px!important}
-  .brand{flex:0 0 54px!important;min-width:54px!important;max-width:54px!important}
+  .brand{flex:0 0 54px!important;width:54px!important;min-width:54px!important;max-width:54px!important;height:54px!important}
+  .tc-brand-home{height:54px!important}
   .tc-brand-logo{display:none!important}
   .tc-brand-mark{display:block!important}
   .topnav{order:3;flex:1 1 100%!important;min-width:0!important;overflow:auto!important;flex-wrap:nowrap!important}
   .topnav a{white-space:nowrap!important}
   .account{margin-left:auto!important}
 }
-@media(max-width:560px){
-  .account span{display:none}
-  .cards{grid-template-columns:1fr!important}
-}
+@media(max-width:560px){.account span{display:none}.cards{grid-template-columns:1fr!important}}
 </style>
 '''
 
@@ -270,23 +204,13 @@ BRAND_JS = r'''
     'warning':'warn','partial':'warn','degraded':'warn','pending':'warn','queued':'warn','running':'warn','rebooting':'warn','routerboot required':'warn','drift':'warn','drift detected':'warn',
     'failed':'bad','error':'bad','critical':'bad','offline':'bad','disabled':'neutral','not checked':'neutral','not_checked':'neutral','none':'neutral','unknown':'neutral'
   };
-  function syncThemeColor(){
-    const meta=document.querySelector('meta[name="theme-color"]');
-    if(meta)meta.content=document.documentElement.dataset.theme==='light'?'#f4f7f5':'#101713';
-  }
+  function syncThemeColor(){const meta=document.querySelector('meta[name="theme-color"]');if(meta)meta.content=document.documentElement.dataset.theme==='light'?'#f4f7f5':'#101713';}
   function brandStatuses(){
     syncThemeColor();
     document.querySelectorAll('td').forEach(td=>{
       if(td.dataset.ocStatus==='1'||td.children.length)return;
-      const raw=(td.textContent||'').trim();
-      const tone=stateMap[raw.toLowerCase()];
-      if(!tone)return;
-      td.dataset.ocStatus='1';
-      const s=document.createElement('span');
-      s.className='tc-status tc-status-'+tone;
-      s.textContent=raw;
-      td.textContent='';
-      td.appendChild(s);
+      const raw=(td.textContent||'').trim();const tone=stateMap[raw.toLowerCase()];if(!tone)return;
+      td.dataset.ocStatus='1';const s=document.createElement('span');s.className='tc-status tc-status-'+tone;s.textContent=raw;td.textContent='';td.appendChild(s);
     });
   }
   const observer=new MutationObserver(m=>{if(m.some(x=>x.attributeName==='data-theme'))syncThemeColor();});
@@ -296,7 +220,8 @@ BRAND_JS = r'''
 </script>
 '''
 
-BRAND_HTML = '''<div class="brand"><a class="tc-brand-home" href="/" aria-label="Opticable Tikcentral home"><img class="tc-brand-logo tc-logo-light" src="/static/opticable-logo-light.png" alt="Opticable"><img class="tc-brand-logo tc-logo-dark" src="/static/opticable-logo-dark.png" alt="Opticable"><img class="tc-brand-mark" src="/static/opticable-icon.png" alt="Opticable"></a></div>'''
+# Versioned URLs force browsers to stop reusing the earlier tiny 180x48 cached assets.
+BRAND_HTML = '''<div class="brand"><a class="tc-brand-home" href="/" aria-label="Opticable Tikcentral home"><img class="tc-brand-logo tc-logo-light" src="/static/opticable-logo-light.webp?v=2" alt="Opticable"><img class="tc-brand-logo tc-logo-dark" src="/static/opticable-logo-dark.webp?v=2" alt="Opticable"><img class="tc-brand-mark" src="/static/opticable-icon.png?v=2" alt="Opticable"></a></div>'''
 
 
 def enhance_response(response: HTMLResponse) -> HTMLResponse:
@@ -304,9 +229,8 @@ def enhance_response(response: HTMLResponse) -> HTMLResponse:
     old = '<div class="brand"><h1>Tikcentral</h1><div class="sub">MikroTik remote management</div></div>'
     text = text.replace(old, BRAND_HTML)
     if '/static/opticable-icon.png' not in text.split('</head>', 1)[0]:
-        head = PRETHEME + '<link rel="icon" type="image/png" href="/static/opticable-icon.png"><meta name="theme-color" content="#101713">' + BRAND_CSS
+        head = PRETHEME + '<link rel="icon" type="image/png" href="/static/opticable-icon.png?v=2"><meta name="theme-color" content="#101713">' + BRAND_CSS
         text = text.replace('</head>', head + '</head>', 1)
-    if 'opticable-brand-js' not in text:
-        text = text.replace('</body>', BRAND_JS + '</body>', 1)
+    if 'opticable-brand-js' not in text:text = text.replace('</body>', BRAND_JS + '</body>', 1)
     headers = {k:v for k,v in response.headers.items() if k.lower() not in {'content-length','content-type'}}
     return HTMLResponse(text, status_code=response.status_code, headers=headers)
