@@ -18,6 +18,7 @@ done
 
 mkdir -p "$RELEASES" /var/backups/tikcentral
 chmod 0755 "$ROOT" "$RELEASES"
+find /var/backups/tikcentral -maxdepth 1 -type f -name 'tikcentral-*.db' -exec chown root:tikcentral {} + -exec chmod 0640 {} + 2>/dev/null || true
 
 bootstrap_repository() {
   if [[ -d "$REPO" ]]; then return; fi
