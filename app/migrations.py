@@ -1,7 +1,8 @@
 """Versioned SQLite migrations for Tikcentral.
 
 All persistent schema is created here. Existing installations are migrated with
-CREATE/ALTER operations that preserve data.
+CREATE/ALTER operations that preserve data. Application modules must not create
+or alter tables at runtime outside this file.
 """
 
 import sqlite3
@@ -29,7 +30,6 @@ def _m1(conn):
         version INTEGER PRIMARY KEY,
         applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
-
     CREATE TABLE IF NOT EXISTS enrollment_tokens (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         token_hash TEXT NOT NULL UNIQUE,
@@ -93,7 +93,6 @@ def _m2(conn):
         last_drift_at TEXT NOT NULL DEFAULT ''
     );
     INSERT OR IGNORE INTO operations_settings(id) VALUES(1);
-
     CREATE TABLE IF NOT EXISTS router_telemetry (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         router_id INTEGER NOT NULL,
@@ -112,7 +111,6 @@ def _m2(conn):
         mss_clamp_enabled INTEGER NOT NULL DEFAULT 0
     );
     CREATE INDEX IF NOT EXISTS idx_router_telemetry_router_time ON router_telemetry(router_id,captured_at DESC);
-
     CREATE TABLE IF NOT EXISTS router_expected_state (
         router_id INTEGER PRIMARY KEY,
         expected_profile TEXT NOT NULL DEFAULT 'throughput',
@@ -221,12 +219,10 @@ def _m2(conn):
 
 
 def _m3(conn):
-    # Upgrade existing enrollment tables created by older releases.
     if not _has_column(conn, "enrollment_tokens", "provision_mode"):
         conn.execute("ALTER TABLE enrollment_tokens ADD COLUMN provision_mode TEXT NOT NULL DEFAULT 'enroll'")
     if not _has_column(conn, "enrollment_tokens", "performance_profile"):
         conn.execute("ALTER TABLE enrollment_tokens ADD COLUMN performance_profile TEXT NOT NULL DEFAULT 'throughput'")
-    # Upgrade older routers tables in place.
     columns = {
         "winbox_port": "INTEGER NOT NULL DEFAULT 8291",
         "public_winbox_port": "INTEGER",
@@ -240,12 +236,71 @@ def _m3(conn):
 
 
 def _m4(conn):
-    # Reserved compatibility migration: old upgrade tables may remain for
-    # history, while all new mutations use router_jobs.
     conn.execute("CREATE INDEX IF NOT EXISTS idx_router_backup_records_router_time ON router_backup_records(router_id,created_at DESC)")
 
 
-MIGRATIONS = [_m1, _m2, _m3, _m4]
+def _m5(conn):
+    """Move the historical fleet/automation schema under migration ownership."""
+    conn.executescript("""
+    CREATE TABLE IF NOT EXISTS fleet_settings (
+        id INTEGER PRIMARY KEY CHECK(id=1),
+        backups_enabled INTEGER NOT NULL DEFAULT 1,
+        backup_time TEXT NOT NULL DEFAULT '03:00',
+        timezone TEXT NOT NULL DEFAULT 'America/Toronto',
+        backup_retention_days INTEGER NOT NULL DEFAULT 30,
+        analysis_enabled INTEGER NOT NULL DEFAULT 1,
+        last_backup_date TEXT NOT NULL DEFAULT ''
+    );
+    INSERT OR IGNORE INTO fleet_settings(id) VALUES(1);
+    CREATE TABLE IF NOT EXISTS fleet_jobs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        job_type TEXT NOT NULL,
+        command TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL,
+        created_by TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL,
+        started_at TEXT,
+        finished_at TEXT,
+        total INTEGER NOT NULL DEFAULT 0,
+        succeeded INTEGER NOT NULL DEFAULT 0,
+        failed INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE TABLE IF NOT EXISTS fleet_job_results (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        job_id INTEGER NOT NULL,
+        router_id INTEGER NOT NULL,
+        site_name TEXT NOT NULL,
+        vpn_ip TEXT NOT NULL,
+        status TEXT NOT NULL,
+        output TEXT NOT NULL DEFAULT '',
+        error TEXT NOT NULL DEFAULT '',
+        started_at TEXT NOT NULL,
+        finished_at TEXT NOT NULL,
+        FOREIGN KEY(job_id) REFERENCES fleet_jobs(id) ON DELETE CASCADE
+    );
+    CREATE TABLE IF NOT EXISTS router_snapshots (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        router_id INTEGER NOT NULL,
+        captured_at TEXT NOT NULL,
+        sha256 TEXT NOT NULL,
+        content TEXT NOT NULL,
+        UNIQUE(router_id, sha256)
+    );
+    CREATE TABLE IF NOT EXISTS fleet_findings (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        router_id INTEGER NOT NULL,
+        detected_at TEXT NOT NULL,
+        severity TEXT NOT NULL,
+        category TEXT NOT NULL,
+        summary TEXT NOT NULL,
+        evidence TEXT NOT NULL DEFAULT ''
+    );
+    CREATE INDEX IF NOT EXISTS idx_fleet_job_results_job ON fleet_job_results(job_id,id);
+    CREATE INDEX IF NOT EXISTS idx_fleet_findings_router_time ON fleet_findings(router_id,detected_at DESC);
+    """)
+
+
+MIGRATIONS = [_m1, _m2, _m3, _m4, _m5]
 
 
 def migrate() -> int:
