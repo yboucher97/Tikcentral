@@ -11,8 +11,11 @@ from datetime import datetime, timezone
 from fastapi import Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
+from app import errors
 from app import events
+from app import jobs
 from app import main as core
+from app import management_script
 from app import migrations
 from app import router_exec
 from app import settings
@@ -113,27 +116,48 @@ def guardian_tick():
     return results
 
 
-REPAIR_COMMAND = r'''
-:if ([:len [/interface/wireguard find where name="opticable-wg"]] = 0) do={ :error "opticable-wg missing" }
-/ip service set [find where name="winbox"] disabled=no
-/ip service set [find where name="ssh"] disabled=no
-/ip service set [find where name="api"] disabled=no address=10.250.0.1/32
-:if ([:len [/ip/firewall/filter find where comment="Tikcentral relay WinBox"]] > 0) do={ /ip/firewall/filter remove [find where comment="Tikcentral relay WinBox"] }
-:if ([:len [/ip/firewall/filter find where comment="Tikcentral management SSH API"]] > 0) do={ /ip/firewall/filter remove [find where comment="Tikcentral management SSH API"] }
-:if ([:len [/ip/firewall/filter find where comment="Tikcentral management TCP"]] > 0) do={ /ip/firewall/filter remove [find where comment="Tikcentral management TCP"] }
-/ip/firewall/filter add chain=input action=accept in-interface="opticable-wg" src-address=10.250.0.1/32 protocol=tcp dst-port=22,8291,8728 place-before=0 comment="Tikcentral management TCP"
-:put "Tikcentral management access repaired"
-'''.strip()
+def repair_router(router_id: int, actor: str = "guardian"):
+    """Repair only Tikcentral-owned access objects.
 
-
-def repair_router(router_id: int):
+    Access recovery intentionally does not require a backup and is not blocked by
+    an existing router job; recovering management access has priority over other
+    control-plane work. It is still recorded in the unified job lifecycle.
+    """
     ensure_schema()
     with core.db() as conn:
-        router = conn.execute("SELECT id,site_name,vpn_ip,enabled FROM routers WHERE id=?", (router_id,)).fetchone()
+        router = conn.execute(
+            "SELECT id,site_name,vpn_ip,public_key,enabled FROM routers WHERE id=?",
+            (router_id,),
+        ).fetchone()
     if not router or not router["enabled"]:
-        raise RuntimeError("enabled router not found")
-    output = router_exec.mutate(router["vpn_ip"], REPAIR_COMMAND, timeout=90, label="Guardian access repair")
+        raise errors.OperationError("ROUTER_NOT_FOUND", "Enabled router not found")
+
+    with jobs.operation(
+        router_id,
+        "guardian_repair",
+        actor,
+        serialize_router=False,
+        fail_code="GUARDIAN_REPAIR_FAILED",
+        fail_message="Guardian access repair failed",
+    ) as job_id:
+        output = router_exec.mutate(
+            router["vpn_ip"],
+            management_script.access_repair_command(),
+            timeout=settings.MUTATION_TIMEOUT,
+            label="Guardian access repair",
+        )
+        jobs.verifying(job_id)
+        result = probe_router(router)
+        if not result["management_ok"]:
+            raise errors.OperationError(
+                "ACCESS_VERIFY_FAILED",
+                "Management repair completed but access verification still failed",
+                _error_for(result),
+                severity="critical",
+            )
+
     guardian_tick()
+    events.record(router_id, "access", "Guardian access repair verified", severity="info")
     return output
 
 
@@ -173,8 +197,10 @@ def register(app, page_func):
             return RedirectResponse("/login", status_code=303)
         data = await core.form_data(request)
         core.require_csrf(request, data.get("csrf", ""))
+        actor = user["email"] if "email" in user.keys() else "admin"
         try:
-            repair_router(router_id)
+            repair_router(router_id, actor)
         except Exception as exc:
-            events.record(router_id, "access", "Guardian repair failed", str(exc), "warning")
+            err = errors.from_exception(exc)
+            events.record(router_id, "access", "Guardian repair failed", f"{err.code}: {err.detail}", err.severity)
         return RedirectResponse("/guardian", status_code=303)
