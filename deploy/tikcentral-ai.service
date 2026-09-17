@@ -13,4 +13,4 @@ ExecStart=/opt/tikcentral/current/.venv/bin/python3 -m app.ai_worker
 PrivateTmp=yes
 ProtectSystem=strict
 ProtectHome=yes
-ReadWritePaths=/var/lib/tikcentral
+ReadWritePaths=/var/lib/tikcentral /var/lib/tikcentral-ai
