@@ -18,5 +18,8 @@ RETENTION_DAYS="${TIKCENTRAL_DB_BACKUP_RETENTION_DAYS:-14}"
 
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 mkdir -p "$DEST"
-sqlite3 "$DB" ".backup '$DEST/tikcentral-$STAMP.db'"
+OUT="$DEST/tikcentral-$STAMP.db"
+sqlite3 "$DB" ".backup '$OUT'"
+chown root:tikcentral "$OUT"
+chmod 0640 "$OUT"
 find "$DEST" -maxdepth 1 -type f -name 'tikcentral-*.db' -mtime "+$RETENTION_DAYS" -delete
