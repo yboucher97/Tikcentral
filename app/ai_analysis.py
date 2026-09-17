@@ -1,20 +1,17 @@
 """Read-only Codex analysis for router snapshots.
 
 Tikcentral remains the only component that talks to routers. Codex receives a
-sanitized snapshot in an isolated temporary directory and can only return an
+sanitized snapshot through a dedicated helper and can only return an
 operator-facing report. It never receives router credentials and never executes
 RouterOS mutations.
 """
 
 import html
 import json
-import os
 import re
 import subprocess
-import tempfile
 import threading
 from datetime import datetime, timezone
-from pathlib import Path
 
 from fastapi import BackgroundTasks, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -39,11 +36,10 @@ def _router(router_id: int):
 
 def _sanitize(text: str) -> str:
     value = router_exec.sanitize(text or "")
-    patterns = (
+    for pattern in (
         r'(?i)(password|passwd|passphrase|secret|token|private[-_ ]?key|preshared[-_ ]?key|community)\s*[=:]\s*([^\s;]+)',
         r'(?i)(pppoe[^\n]{0,80}password\s*[=:]\s*)([^\s;]+)',
-    )
-    for pattern in patterns:
+    ):
         value = re.sub(pattern, lambda m: f"{m.group(1)}=<redacted>" if m.lastindex == 2 else "<redacted>", value)
     return value[: settings.AI_MAX_SECTION_CHARS]
 
@@ -78,15 +74,6 @@ def collect_snapshot(router_id: int) -> dict:
     def row_dict(row):
         return dict(row) if row else None
 
-    live = {
-        "configuration": _safe_read(router["vpn_ip"], "/export show-sensitive=no", "AI configuration export"),
-        "logs": _safe_read(router["vpn_ip"], "/log print without-paging", "AI log collection"),
-        "interfaces": _safe_read(router["vpn_ip"], "/interface print stats-detail without-paging", "AI interface collection"),
-        "routes": _safe_read(router["vpn_ip"], "/ip route print detail without-paging", "AI route collection"),
-        "dhcp_clients": _safe_read(router["vpn_ip"], "/ip dhcp-client print detail without-paging", "AI DHCP collection"),
-        "pppoe_clients": _safe_read(router["vpn_ip"], "/interface pppoe-client print detail without-paging", "AI PPPoE collection"),
-    }
-
     return {
         "snapshot_version": 1,
         "captured_at": _now(),
@@ -98,7 +85,14 @@ def collect_snapshot(router_id: int) -> dict:
         "telemetry_history": [dict(r) for r in telemetry],
         "recent_events": [dict(r) for r in recent_events],
         "recent_jobs": [dict(r) for r in recent_jobs],
-        "live": live,
+        "live": {
+            "configuration": _safe_read(router["vpn_ip"], "/export show-sensitive=no", "AI configuration export"),
+            "logs": _safe_read(router["vpn_ip"], "/log print without-paging", "AI log collection"),
+            "interfaces": _safe_read(router["vpn_ip"], "/interface print stats-detail without-paging", "AI interface collection"),
+            "routes": _safe_read(router["vpn_ip"], "/ip route print detail without-paging", "AI route collection"),
+            "dhcp_clients": _safe_read(router["vpn_ip"], "/ip dhcp-client print detail without-paging", "AI DHCP collection"),
+            "pppoe_clients": _safe_read(router["vpn_ip"], "/interface pppoe-client print detail without-paging", "AI PPPoE collection"),
+        },
     }
 
 
@@ -128,22 +122,13 @@ TIKCENTRAL SNAPSHOT:
 
 def run_analysis(router_id: int, actor: str) -> int:
     snapshot = collect_snapshot(router_id)
-    codex_home = Path(settings.AI_CODEX_HOME)
-    temp_root = Path(settings.AI_TEMP_ROOT)
-    codex_home.mkdir(parents=True, exist_ok=True)
-    temp_root.mkdir(parents=True, exist_ok=True)
-    os.chmod(codex_home, 0o700)
-    os.chmod(temp_root, 0o700)
-
-    with tempfile.TemporaryDirectory(prefix="tikcentral-ai-", dir=str(temp_root)) as tmp:
-        tmp_path = Path(tmp)
-        os.chmod(tmp_path, 0o700)
-        (tmp_path / "snapshot.json").write_text(json.dumps(snapshot, indent=2, ensure_ascii=False), encoding="utf-8")
-        env = os.environ.copy()
-        env["HOME"] = str(codex_home)
-        command = [settings.AI_CODEX_BIN, "exec", "--ephemeral", "--ignore-user-config", "--skip-git-repo-check", "--sandbox", "read-only", "-"]
-        proc = subprocess.run(command, input=_prompt(snapshot), text=True, capture_output=True, cwd=tmp, env=env, timeout=settings.AI_TIMEOUT)
-
+    proc = subprocess.run(
+        ["sudo", "-n", settings.AI_CODEX_HELPER],
+        input=_prompt(snapshot),
+        text=True,
+        capture_output=True,
+        timeout=settings.AI_TIMEOUT,
+    )
     if proc.returncode != 0:
         detail = _sanitize((proc.stderr or proc.stdout or "Codex returned an error")[-4000:])
         raise errors.OperationError("AI_CODEX_FAILED", "Codex analysis failed", detail)
@@ -211,9 +196,9 @@ def register(app, page_func):
                 latest_html = _render_report(selected["details"])
         with _ACTIVE_LOCK:
             running = router_id in _ACTIVE
-        queued_notice = '<div class="panel pad"><strong>AI analysis is running.</strong><div class="muted">Refresh this page in a little while. Router operations and Guardian continue normally.</div></div>' if running or request.query_params.get("queued") else ""
+        queued_notice = '<div class="panel pad"><strong>AI analysis is running.</strong><div class="muted">Refresh this page shortly. Router operations and Guardian continue normally.</div></div>' if running or request.query_params.get("queued") else ""
         button = '<button disabled>Analysis running…</button>' if running else '<button class="primary">Analyze router now</button>'
-        body = f'''<div class="panel pad"><h2>AI analysis · {html.escape(router['site_name'])}</h2><div class="muted">Read-only. Tikcentral collects and sanitizes router data; Codex never receives SSH credentials and cannot apply RouterOS changes.</div><div class="inline" style="margin-top:12px"><form method="post" action="/ai/{router_id}/analyze"><input type="hidden" name="csrf" value="{csrf}">{button}</form><a href="/operations/{router_id}"><button>Back to router</button></a></div></div>{queued_notice}<div class="panel pad">{latest_html}</div><div class="panel"><table><thead><tr><th>Time</th><th>Analysis</th></tr></thead><tbody>{history}</tbody></table></div>'''
+        body = f'''<div class="panel pad"><h2>AI analysis · {html.escape(router['site_name'])}</h2><div class="muted">Read-only. Tikcentral collects and sanitizes router data; Codex runs under an isolated Linux identity and cannot apply RouterOS changes.</div><div class="inline" style="margin-top:12px"><form method="post" action="/ai/{router_id}/analyze"><input type="hidden" name="csrf" value="{csrf}">{button}</form><a href="/operations/{router_id}"><button>Back to router</button></a></div></div>{queued_notice}<div class="panel pad">{latest_html}</div><div class="panel"><table><thead><tr><th>Time</th><th>Analysis</th></tr></thead><tbody>{history}</tbody></table></div>'''
         return page_func("AI Analysis", body, user, "operations")
 
     @app.post("/ai/{router_id}/analyze", response_class=HTMLResponse)
