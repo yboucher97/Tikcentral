@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+ROOT=/opt/tikcentral
+CURRENT="$ROOT/current"
+REPO="$ROOT/repository.git"
+
+[[ "$EUID" -eq 0 ]] || { echo "Run with sudo: sudo tikcentral-update" >&2; exit 1; }
+
+# Atomic installs keep a protected mirror at repository.git. During the first
+# transition, current may still be the original authenticated git checkout.
+if [[ -d "$REPO" ]]; then
+  git --git-dir="$REPO" fetch --prune origin '+refs/heads/main:refs/heads/main'
+  sha="$(git --git-dir="$REPO" rev-parse refs/heads/main)"
+  tmp="$(mktemp /tmp/tikcentral-update.XXXXXX.sh)"
+  trap 'rm -f "$tmp"' EXIT
+  git --git-dir="$REPO" show "$sha:update.sh" > "$tmp"
+  chmod 0700 "$tmp"
+  exec bash "$tmp"
+fi
+
+if [[ -d "$CURRENT/.git" ]]; then
+  git -C "$CURRENT" fetch --prune origin
+  git -C "$CURRENT" reset --hard origin/main
+  exec bash "$CURRENT/update.sh"
+fi
+
+echo "Tikcentral updater repository is unavailable. Expected $REPO or a git checkout at $CURRENT." >&2
+exit 1
