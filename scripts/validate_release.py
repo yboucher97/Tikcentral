@@ -16,7 +16,7 @@ from pathlib import Path
 _VALIDATION_TMP = tempfile.TemporaryDirectory(prefix="tikcentral-release-test-")
 os.environ["DB_PATH"] = str(Path(_VALIDATION_TMP.name) / "tikcentral.db")
 
-from app import capabilities, enrollment_v2, errors, jobs, migrations, performance_profile, router_exec, scheduler, settings, ui
+from app import capabilities, enrollment_v2, errors, events, fleet_health, jobs, migrations, performance_profile, router_exec, scheduler, settings, ui
 from app import main as core
 from app.final import app
 
@@ -50,7 +50,7 @@ FORBIDDEN_RUNTIME_MODULES = {
     "app.rescue_safe_routes", "app.ui_enhancements", "app.branding",
 }
 CENTRAL_SETTINGS_MODULES = {
-    "operations.py", "rescue.py", "scheduler.py", "router_exec.py", "jobs.py", "capabilities.py",
+    "operations.py", "rescue.py", "scheduler.py", "router_exec.py", "jobs.py", "capabilities.py", "events.py", "fleet_health.py",
 }
 
 
@@ -88,7 +88,6 @@ def validate_runtime_composition():
     if operations.collect_telemetry.__module__ != "app.operations":
         raise SystemExit("Telemetry is not owned directly by app.operations")
 
-    # Router SSH/SFTP subprocesses belong only in router_exec.py.
     for path in (ROOT / "app").glob("*.py"):
         if path.name == "router_exec.py":
             continue
@@ -103,8 +102,6 @@ def validate_runtime_composition():
             if "ssh" in values or "sftp" in values:
                 raise SystemExit(f"Direct SSH/SFTP command outside router_exec.py: {path.name}")
 
-    # router_jobs is a single state model. Other modules may SELECT it, but only
-    # jobs.py/migrations.py may mutate the table directly.
     for path in (ROOT / "app").glob("*.py"):
         if path.name in {"jobs.py", "migrations.py"}:
             continue
@@ -113,8 +110,6 @@ def validate_runtime_composition():
             if verb in text:
                 raise SystemExit(f"Direct router_jobs mutation outside jobs.py: {path.name}")
 
-    # Operational modules consume environment-derived configuration only via
-    # settings.py; this prevents silent per-module defaults from diverging.
     for name in CENTRAL_SETTINGS_MODULES:
         path = ROOT / "app" / name
         text = path.read_text(encoding="utf-8")
@@ -122,23 +117,26 @@ def validate_runtime_composition():
             raise SystemExit(f"Direct environment access outside settings.py: {name}")
 
 
-def validate_ui():
+def validate_ui_and_assets():
+    required_asset_names = {"logo_light", "logo_dark", "icon"}
+    if set(settings.ASSET_FILES) != required_asset_names or set(settings.ASSETS) != required_asset_names:
+        raise SystemExit("Asset manifest keys are incomplete")
+    suffix = f"?v={settings.ASSET_VERSION}"
+    for name, filename in settings.ASSET_FILES.items():
+        if settings.ASSETS[name] != f"/static/{filename}{suffix}":
+            raise SystemExit(f"Asset manifest/cache version mismatch for {name}")
+        asset = ROOT / "app" / "static" / filename
+        if not asset.is_file() or asset.stat().st_size == 0:
+            raise SystemExit(f"Branding asset missing or empty: {asset}")
+
     rendered = ui.page(
         "Operations",
         '<div class="panel"><table><thead><tr><th>Status</th></tr></thead><tbody><tr><td>Healthy</td></tr></tbody></table></div>',
         {"email": "validator@opticable.local"}, "operations",
     ).body.decode()
-    for marker in (
-        "tcGlobalSearch", "tcToggleTheme", "tc-local-search", "Columns ▾",
-        settings.ASSETS["logo_light"], settings.ASSETS["logo_dark"], settings.ASSETS["icon"],
-    ):
+    for marker in ("tcGlobalSearch", "tcToggleTheme", "tc-local-search", "Columns ▾", *settings.ASSETS.values()):
         if marker not in rendered:
             raise SystemExit(f"Shared UI validation failed: missing {marker}")
-    for value in settings.ASSETS.values():
-        relative = value.split("?", 1)[0].removeprefix("/static/")
-        asset = ROOT / "app" / "static" / relative
-        if not asset.is_file() or asset.stat().st_size == 0:
-            raise SystemExit(f"Branding asset missing or empty: {asset}")
 
 
 def validate_router_exec_and_errors():
@@ -158,10 +156,8 @@ def validate_router_exec_and_errors():
 
 def validate_persistence_smoke():
     expected = len(migrations.MIGRATIONS)
-    if migrations.migrate() != expected:
-        raise SystemExit("Unexpected migration target version")
-    if migrations.migrate() != expected:
-        raise SystemExit("Migrations are not idempotent")
+    if migrations.migrate() != expected or migrations.migrate() != expected:
+        raise SystemExit("Migrations are not stable/idempotent")
     with sqlite3.connect(settings.DB_PATH) as conn:
         version = conn.execute("SELECT MAX(version) FROM schema_version").fetchone()[0]
         required_tables = {"routers", "router_jobs", "router_capabilities", "router_telemetry", "router_events"}
@@ -176,8 +172,6 @@ def validate_persistence_smoke():
     if cap2.supports_performance_profiles or cap2.managed_baseline:
         raise SystemExit("Tikcentral-only capability policy failed")
 
-    # Seed two healthy routers. One gets an active mutation and therefore must
-    # disappear from the scheduler's read-only eligibility list.
     with core.db() as conn:
         for rid in (9001, 9002):
             conn.execute(
@@ -197,6 +191,10 @@ def validate_persistence_smoke():
     eligible = scheduler._eligible_healthy_router_ids()
     if 9001 in eligible or 9002 not in eligible:
         raise SystemExit("Read/change scheduler isolation failed")
+    if fleet_health.get(9001).state != fleet_health.CHANGE_IN_PROGRESS:
+        raise SystemExit("Fleet health does not expose active change state")
+    if fleet_health.get(9002).state != fleet_health.HEALTHY:
+        raise SystemExit("Fleet health healthy-state derivation failed")
     jobs.verifying(job_id)
     jobs.succeeded(job_id)
     if jobs.get(job_id)["status"] != "succeeded":
@@ -213,8 +211,18 @@ def validate_persistence_smoke():
     if jobs.get(context_job)["status"] != "succeeded":
         raise SystemExit("Unified job context manager smoke test failed")
 
+    # Routine successful telemetry must stay out of the operator timeline.
+    events.record(9002, "telemetry", "Telemetry collected", "", "info")
+    with core.db() as conn:
+        if conn.execute("SELECT COUNT(*) FROM router_events WHERE router_id=9002 AND category='telemetry'").fetchone()[0] != 0:
+            raise SystemExit("Routine telemetry is polluting the event timeline")
+    events.record(9002, "telemetry", "Telemetry collection failed", "timeout", "warning")
+    with core.db() as conn:
+        if conn.execute("SELECT COUNT(*) FROM router_events WHERE router_id=9002 AND category='telemetry'").fetchone()[0] != 1:
+            raise SystemExit("Telemetry warnings are not preserved")
 
-def validate_settings():
+
+def validate_settings_and_fault_isolation():
     checks = {
         "TELEMETRY_WORKERS": settings.TELEMETRY_WORKERS,
         "DRIFT_WORKERS": settings.DRIFT_WORKERS,
@@ -222,11 +230,24 @@ def validate_settings():
         "POLICY_PROBE_TIMEOUT": settings.POLICY_PROBE_TIMEOUT,
         "MUTATION_TIMEOUT": settings.MUTATION_TIMEOUT,
         "MAX_COMMAND_LENGTH": settings.MAX_COMMAND_LENGTH,
+        "EVENT_INFO_RETENTION_ROWS": settings.EVENT_INFO_RETENTION_ROWS,
     }
     if any(int(v) <= 0 for v in checks.values()):
         raise SystemExit(f"Invalid centralized setting(s): {checks}")
     if settings.TELEMETRY_INTERVAL_SECONDS < 60 or settings.DRIFT_INTERVAL_SECONDS < 300:
         raise SystemExit("Read-only scheduler intervals are below safe minimums")
+    if settings.EVENT_INFO_RETENTION_ROWS >= settings.EVENT_RETENTION_ROWS:
+        raise SystemExit("Info event retention should be smaller than meaningful-event retention")
+    if "telemetry" not in settings.OPTIONAL_SUBSYSTEMS or "fleet_health" not in settings.OPTIONAL_SUBSYSTEMS:
+        raise SystemExit("Optional subsystem policy is incomplete")
+
+    runner = (ROOT / "app" / "fleet_runner.py").read_text(encoding="utf-8")
+    if runner.find("guardian.guardian_tick()") > runner.find("scheduler.scheduled_tick"):
+        raise SystemExit("Guardian must run before optional scheduler work")
+    sched = (ROOT / "app" / "scheduler.py").read_text(encoding="utf-8")
+    for name in settings.OPTIONAL_SUBSYSTEMS:
+        if name not in sched:
+            raise SystemExit(f"Optional subsystem is not represented in scheduler isolation: {name}")
 
 
 def validate_updater_launcher():
@@ -252,10 +273,10 @@ def validate_provisioning():
 def main():
     validate_routes()
     validate_runtime_composition()
-    validate_ui()
+    validate_ui_and_assets()
     validate_router_exec_and_errors()
     validate_persistence_smoke()
-    validate_settings()
+    validate_settings_and_fault_isolation()
     validate_updater_launcher()
     validate_provisioning()
     print("Tikcentral release validation: OK")
