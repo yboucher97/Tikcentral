@@ -38,6 +38,7 @@ REQUIRED_ROUTES = {
     ("POST", "/reliability/{router_id}/maintenance/start"),
     ("POST", "/reliability/{router_id}/maintenance/clear"),
     ("GET", "/reliability/{router_id}/breakglass"),
+    ("POST", "/reliability/{router_id}/breakglass"),
     ("GET", "/reliability/{router_id}/support"),
     ("GET", "/operations"), ("GET", "/operations/{router_id}"),
     ("POST", "/operations/{router_id}/commission"),
@@ -169,6 +170,21 @@ def validate_source_boundaries():
     operations_text = (ROOT / "app/operations.py").read_text(encoding="utf-8")
     if "change_control.require_management" not in operations_text or "change_control.verify_management" not in operations_text:
         fail("Access-sensitive operations bypass shared change-control safety")
+    production_text = (ROOT / "app/production.py").read_text(encoding="utf-8")
+    for marker in ("change_control.require_management", "change_control.begin", "operations.backup_router", "change_control.verify_management"):
+        if marker not in production_text:
+            fail(f"Web SSH bypasses transactional safety: {marker}")
+    rescue_text = (ROOT / "app/rescue.py").read_text(encoding="utf-8")
+    for marker in ("change_control.require_management", "change_control.begin", "operations.backup_router", "change_control.verify_management"):
+        if marker not in rescue_text:
+            fail(f"Rescue bypasses transactional safety: {marker}")
+    change_text = (ROOT / "app/change_control.py").read_text(encoding="utf-8")
+    for marker in ("Attempting canonical Tikcentral access recovery", "management_script.access_repair_command()", "transaction_id"):
+        if marker not in change_text:
+            fail(f"Shared change-control recovery missing: {marker}")
+    for marker in ("change_control.begin", "change_control.attach_job", "change_control.step", "router_exec.sanitize"):
+        if marker not in guardian_text:
+            fail(f"Guardian repair transcript incomplete: {marker}")
     for path in (ROOT / "app").glob("*.py"):
         if "show-sensitive=no" in path.read_text(encoding="utf-8"):
             fail(f"Invalid RouterOS show-sensitive=no syntax returned: {path.name}")
