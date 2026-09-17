@@ -1,6 +1,7 @@
 """Unified job state for Tikcentral router operations."""
 
 import json
+from contextlib import contextmanager
 from datetime import datetime, timezone
 
 from app import errors
@@ -53,7 +54,19 @@ def transition(job_id: int, status: str, *, error: errors.OperationError | None 
         row = conn.execute("SELECT status FROM router_jobs WHERE id=?", (job_id,)).fetchone()
         if not row:
             raise KeyError("job not found")
-        started = now if status == "running" and row["status"] == "queued" else None
+        current = row["status"]
+        allowed = {
+            "queued": {"running", "failed"},
+            "running": {"verifying", "succeeded", "failed"},
+            "verifying": {"succeeded", "failed"},
+            "succeeded": set(),
+            "failed": set(),
+        }
+        if status != current and status not in allowed.get(current, set()):
+            raise errors.OperationError("INVALID_JOB_TRANSITION", "Invalid job state transition", f"{current} -> {status}")
+        if status == current:
+            return
+        started = now if status == "running" and current == "queued" else None
         finished = now if status in FINAL else None
         conn.execute(
             """UPDATE router_jobs SET status=?,updated_at=?,
@@ -79,6 +92,37 @@ def succeeded(job_id: int):
 
 def failed(job_id: int, exc: Exception, *, code: str = "OPERATION_FAILED", message: str = "Operation failed"):
     transition(job_id, "failed", error=errors.from_exception(exc, code, message))
+
+
+@contextmanager
+def operation(router_id: int | None, kind: str, actor: str = "system", target: str = "", payload=None, *, serialize_router: bool = True, serialize_global_kind: str = "", fail_code: str = "OPERATION_FAILED", fail_message: str = "Operation failed"):
+    """Create/run/fail a serialized job with one consistent lifecycle.
+
+    The caller may call verifying(job_id) before post-change health checks. If the
+    context exits normally while still running/verifying, it is marked succeeded.
+    Any exception marks it failed and is re-raised for normal UI/error handling.
+    """
+    job_id = create(
+        router_id,
+        kind,
+        actor,
+        target,
+        payload,
+        serialize_router=serialize_router,
+        serialize_global_kind=serialize_global_kind,
+    )
+    running(job_id)
+    try:
+        yield job_id
+    except Exception as exc:
+        try:
+            failed(job_id, exc, code=fail_code, message=fail_message)
+        finally:
+            raise
+    else:
+        row = get(job_id)
+        if row and row["status"] in {"running", "verifying"}:
+            succeeded(job_id)
 
 
 def get(job_id: int):
