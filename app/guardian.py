@@ -5,13 +5,16 @@ least one command path is reachable through the management tunnel.
 """
 
 import html
+import json
 import socket
-from datetime import datetime, timezone
+import time
+from datetime import datetime, timedelta, timezone
 from urllib.parse import quote
 
 from fastapi import Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
+from app import change_control
 from app import errors
 from app import events
 from app import jobs
@@ -30,12 +33,17 @@ def ensure_schema():
     migrations.migrate()
 
 
-def tcp_open(ip: str, port: int, timeout: float = 2.0) -> bool:
+def tcp_probe(ip: str, port: int, timeout: float = 2.0):
+    started = time.monotonic()
     try:
         with socket.create_connection((ip, port), timeout=timeout):
-            return True
+            return True, round((time.monotonic() - started) * 1000, 1)
     except OSError:
-        return False
+        return False, None
+
+
+def tcp_open(ip: str, port: int, timeout: float = 2.0) -> bool:
+    return tcp_probe(ip, port, timeout)[0]
 
 
 def probe_router(row, peers=None):
@@ -44,13 +52,14 @@ def probe_router(row, peers=None):
         peers = core.wireguard_peers()
     live = peers.get(row["public_key"], {}) if "public_key" in row.keys() else {}
     wg = bool(live.get("online")) and bool(row["enabled"])
-    ssh = tcp_open(row["vpn_ip"], 22) if wg else False
-    winbox = tcp_open(row["vpn_ip"], 8291) if wg else False
-    api = tcp_open(row["vpn_ip"], 8728) if wg else False
+    ssh, ssh_ms = tcp_probe(row["vpn_ip"], 22) if wg else (False, None)
+    winbox, winbox_ms = tcp_probe(row["vpn_ip"], 8291) if wg else (False, None)
+    api, api_ms = tcp_probe(row["vpn_ip"], 8728) if wg else (False, None)
     ok = wg and winbox and (ssh or api)
     return {
         "router_id": row["id"], "wg_online": wg, "ssh_open": ssh,
         "winbox_open": winbox, "api_open": api, "management_ok": ok,
+        "ssh_latency_ms": ssh_ms, "winbox_latency_ms": winbox_ms, "api_latency_ms": api_ms,
     }
 
 
@@ -79,6 +88,14 @@ def guardian_tick():
             r["router_id"]: (bool(r["management_ok"]), r["last_error"] or "")
             for r in conn.execute("SELECT router_id,management_ok,last_error FROM router_access_state").fetchall()
         }
+        now = now_iso()
+        maintenance = {
+            int(r["router_id"]): r
+            for r in conn.execute(
+                "SELECT * FROM router_maintenance WHERE start_at<=? AND end_at>?",
+                (now, now),
+            ).fetchall()
+        }
 
     peers = core.wireguard_peers()
     checked = now_iso()
@@ -102,10 +119,13 @@ def guardian_tick():
                  int(result["winbox_open"]), int(result["api_open"]), int(result["management_ok"]), last_good, last_error),
             )
             conn.execute(
-                """INSERT INTO router_access_history(router_id,checked_at,wg_online,ssh_open,winbox_open,api_open,management_ok)
-                   VALUES(?,?,?,?,?,?,?)""",
+                """INSERT INTO router_access_history
+                   (router_id,checked_at,wg_online,ssh_open,winbox_open,api_open,management_ok,
+                    ssh_latency_ms,winbox_latency_ms,api_latency_ms)
+                   VALUES(?,?,?,?,?,?,?,?,?,?)""",
                 (row["id"], checked, int(result["wg_online"]), int(result["ssh_open"]),
-                 int(result["winbox_open"]), int(result["api_open"]), int(result["management_ok"])),
+                 int(result["winbox_open"]), int(result["api_open"]), int(result["management_ok"]),
+                 result["ssh_latency_ms"], result["winbox_latency_ms"], result["api_latency_ms"]),
             )
             conn.execute(
                 """DELETE FROM router_access_history WHERE router_id=? AND id NOT IN
@@ -114,15 +134,56 @@ def guardian_tick():
             )
         before = previous.get(row["id"])
         now_ok = bool(result["management_ok"])
+        in_maintenance = int(row["id"]) in maintenance
         if before is None:
-            transitions.append((row["id"], "Guardian baseline: healthy" if now_ok else "Guardian baseline: degraded", last_error, "info" if now_ok else "warning"))
+            transitions.append((row["id"], "Guardian baseline: healthy" if now_ok else "Guardian baseline: degraded", last_error, "info" if now_ok or in_maintenance else "warning", in_maintenance))
         elif before[0] != now_ok:
-            transitions.append((row["id"], "Management access restored" if now_ok else "Management access degraded", last_error, "info" if now_ok else "critical"))
+            summary = "Management access restored" if now_ok else "Management access degraded"
+            if in_maintenance and not now_ok:
+                summary = "Maintenance window: management access degraded"
+            transitions.append((row["id"], summary, last_error, "info" if now_ok or in_maintenance else "critical", in_maintenance))
         elif not now_ok and before[1] != last_error:
-            transitions.append((row["id"], "Management access issue changed", last_error, "warning"))
+            transitions.append((row["id"], "Maintenance window: access issue changed" if in_maintenance else "Management access issue changed", last_error, "info" if in_maintenance else "warning", in_maintenance))
         results.append(result)
-    for rid, summary, detail, severity in transitions:
+
+    for rid, summary, detail, severity, _ in transitions:
         events.record(rid, "access", summary, detail, severity)
+
+    # Correlate simultaneous failures so a central outage is visible as one incident.
+    degraded_ids = [rid for rid, summary, _, _, in_maintenance in transitions if "degraded" in summary.lower() and not in_maintenance]
+    if len(degraded_ids) >= 2:
+        cutoff = (datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat()
+        with core.db() as conn:
+            existing = conn.execute(
+                "SELECT id FROM fleet_incidents WHERE status='open' AND kind='access' AND opened_at>=? ORDER BY id DESC LIMIT 1",
+                (cutoff,),
+            ).fetchone()
+            if not existing:
+                names = [r["site_name"] for r in routers if int(r["id"]) in degraded_ids]
+                conn.execute(
+                    """INSERT INTO fleet_incidents(opened_at,status,kind,router_count,router_ids,summary,details)
+                       VALUES(?,'open','access',?,?,?,?)""",
+                    (checked, len(degraded_ids), json.dumps(degraded_ids),
+                     f"Correlated management outage affecting {len(degraded_ids)} routers",
+                     ", ".join(names)),
+                )
+                events.record(None, "incident", f"Correlated access incident: {len(degraded_ids)} routers degraded", ", ".join(names), "critical")
+
+    # Automatically resolve correlated incidents once every affected router is healthy.
+    result_map = {int(x["router_id"]): bool(x["management_ok"]) for x in results}
+    with core.db() as conn:
+        open_incidents = conn.execute("SELECT * FROM fleet_incidents WHERE status='open' ORDER BY id").fetchall()
+        for incident in open_incidents:
+            try:
+                ids = [int(x) for x in json.loads(incident["router_ids"] or "[]")]
+            except Exception:
+                ids = []
+            if ids and all(result_map.get(rid, False) for rid in ids):
+                conn.execute(
+                    "UPDATE fleet_incidents SET status='resolved',resolved_at=? WHERE id=?",
+                    (checked, incident["id"]),
+                )
+                events.record(None, "incident", f"Incident #{incident['id']} resolved", incident["summary"], "info")
     return results
 
 
@@ -156,29 +217,43 @@ def repair_router(router_id: int, actor: str = "guardian"):
             "SSH TCP/22 is not reachable, so Tikcentral cannot safely execute the repair command. WinBox/API state is still shown for diagnosis.",
         )
 
-    with jobs.operation(
-        router_id,
-        "guardian_repair",
-        actor,
-        serialize_router=False,
-        fail_code="GUARDIAN_REPAIR_FAILED",
-        fail_message="Guardian access repair failed",
-    ) as job_id:
-        output = router_exec.mutate(
-            router["vpn_ip"],
-            management_script.access_repair_command(),
-            timeout=settings.MUTATION_TIMEOUT,
-            label="Guardian access repair",
-        )
-        jobs.verifying(job_id)
-        result = probe_router(router)
-        if not result["management_ok"]:
-            raise errors.OperationError(
-                "ACCESS_VERIFY_FAILED",
-                "Management repair completed but access verification still failed",
-                access_issue(result),
-                severity="critical",
+    tx_id = None
+    try:
+        with jobs.operation(
+            router_id,
+            "guardian_repair",
+            actor,
+            serialize_router=False,
+            fail_code="GUARDIAN_REPAIR_FAILED",
+            fail_message="Guardian access repair failed",
+        ) as job_id:
+            tx_id = change_control.begin(router_id, "guardian_repair", actor, job_id=job_id, pre_access=before)
+            change_control.step(tx_id, "preflight", "ok", "WireGuard and SSH recovery path reachable", access_issue(before))
+            change_control.step(tx_id, "apply", "info", "Applying Tikcentral-owned access repair")
+            output = router_exec.mutate(
+                router["vpn_ip"],
+                management_script.access_repair_command(),
+                timeout=settings.MUTATION_TIMEOUT,
+                label="Guardian access repair",
             )
+            jobs.verifying(job_id)
+            result = probe_router(router)
+            change_control.step(tx_id, "verify", "ok" if result["management_ok"] else "failed", "Management paths re-probed", access_issue(result))
+            if not result["management_ok"]:
+                raise errors.OperationError(
+                    "ACCESS_VERIFY_FAILED",
+                    "Management repair completed but access verification still failed",
+                    access_issue(result),
+                    severity="critical",
+                )
+            change_control.finish(tx_id, post_access=result)
+    except Exception as exc:
+        if tx_id is not None:
+            try:
+                change_control.fail(tx_id, exc, post_access=probe_router(router))
+            except Exception:
+                pass
+        raise
 
     guardian_tick()
     events.record(router_id, "access", "Guardian access repair verified", output[-800:], severity="info")
@@ -188,6 +263,8 @@ def repair_router(router_id: int, actor: str = "guardian"):
 def _state_for(row):
     if not row["enabled"]:
         return "Disabled"
+    if "maintenance_end" in row.keys() and row["maintenance_end"] and row["maintenance_end"] > now_iso():
+        return "Maintenance"
     if not row["checked_at"]:
         return "Unknown"
     if not row["wg_online"]:
@@ -212,13 +289,23 @@ def register(app, page_func):
                 """SELECT r.id,r.site_name,r.identity,r.model,r.vpn_ip,r.public_winbox_port,r.enabled,
                           s.checked_at,s.wg_online,s.ssh_open,s.winbox_open,s.api_open,
                           s.management_ok,s.last_good_at,s.last_error,
+                          m.end_at AS maintenance_end,m.reason AS maintenance_reason,
                           (SELECT j.status FROM router_jobs j WHERE j.router_id=r.id AND j.kind='guardian_repair' ORDER BY j.id DESC LIMIT 1) AS repair_status,
                           (SELECT j.updated_at FROM router_jobs j WHERE j.router_id=r.id AND j.kind='guardian_repair' ORDER BY j.id DESC LIMIT 1) AS repair_at,
                           (SELECT j.error_code FROM router_jobs j WHERE j.router_id=r.id AND j.kind='guardian_repair' ORDER BY j.id DESC LIMIT 1) AS repair_error_code,
                           (SELECT j.error_message FROM router_jobs j WHERE j.router_id=r.id AND j.kind='guardian_repair' ORDER BY j.id DESC LIMIT 1) AS repair_error_message
                    FROM routers r LEFT JOIN router_access_state s ON s.router_id=r.id
+                   LEFT JOIN router_maintenance m ON m.router_id=r.id
                    ORDER BY r.site_name COLLATE NOCASE,r.id"""
             ).fetchall()
+            histories = {
+                int(r["id"]): conn.execute(
+                    """SELECT checked_at,management_ok,ssh_latency_ms,winbox_latency_ms,api_latency_ms
+                       FROM router_access_history WHERE router_id=? ORDER BY id DESC LIMIT 60""",
+                    (r["id"],),
+                ).fetchall()
+                for r in rows
+            }
             access_events = conn.execute(
                 """SELECT e.event_at,e.severity,e.category,e.summary,e.details,r.site_name
                    FROM router_events e LEFT JOIN routers r ON r.id=e.router_id
@@ -269,11 +356,19 @@ def register(app, page_func):
             else:
                 repair = f'''<form method="post" action="/guardian/{r['id']}/repair" style="display:inline"><input type="hidden" name="csrf" value="{csrf}"><button class="danger" onclick="return confirm('Repair only Tikcentral-owned management access on this router?')">Repair access</button></form>'''
 
-            state_tone = "ok" if state == "Healthy" else ("warn" if state in {"Degraded", "Unknown"} else "bad")
+            state_tone = "ok" if state == "Healthy" else ("warn" if state in {"Degraded", "Unknown", "Maintenance"} else "bad")
+            probes = list(reversed(histories.get(int(r["id"]), [])))
+            strip = ''.join(
+                f'<span title="{html.escape(p["checked_at"] or "")}" style="display:inline-block;width:5px;height:18px;border-radius:2px;background:{("var(--green)" if p["management_ok"] else "var(--danger)")};opacity:.85"></span>'
+                for p in probes
+            ) or '<span class="muted">No history</span>'
+            latency_values = [p["winbox_latency_ms"] for p in probes if p["winbox_latency_ms"] is not None]
+            latency = f'{sum(latency_values)/len(latency_values):.1f} ms avg WinBox' if latency_values else 'No latency sample'
+            maintenance_note = f'<div class="muted">Maintenance until {html.escape(r["maintenance_end"])} · {html.escape(r["maintenance_reason"] or "")}</div>' if state == "Maintenance" else ''
             body_rows.append(
                 f'''<tr><td><strong>{html.escape(r['site_name'])}</strong><div class="muted">{html.escape(r['model'] or '')}</div></td>
 <td><code>{html.escape(r['vpn_ip'])}</code></td><td><span class="tc-status {state_tone} live"><span class="tc-status-dot"></span>{html.escape(state)}</span></td><td><div class="tc-paths">{details}</div></td>
-<td>{html.escape(r['last_good_at'] or 'Never')}</td><td>{html.escape(r['last_error'] or '')}</td>
+<td>{html.escape(r['last_good_at'] or 'Never')}<div style="display:flex;gap:2px;margin-top:7px;align-items:end">{strip}</div><div class="muted">{html.escape(latency)}</div></td><td>{html.escape(r['last_error'] or '')}{maintenance_note}</td>
 <td><div>{repair}</div><div class="muted" style="margin-top:6px">Last repair: {html.escape(repair_detail)}</div></td></tr>'''
             )
 
@@ -285,14 +380,14 @@ def register(app, page_func):
 <div class="card"><strong>Disabled</strong><div class="muted">The router is disabled in Tikcentral and is not considered available for management.</div></div>
 </div><div class="muted" style="margin-top:10px">Path indicators: ● reachable, ○ unreachable. Repair uses SSH to execute the router-side recovery command; if SSH itself is down, Tikcentral will show that repair cannot be started rather than silently failing.</div></div>'''
 
-        counts = {"Healthy": 0, "Degraded": 0, "Offline": 0, "Unknown": 0, "Disabled": 0}
+        counts = {"Healthy": 0, "Degraded": 0, "Offline": 0, "Unknown": 0, "Disabled": 0, "Maintenance": 0}
         for r in rows:
             counts[_state_for(r)] = counts.get(_state_for(r), 0) + 1
         summary = f'''<div class="tc-health-grid">
 <div class="tc-health-card ok"><div class="big">{counts["Healthy"]} Healthy</div><div class="muted">Full management access verified</div></div>
 <div class="tc-health-card warn"><div class="big">{counts["Degraded"]} Degraded</div><div class="muted">Tunnel online, one or more required paths failing</div></div>
 <div class="tc-health-card bad"><div class="big">{counts["Offline"]} Offline</div><div class="muted">WireGuard management tunnel unavailable</div></div>
-<div class="tc-health-card"><div class="big">{counts["Unknown"] + counts["Disabled"]} Other</div><div class="muted">{counts["Unknown"]} unknown · {counts["Disabled"]} disabled</div></div>
+<div class="tc-health-card"><div class="big">{counts["Unknown"] + counts["Disabled"] + counts["Maintenance"]} Other</div><div class="muted">{counts["Unknown"]} unknown · {counts["Disabled"]} disabled · {counts["Maintenance"]} maintenance</div></div>
 </div>'''
 
         log_rows = []
