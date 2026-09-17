@@ -37,6 +37,7 @@ REQUIRED_ROUTES = {
     ("GET", "/reliability"),
     ("POST", "/reliability/{router_id}/maintenance/start"),
     ("POST", "/reliability/{router_id}/maintenance/clear"),
+    ("GET", "/reliability/{router_id}/quality"),
     ("GET", "/reliability/{router_id}/breakglass"),
     ("POST", "/reliability/{router_id}/breakglass"),
     ("GET", "/reliability/{router_id}/support"),
@@ -171,9 +172,9 @@ def validate_source_boundaries():
     if "change_control.require_management" not in operations_text or "change_control.verify_management" not in operations_text:
         fail("Access-sensitive operations bypass shared change-control safety")
     production_text = (ROOT / "app/production.py").read_text(encoding="utf-8")
-    for marker in ("change_control.require_management", "change_control.begin", "operations.backup_router", "change_control.verify_management"):
+    for marker in ("change_control.authorize_mutation", "override_degraded", "override_reason", "change_control.begin", "operations.backup_router", "change_control.verify_management"):
         if marker not in production_text:
-            fail(f"Web SSH bypasses transactional safety: {marker}")
+            fail(f"Web SSH bypasses degraded-access/transaction safety: {marker}")
     rescue_text = (ROOT / "app/rescue.py").read_text(encoding="utf-8")
     for marker in ("change_control.require_management", "change_control.begin", "operations.backup_router", "change_control.verify_management"):
         if marker not in rescue_text:
@@ -185,6 +186,16 @@ def validate_source_boundaries():
     for marker in ("change_control.begin", "change_control.attach_job", "change_control.step", "router_exec.sanitize"):
         if marker not in guardian_text:
             fail(f"Guardian repair transcript incomplete: {marker}")
+    for marker in ("authorize_mutation", "OVERRIDE_REASON_REQUIRED", "OVERRIDE_UNSAFE", "access_override"):
+        if marker not in change_text:
+            fail(f"Degraded-access mutation protection missing: {marker}")
+    reliability_text = (ROOT / "app/reliability.py").read_text(encoding="utf-8")
+    for marker in ("_quality_summary", "_availability_svg", "_latency_svg", "/quality", "AESGCM", "_encrypt_breakglass", "passphrase is used only for this request"):
+        if marker not in reliability_text:
+            fail(f"Reliability feature missing: {marker}")
+    decryptor = ROOT / "scripts/decrypt_breakglass.py"
+    if not decryptor.is_file() or "AESGCM" not in decryptor.read_text(encoding="utf-8"):
+        fail("Encrypted break-glass decryptor missing")
     for path in (ROOT / "app").glob("*.py"):
         if "show-sensitive=no" in path.read_text(encoding="utf-8"):
             fail(f"Invalid RouterOS show-sensitive=no syntax returned: {path.name}")
