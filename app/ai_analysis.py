@@ -10,16 +10,12 @@ import html
 import json
 import re
 import subprocess
-import threading
 from datetime import datetime, timezone
 
-from fastapi import BackgroundTasks, Request
+from fastapi import Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
-from app import errors, events, main as core, migrations, operations, router_exec, settings
-
-_ACTIVE: set[int] = set()
-_ACTIVE_LOCK = threading.Lock()
+from app import errors, main as core, migrations, operations, router_exec, settings
 
 
 def _now() -> str:
@@ -36,22 +32,25 @@ def _router(router_id: int):
 
 def _sanitize(text: str) -> str:
     value = router_exec.sanitize(text or "")
-    for pattern in (
+    patterns = (
         r'(?i)(password|passwd|passphrase|secret|token|private[-_ ]?key|preshared[-_ ]?key|community)\s*[=:]\s*([^\s;]+)',
         r'(?i)(pppoe[^\n]{0,80}password\s*[=:]\s*)([^\s;]+)',
-    ):
-        value = re.sub(pattern, lambda m: f"{m.group(1)}=<redacted>" if m.lastindex == 2 else "<redacted>", value)
+    )
+    for pattern in patterns:
+        value = re.sub(pattern, lambda m: f"{m.group(1)}=<redacted>", value)
     return value[: settings.AI_MAX_SECTION_CHARS]
 
 
 def _safe_read(ip: str, command: str, label: str) -> dict:
     try:
-        return {"ok": True, "data": _sanitize(router_exec.read(ip, command, timeout=settings.AI_ROUTER_READ_TIMEOUT, label=label))}
+        data = router_exec.read(ip, command, timeout=settings.AI_ROUTER_READ_TIMEOUT, label=label)
+        return {"ok": True, "data": _sanitize(data)}
     except Exception as exc:
         return {"ok": False, "error": errors.short(exc)}
 
 
 def collect_snapshot(router_id: int) -> dict:
+    """Collect a fresh, sanitized, read-only router snapshot."""
     migrations.migrate()
     router = _router(router_id)
     if not router or not router["enabled"]:
@@ -68,7 +67,7 @@ def collect_snapshot(router_id: int) -> dict:
         expected = conn.execute("SELECT * FROM router_expected_state WHERE router_id=?", (router_id,)).fetchone()
         update = conn.execute("SELECT * FROM router_update_status WHERE router_id=?", (router_id,)).fetchone()
         telemetry = conn.execute("SELECT * FROM router_telemetry WHERE router_id=? ORDER BY id DESC LIMIT 24", (router_id,)).fetchall()
-        recent_events = conn.execute("SELECT * FROM router_events WHERE router_id=? AND category<>'ai-analysis' ORDER BY id DESC LIMIT 100", (router_id,)).fetchall()
+        recent_events = conn.execute("SELECT * FROM router_events WHERE router_id=? ORDER BY id DESC LIMIT 100", (router_id,)).fetchall()
         recent_jobs = conn.execute("SELECT * FROM router_jobs WHERE router_id=? ORDER BY id DESC LIMIT 30", (router_id,)).fetchall()
 
     def row_dict(row):
@@ -96,7 +95,7 @@ def collect_snapshot(router_id: int) -> dict:
     }
 
 
-def _prompt(snapshot: dict) -> str:
+def build_prompt(snapshot: dict) -> str:
     payload = json.dumps(snapshot, indent=2, ensure_ascii=False)
     return f"""You are analyzing one MikroTik RouterOS site for an experienced network technician.
 Use ONLY the supplied Tikcentral snapshot. Do not use tools, shell commands, network access, or outside assumptions.
@@ -120,11 +119,11 @@ TIKCENTRAL SNAPSHOT:
 """
 
 
-def run_analysis(router_id: int, actor: str) -> int:
-    snapshot = collect_snapshot(router_id)
+def run_codex(snapshot: dict) -> str:
+    """Invoke the fixed root-owned wrapper; Codex itself runs as tikcentral-ai."""
     proc = subprocess.run(
         ["sudo", "-n", settings.AI_CODEX_HELPER],
-        input=_prompt(snapshot),
+        input=build_prompt(snapshot),
         text=True,
         capture_output=True,
         timeout=settings.AI_TIMEOUT,
@@ -132,30 +131,30 @@ def run_analysis(router_id: int, actor: str) -> int:
     if proc.returncode != 0:
         detail = _sanitize((proc.stderr or proc.stdout or "Codex returned an error")[-4000:])
         raise errors.OperationError("AI_CODEX_FAILED", "Codex analysis failed", detail)
-    report = (proc.stdout or "").strip()
+    report = _sanitize((proc.stdout or "").strip())[: settings.AI_MAX_REPORT_CHARS]
     if not report:
         raise errors.OperationError("AI_EMPTY_RESULT", "Codex returned an empty analysis")
-    report = _sanitize(report)[: settings.AI_MAX_REPORT_CHARS]
+    return report
+
+
+def queue_analysis(router_id: int, actor: str) -> int:
+    """Queue at most one pending/running analysis per router."""
+    migrations.migrate()
+    router = _router(router_id)
+    if not router or not router["enabled"]:
+        raise errors.OperationError("ROUTER_NOT_FOUND", "Enabled router not found")
     with core.db() as conn:
+        existing = conn.execute(
+            "SELECT id FROM router_ai_analyses WHERE router_id=? AND status IN ('queued','running') ORDER BY id DESC LIMIT 1",
+            (router_id,),
+        ).fetchone()
+        if existing:
+            return int(existing["id"])
         cur = conn.execute(
-            "INSERT INTO router_events(router_id,event_at,severity,category,summary,details) VALUES(?,?,?,?,?,?)",
-            (router_id, _now(), "info", "ai-analysis", f"AI router analysis by {actor}", report),
+            "INSERT INTO router_ai_analyses(router_id,status,requested_by,created_at) VALUES(?, 'queued', ?, ?)",
+            (router_id, actor, _now()),
         )
         return int(cur.lastrowid)
-
-
-def _background_analysis(router_id: int, actor: str):
-    try:
-        run_analysis(router_id, actor)
-    except Exception as exc:
-        err = errors.from_exception(exc, "AI_ANALYSIS_FAILED", "AI router analysis failed")
-        try:
-            events.record(router_id, "ai", "AI router analysis failed", f"{err.code}: {err.detail}", "warning")
-        except Exception:
-            pass
-    finally:
-        with _ACTIVE_LOCK:
-            _ACTIVE.discard(router_id)
 
 
 def _render_report(text: str) -> str:
@@ -184,36 +183,54 @@ def register(app, page_func):
             return RedirectResponse("/routers", status_code=303)
         csrf = core.csrf_token(request)
         with core.db() as conn:
-            rows = conn.execute("SELECT id,event_at,summary,details FROM router_events WHERE router_id=? AND category='ai-analysis' ORDER BY id DESC LIMIT 12", (router_id,)).fetchall()
-        latest = rows[0] if rows else None
-        latest_html = _render_report(latest["details"]) if latest else '<div class="muted">No AI analysis has been run for this router.</div>'
-        history = ''.join(f'<tr><td>{html.escape(r["event_at"])}</td><td><a href="/ai/{router_id}?report={r["id"]}">{html.escape(r["summary"])}</a></td></tr>' for r in rows) or '<tr><td colspan="2">No history.</td></tr>'
+            rows = conn.execute(
+                "SELECT id,status,requested_by,created_at,started_at,finished_at,report,error_code,error_detail FROM router_ai_analyses WHERE router_id=? ORDER BY id DESC LIMIT 20",
+                (router_id,),
+            ).fetchall()
         requested = request.query_params.get("report", "")
+        selected = None
         if requested.isdigit():
-            with core.db() as conn:
-                selected = conn.execute("SELECT details FROM router_events WHERE id=? AND router_id=? AND category='ai-analysis'", (int(requested), router_id)).fetchone()
-            if selected:
-                latest_html = _render_report(selected["details"])
-        with _ACTIVE_LOCK:
-            running = router_id in _ACTIVE
-        queued_notice = '<div class="panel pad"><strong>AI analysis is running.</strong><div class="muted">Refresh this page shortly. Router operations and Guardian continue normally.</div></div>' if running or request.query_params.get("queued") else ""
-        button = '<button disabled>Analysis running…</button>' if running else '<button class="primary">Analyze router now</button>'
-        body = f'''<div class="panel pad"><h2>AI analysis · {html.escape(router['site_name'])}</h2><div class="muted">Read-only. Tikcentral collects and sanitizes router data; Codex runs under an isolated Linux identity and cannot apply RouterOS changes.</div><div class="inline" style="margin-top:12px"><form method="post" action="/ai/{router_id}/analyze"><input type="hidden" name="csrf" value="{csrf}">{button}</form><a href="/operations/{router_id}"><button>Back to router</button></a></div></div>{queued_notice}<div class="panel pad">{latest_html}</div><div class="panel"><table><thead><tr><th>Time</th><th>Analysis</th></tr></thead><tbody>{history}</tbody></table></div>'''
+            selected = next((r for r in rows if int(r["id"]) == int(requested)), None)
+        if selected is None:
+            selected = next((r for r in rows if r["status"] == "succeeded" and r["report"]), None)
+
+        if selected and selected["report"]:
+            report_html = _render_report(selected["report"])
+        else:
+            report_html = '<div class="muted">No completed AI analysis yet.</div>'
+
+        active = next((r for r in rows if r["status"] in {"queued", "running"}), None)
+        if active:
+            status_notice = f'''<div class="panel pad"><strong>AI analysis {html.escape(active['status'])}.</strong><div class="muted">Job #{active['id']} is isolated from Guardian and router-changing jobs. Refresh this page shortly.</div></div>'''
+            button = '<button disabled>Analysis in progress…</button>'
+        else:
+            status_notice = ""
+            button = '<button class="primary">Analyze router now</button>'
+
+        history_rows = []
+        for r in rows:
+            detail = ""
+            if r["status"] == "failed":
+                detail = f'<div class="error"><strong>{html.escape(r["error_code"] or "AI_ANALYSIS_FAILED")}</strong> {html.escape(r["error_detail"] or "")}</div>'
+            link = f'<a href="/ai/{router_id}?report={r["id"]}">View report</a>' if r["report"] else ""
+            history_rows.append(
+                f'''<tr><td>#{r['id']}</td><td>{html.escape(r['created_at'] or '')}</td><td>{html.escape(r['status'])}</td><td>{html.escape(r['requested_by'] or '-')}</td><td>{link}{detail}</td></tr>'''
+            )
+        history = "".join(history_rows) or '<tr><td colspan="5">No AI analysis history.</td></tr>'
+
+        body = f'''<div class="panel pad"><h2>AI analysis · {html.escape(router['site_name'])}</h2><div class="muted">Read-only. Tikcentral collects live RouterOS data, sanitizes sensitive values, and sends only that snapshot to an isolated Codex CLI identity. Codex cannot apply RouterOS changes.</div><div class="inline" style="margin-top:12px"><form method="post" action="/ai/{router_id}/analyze"><input type="hidden" name="csrf" value="{csrf}">{button}</form><a href="/operations/{router_id}"><button>Back to router</button></a></div></div>{status_notice}<div class="panel pad">{report_html}</div><div class="panel"><table><thead><tr><th>Job</th><th>Requested</th><th>Status</th><th>By</th><th>Result</th></tr></thead><tbody>{history}</tbody></table></div>'''
         return page_func("AI Analysis", body, user, "operations")
 
     @app.post("/ai/{router_id}/analyze", response_class=HTMLResponse)
-    async def analyze_router(router_id: int, request: Request, background_tasks: BackgroundTasks):
+    async def analyze_router(router_id: int, request: Request):
         user = core.require_web_admin(request)
         if not user:
             return RedirectResponse("/login", status_code=303)
         data = await core.form_data(request)
         core.require_csrf(request, data.get("csrf", ""))
-        router = _router(router_id)
-        if not router or not router["enabled"]:
-            return RedirectResponse("/routers", status_code=303)
         actor = user["email"] if "email" in user.keys() else "admin"
-        with _ACTIVE_LOCK:
-            if router_id not in _ACTIVE:
-                _ACTIVE.add(router_id)
-                background_tasks.add_task(_background_analysis, router_id, actor)
-        return RedirectResponse(f"/ai/{router_id}?queued=1", status_code=303)
+        try:
+            queue_analysis(router_id, actor)
+        except Exception:
+            pass
+        return RedirectResponse(f"/ai/{router_id}", status_code=303)
