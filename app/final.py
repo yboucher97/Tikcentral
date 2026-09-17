@@ -29,6 +29,7 @@ from app import production  # noqa: F401
 from app import rescue
 from app import reliability
 from app import router_exec
+from app import system_health
 from app import ui
 
 app = core.app
@@ -169,6 +170,7 @@ guardian.register(app, ui.page)
 operations.register(app, ui.page)
 rescue.register(app, ui.page)
 reliability.register(app, ui.page)
+system_health.register(app, ui.page)
 changes.register(app, ui.page)
 enrollment.register(app, ui.page)
 ai_analysis.register(app, ui.page)
