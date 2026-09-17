@@ -122,7 +122,7 @@ def _backup_one(router, stamp, tier="daily"):
     base = backup_root(router["id"]) / str(router["id"]) / tier
     base.mkdir(parents=True, exist_ok=True)
     export = router_exec.read(
-        router["vpn_ip"], "/export show-sensitive=no terse",
+        router["vpn_ip"], "/export terse",
         timeout=60, label="Configuration export",
     )
     export_path = base / f"{stamp}.rsc"
