@@ -8,7 +8,7 @@ Recovery operations may explicitly opt out of the healthy preflight.
 import json
 from datetime import datetime, timezone
 
-from app import errors, main as core, migrations
+from app import errors, events, main as core, migrations
 
 
 def now_iso() -> str:
@@ -96,6 +96,59 @@ def require_management(router, operation: str, *, allow_degraded: bool = False):
             guardian.access_issue(result),
             severity="critical",
         )
+    return result
+
+
+def authorize_mutation(
+    router,
+    operation: str,
+    *,
+    actor: str = "system",
+    override_degraded: bool = False,
+    override_reason: str = "",
+):
+    """Gate an ordinary router mutation behind Guardian health.
+
+    A deliberate override is allowed only while the management tunnel and SSH
+    command path are still reachable. This prevents an operator from overriding
+    protection when Tikcentral has no reliable way to execute or verify the
+    change. Every override is recorded prominently in the event timeline.
+    """
+    from app import guardian
+
+    result = guardian.probe_router(router)
+    if result["management_ok"]:
+        return result
+    issue = guardian.access_issue(result)
+    if not override_degraded:
+        raise errors.OperationError(
+            "GUARDIAN_UNHEALTHY",
+            f"{operation} blocked because management access is degraded",
+            issue,
+            severity="critical",
+        )
+    reason = (override_reason or "").strip()
+    if len(reason) < 8:
+        raise errors.OperationError(
+            "OVERRIDE_REASON_REQUIRED",
+            "Degraded-access override requires a reason",
+            "Enter at least 8 characters explaining why this change must proceed.",
+            severity="warning",
+        )
+    if not result["wg_online"] or not result["ssh_open"]:
+        raise errors.OperationError(
+            "OVERRIDE_UNSAFE",
+            "Degraded-access override is not available",
+            "WireGuard and SSH must both be reachable so Tikcentral retains a verified command path.",
+            severity="critical",
+        )
+    events.record(
+        int(router["id"]),
+        "access_override",
+        f"Degraded-access protection overridden for {operation}",
+        f"actor={actor}; reason={reason}; issue={issue}",
+        "critical",
+    )
     return result
 
 
