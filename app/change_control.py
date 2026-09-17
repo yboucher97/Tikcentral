@@ -91,18 +91,62 @@ def require_management(router, operation: str, *, allow_degraded: bool = False):
     return result
 
 
-def verify_management(router, operation: str):
-    from app import guardian
+def verify_management(router, operation: str, *, transaction_id: int | None = None, auto_repair: bool = True):
+    """Verify access after a mutation and, when safe, repair Tikcentral-owned access.
+
+    Recovery is attempted only when WireGuard and SSH are still reachable. This
+    never restores a full customer configuration; it only reconciles the
+    canonical Tikcentral management objects so a normal change cannot silently
+    strand remote access.
+    """
+    from app import guardian, management_script, router_exec, settings
 
     result = guardian.probe_router(router)
-    if not result["management_ok"]:
-        raise errors.OperationError(
-            "ACCESS_VERIFY_FAILED",
-            f"{operation} completed but management verification failed",
-            guardian.access_issue(result),
-            severity="critical",
-        )
-    return result
+    if result["management_ok"]:
+        if transaction_id is not None:
+            step(transaction_id, "verify", "ok", "Management access verified",
+                 json.dumps(result, sort_keys=True))
+        return result
+
+    issue = guardian.access_issue(result)
+    if transaction_id is not None:
+        step(transaction_id, "verify", "failed", "Management verification failed", issue)
+
+    if auto_repair and result["wg_online"] and result["ssh_open"]:
+        if transaction_id is not None:
+            step(transaction_id, "recovery", "warning",
+                 "Attempting canonical Tikcentral access recovery", issue)
+        try:
+            output = router_exec.mutate(
+                router["vpn_ip"],
+                management_script.access_repair_command(),
+                timeout=settings.MUTATION_TIMEOUT,
+                label=f"{operation} access recovery",
+            )
+            recovered = guardian.probe_router(router)
+            if transaction_id is not None:
+                step(
+                    transaction_id,
+                    "recovery",
+                    "ok" if recovered["management_ok"] else "failed",
+                    "Canonical access recovery applied",
+                    router_exec.sanitize(output, 2000) or guardian.access_issue(recovered),
+                )
+            if recovered["management_ok"]:
+                return recovered
+            result = recovered
+            issue = guardian.access_issue(recovered)
+        except Exception as exc:
+            if transaction_id is not None:
+                step(transaction_id, "recovery", "failed",
+                     "Canonical access recovery failed", errors.short(exc))
+
+    raise errors.OperationError(
+        "ACCESS_VERIFY_FAILED",
+        f"{operation} completed but management verification failed",
+        issue,
+        severity="critical",
+    )
 
 
 def latest(router_id: int, limit: int = 20):
