@@ -6,6 +6,7 @@ operator-facing report. It never receives router credentials and never executes
 RouterOS mutations.
 """
 
+import difflib
 import html
 import json
 import re
@@ -69,6 +70,41 @@ def collect_snapshot(router_id: int) -> dict:
         telemetry = conn.execute("SELECT * FROM router_telemetry WHERE router_id=? ORDER BY id DESC LIMIT 24", (router_id,)).fetchall()
         recent_events = conn.execute("SELECT * FROM router_events WHERE router_id=? ORDER BY id DESC LIMIT 100", (router_id,)).fetchall()
         recent_jobs = conn.execute("SELECT * FROM router_jobs WHERE router_id=? ORDER BY id DESC LIMIT 30", (router_id,)).fetchall()
+        access_history = conn.execute(
+            """SELECT checked_at,wg_online,ssh_open,winbox_open,api_open,management_ok,
+                      ssh_latency_ms,winbox_latency_ms,api_latency_ms
+               FROM router_access_history WHERE router_id=? ORDER BY id DESC LIMIT 120""",
+            (router_id,),
+        ).fetchall()
+        snapshots = conn.execute(
+            "SELECT id,captured_at,sha256,content FROM router_snapshots WHERE router_id=? ORDER BY id DESC LIMIT 3",
+            (router_id,),
+        ).fetchall()
+        maintenance = conn.execute("SELECT * FROM router_maintenance WHERE router_id=?", (router_id,)).fetchone()
+        incidents = conn.execute(
+            "SELECT * FROM fleet_incidents ORDER BY id DESC LIMIT 30"
+        ).fetchall()
+        transactions = conn.execute(
+            "SELECT * FROM change_transactions WHERE router_id=? ORDER BY id DESC LIMIT 20",
+            (router_id,),
+        ).fetchall()
+        prior_ai = conn.execute(
+            """SELECT id,status,created_at,finished_at,report,error_code,error_detail
+               FROM router_ai_analyses WHERE router_id=? AND status='succeeded'
+               ORDER BY id DESC LIMIT 2""",
+            (router_id,),
+        ).fetchall()
+
+    diff_summary = ""
+    if len(snapshots) >= 2:
+        diff_lines = list(difflib.unified_diff(
+            snapshots[1]["content"].splitlines(),
+            snapshots[0]["content"].splitlines(),
+            fromfile=f"snapshot-{snapshots[1]['id']}",
+            tofile=f"snapshot-{snapshots[0]['id']}",
+            lineterm="",
+        ))
+        diff_summary = "\n".join(diff_lines[:400])
 
     def row_dict(row):
         return dict(row) if row else None
@@ -82,8 +118,25 @@ def collect_snapshot(router_id: int) -> dict:
         "update_status": row_dict(update),
         "telemetry_error": telemetry_error,
         "telemetry_history": [dict(r) for r in telemetry],
+        "access_history": [dict(r) for r in access_history],
         "recent_events": [dict(r) for r in recent_events],
         "recent_jobs": [dict(r) for r in recent_jobs],
+        "maintenance": row_dict(maintenance),
+        "recent_incidents": [dict(r) for r in incidents],
+        "change_transactions": [dict(r) for r in transactions],
+        "configuration_history": {
+            "snapshots": [{"id": r["id"], "captured_at": r["captured_at"], "sha256": r["sha256"]} for r in snapshots],
+            "latest_diff": _sanitize(diff_summary),
+        },
+        "previous_ai_reports": [
+            {
+                "id": r["id"],
+                "created_at": r["created_at"],
+                "finished_at": r["finished_at"],
+                "report": _sanitize(r["report"] or "")[-12000:],
+            }
+            for r in prior_ai
+        ],
         "live": {
             # `/export` redacts sensitive values by default. `show-sensitive` is
             # an enabling flag on RouterOS, not a boolean `=no` option.
@@ -114,6 +167,7 @@ Return concise Markdown with these headings exactly:
 # Data Gaps
 
 Prioritize management access, WAN, interface errors/flaps, routes, DHCP/PPPoE, CPU/memory, versions, configuration drift, recent jobs/events, and suspicious log patterns.
+Use access-history timing, maintenance windows, correlated incidents, configuration diffs and change transactions to explain what likely changed and when. Distinguish a Tikcentral-attributed change from a change that has no matching Tikcentral job. Treat previous AI reports only as historical context, not as authoritative evidence.
 End with: **No action was taken.**
 
 TIKCENTRAL SNAPSHOT:
