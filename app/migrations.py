@@ -1,7 +1,7 @@
-"""Versioned SQLite migrations for Tikcentral extension state.
+"""Versioned SQLite migrations for Tikcentral.
 
-The legacy base tables in main.py remain compatible, but all operational tables
-and future schema changes are owned here and applied exactly once.
+All persistent schema is created here. Existing installations are migrated with
+CREATE/ALTER operations that preserve data.
 """
 
 import sqlite3
@@ -28,6 +28,57 @@ def _m1(conn):
     CREATE TABLE IF NOT EXISTS schema_version (
         version INTEGER PRIMARY KEY,
         applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS enrollment_tokens (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        token_hash TEXT NOT NULL UNIQUE,
+        site_name TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        expires_at TEXT NOT NULL,
+        used_at TEXT,
+        provision_mode TEXT NOT NULL DEFAULT 'enroll',
+        performance_profile TEXT NOT NULL DEFAULT 'throughput'
+    );
+    CREATE TABLE IF NOT EXISTS routers (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        site_name TEXT NOT NULL,
+        identity TEXT NOT NULL DEFAULT '',
+        serial TEXT NOT NULL DEFAULT '',
+        model TEXT NOT NULL DEFAULT '',
+        routeros_version TEXT NOT NULL DEFAULT '',
+        routerboot_version TEXT NOT NULL DEFAULT '',
+        public_key TEXT NOT NULL UNIQUE,
+        vpn_ip TEXT NOT NULL UNIQUE,
+        enabled INTEGER NOT NULL DEFAULT 1,
+        winbox_port INTEGER NOT NULL DEFAULT 8291,
+        public_winbox_port INTEGER,
+        created_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS authorized_ips (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ip_address TEXT NOT NULL UNIQUE,
+        label TEXT NOT NULL DEFAULT '',
+        always_allow INTEGER NOT NULL DEFAULT 0,
+        expires_at TEXT,
+        created_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        email TEXT NOT NULL UNIQUE,
+        password_hash TEXT NOT NULL,
+        role TEXT NOT NULL DEFAULT 'admin',
+        enabled INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS sessions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        token_hash TEXT NOT NULL UNIQUE,
+        expires_at TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
     );
     """)
 
@@ -73,7 +124,6 @@ def _m2(conn):
         commissioning_at TEXT NOT NULL DEFAULT '',
         commissioning_report TEXT NOT NULL DEFAULT ''
     );
-
     CREATE TABLE IF NOT EXISTS router_backup_records (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         router_id INTEGER NOT NULL,
@@ -82,14 +132,13 @@ def _m2(conn):
         created_by TEXT NOT NULL DEFAULT '',
         result TEXT NOT NULL DEFAULT ''
     );
-
+    CREATE INDEX IF NOT EXISTS idx_router_backup_records_router_time ON router_backup_records(router_id,created_at DESC);
     CREATE TABLE IF NOT EXISTS approved_versions (
         model TEXT PRIMARY KEY,
         version TEXT NOT NULL,
         approved_at TEXT NOT NULL,
         approved_by TEXT NOT NULL DEFAULT ''
     );
-
     CREATE TABLE IF NOT EXISTS router_update_status (
         router_id INTEGER PRIMARY KEY,
         checked_at TEXT NOT NULL DEFAULT '',
@@ -98,7 +147,6 @@ def _m2(conn):
         update_status TEXT NOT NULL DEFAULT '',
         last_error TEXT NOT NULL DEFAULT ''
     );
-
     CREATE TABLE IF NOT EXISTS router_rescue_ports (
         router_id INTEGER PRIMARY KEY,
         enabled INTEGER NOT NULL DEFAULT 0,
@@ -106,7 +154,6 @@ def _m2(conn):
         address TEXT NOT NULL DEFAULT '10.255.255.1/24',
         updated_at TEXT NOT NULL DEFAULT ''
     );
-
     CREATE TABLE IF NOT EXISTS router_events (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         router_id INTEGER,
@@ -117,7 +164,6 @@ def _m2(conn):
         details TEXT NOT NULL DEFAULT ''
     );
     CREATE INDEX IF NOT EXISTS idx_router_events_router_time ON router_events(router_id,event_at DESC);
-
     CREATE TABLE IF NOT EXISTS router_access_state (
         router_id INTEGER PRIMARY KEY,
         checked_at TEXT NOT NULL,
@@ -140,7 +186,6 @@ def _m2(conn):
         management_ok INTEGER NOT NULL DEFAULT 0
     );
     CREATE INDEX IF NOT EXISTS idx_router_access_history_router_time ON router_access_history(router_id,checked_at DESC);
-
     CREATE TABLE IF NOT EXISTS router_capabilities (
         router_id INTEGER PRIMARY KEY,
         mode TEXT NOT NULL DEFAULT 'tikcentral_only',
@@ -149,7 +194,6 @@ def _m2(conn):
         detected_at TEXT NOT NULL DEFAULT '',
         source TEXT NOT NULL DEFAULT 'detected'
     );
-
     CREATE TABLE IF NOT EXISTS router_jobs (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         router_id INTEGER,
@@ -167,7 +211,6 @@ def _m2(conn):
     );
     CREATE INDEX IF NOT EXISTS idx_router_jobs_router_status ON router_jobs(router_id,status,id DESC);
     CREATE INDEX IF NOT EXISTS idx_router_jobs_status ON router_jobs(status,id);
-
     CREATE TABLE IF NOT EXISTS provisioning_settings (
         id INTEGER PRIMARY KEY CHECK(id=1),
         admin_username TEXT NOT NULL DEFAULT '',
@@ -178,18 +221,27 @@ def _m2(conn):
 
 
 def _m3(conn):
-    # Remember how an enrollment token was generated so the eventual router can
-    # be classified without guessing from its configuration.
-    if conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='enrollment_tokens'").fetchone():
-        if not _has_column(conn, "enrollment_tokens", "provision_mode"):
-            conn.execute("ALTER TABLE enrollment_tokens ADD COLUMN provision_mode TEXT NOT NULL DEFAULT 'enroll'")
-        if not _has_column(conn, "enrollment_tokens", "performance_profile"):
-            conn.execute("ALTER TABLE enrollment_tokens ADD COLUMN performance_profile TEXT NOT NULL DEFAULT 'throughput'")
+    # Upgrade existing enrollment tables created by older releases.
+    if not _has_column(conn, "enrollment_tokens", "provision_mode"):
+        conn.execute("ALTER TABLE enrollment_tokens ADD COLUMN provision_mode TEXT NOT NULL DEFAULT 'enroll'")
+    if not _has_column(conn, "enrollment_tokens", "performance_profile"):
+        conn.execute("ALTER TABLE enrollment_tokens ADD COLUMN performance_profile TEXT NOT NULL DEFAULT 'throughput'")
+    # Upgrade older routers tables in place.
+    columns = {
+        "winbox_port": "INTEGER NOT NULL DEFAULT 8291",
+        "public_winbox_port": "INTEGER",
+        "model": "TEXT NOT NULL DEFAULT ''",
+        "routeros_version": "TEXT NOT NULL DEFAULT ''",
+        "routerboot_version": "TEXT NOT NULL DEFAULT ''",
+    }
+    for name, definition in columns.items():
+        if not _has_column(conn, "routers", name):
+            conn.execute(f"ALTER TABLE routers ADD COLUMN {name} {definition}")
 
 
 def _m4(conn):
-    # Old upgrade rows remain readable for historical UI, but new work uses the
-    # unified router_jobs state machine.
+    # Reserved compatibility migration: old upgrade tables may remain for
+    # history, while all new mutations use router_jobs.
     conn.execute("CREATE INDEX IF NOT EXISTS idx_router_backup_records_router_time ON router_backup_records(router_id,created_at DESC)")
 
 
