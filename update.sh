@@ -122,6 +122,16 @@ if [[ ! -f "$RELEASE/.tikcentral-validated" ]] || [[ "$(cat "$RELEASE/.tikcentra
   find "$RELEASE" -type f -exec chmod a+r {} +
   find "$RELEASE/.venv/bin" -maxdepth 1 -type f -exec chmod a+rx {} +
 
+  # Repeat CI's syntax gates locally so a candidate cannot activate merely
+  # because remote CI was skipped or unavailable.
+  "$RELEASE/.venv/bin/python3" -m compileall -q "$RELEASE/app" "$RELEASE/scripts"
+  bash -n "$RELEASE/bootstrap.sh"
+  bash -n "$RELEASE/update.sh"
+  for file in "$RELEASE"/helpers/* "$RELEASE"/scripts/*.sh; do
+    [[ -f "$file" ]] || continue
+    bash -n "$file"
+  done
+
   sudo -u tikcentral bash -c "set -a; source '$ENV_FILE'; set +a; cd '$RELEASE'; '$RELEASE/.venv/bin/python3' scripts/validate_release.py"
   printf '%s\n' "$TARGET_SHA" > "$RELEASE/.tikcentral-validated"
 fi
@@ -158,9 +168,10 @@ switch_current() {
 }
 
 wait_health() {
-  local tries="${1:-20}"
+  local tries="${1:-20}" health_file="/tmp/tikcentral-update-health.json"
   for ((i=1; i<=tries; i++)); do
-    if curl -fsS http://127.0.0.1:8080/healthz >/tmp/tikcentral-update-health.json 2>/dev/null; then
+    if curl -fsS http://127.0.0.1:8080/healthz >"$health_file" 2>/dev/null \
+      && jq -e '.ok == true and .database == "ok" and .wireguard == "ok"' "$health_file" >/dev/null 2>&1; then
       return 0
     fi
     sleep 1
@@ -265,7 +276,7 @@ systemctl restart tikcentral-fleet.timer
 
 if ! wait_health 20; then
   journalctl -u tikcentral -n 120 --no-pager >&2 || true
-  rollback "application /healthz did not recover" || true
+  rollback "application health check did not recover with database and WireGuard healthy" || true
   exit 1
 fi
 
