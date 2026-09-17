@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+AI_USER="tikcentral-ai"
+AI_HOME="/var/lib/tikcentral-ai"
+PATH_SAFE="/usr/local/bin:/usr/bin:/bin"
+
+[[ "$EUID" -eq 0 ]] || { echo "error: helper must run through sudo" >&2; exit 1; }
+id "$AI_USER" >/dev/null 2>&1 || { echo "error: $AI_USER is not installed" >&2; exit 1; }
+
+CODEX="$(PATH="$PATH_SAFE" command -v codex || true)"
+[[ -n "$CODEX" && -x "$CODEX" ]] || { echo "error: Codex CLI not found in $PATH_SAFE" >&2; exit 1; }
+
+# Prompt is provided only on stdin. Do not pass Tikcentral's environment to the
+# AI process. Authentication/configuration lives only in the dedicated AI home.
+exec runuser -u "$AI_USER" -- env -i \
+  HOME="$AI_HOME" \
+  PATH="$PATH_SAFE" \
+  LANG="C.UTF-8" \
+  "$CODEX" exec --ephemeral --ignore-user-config --skip-git-repo-check --sandbox read-only -
