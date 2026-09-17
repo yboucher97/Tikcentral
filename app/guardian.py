@@ -37,8 +37,10 @@ def tcp_open(ip: str, port: int, timeout: float = 2.0) -> bool:
         return False
 
 
-def probe_router(row):
-    peers = core.wireguard_peers()
+def probe_router(row, peers=None):
+    """Probe one router, optionally reusing a caller-provided WireGuard snapshot."""
+    if peers is None:
+        peers = core.wireguard_peers()
     live = peers.get(row["public_key"], {}) if "public_key" in row.keys() else {}
     wg = bool(live.get("online")) and bool(row["enabled"])
     ssh = tcp_open(row["vpn_ip"], 22) if wg else False
@@ -71,11 +73,15 @@ def guardian_tick():
             r["router_id"]: (bool(r["management_ok"]), r["last_error"] or "")
             for r in conn.execute("SELECT router_id,management_ok,last_error FROM router_access_state").fetchall()
         }
+
+    # One privileged WireGuard snapshot per fleet tick. Individual callers of
+    # probe_router() still get a fresh snapshot when they do not provide one.
+    peers = core.wireguard_peers()
     checked = now_iso()
     results = []
     transitions = []
     for row in routers:
-        result = probe_router(row)
+        result = probe_router(row, peers)
         last_error = _error_for(result)
         with core.db() as conn:
             old = conn.execute("SELECT last_good_at FROM router_access_state WHERE router_id=?", (row["id"],)).fetchone()
