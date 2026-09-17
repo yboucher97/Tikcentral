@@ -1,4 +1,8 @@
-"""Unified job state for Tikcentral router operations."""
+"""Unified job state for Tikcentral router-changing operations.
+
+Read-only telemetry, Guardian and drift probes are intentionally not inserted into
+router_jobs. The table represents serialized changes that may alter router state.
+"""
 
 import json
 from contextlib import contextmanager
@@ -96,12 +100,7 @@ def failed(job_id: int, exc: Exception, *, code: str = "OPERATION_FAILED", messa
 
 @contextmanager
 def operation(router_id: int | None, kind: str, actor: str = "system", target: str = "", payload=None, *, serialize_router: bool = True, serialize_global_kind: str = "", fail_code: str = "OPERATION_FAILED", fail_message: str = "Operation failed"):
-    """Create/run/fail a serialized job with one consistent lifecycle.
-
-    The caller may call verifying(job_id) before post-change health checks. If the
-    context exits normally while still running/verifying, it is marked succeeded.
-    Any exception marks it failed and is re-raised for normal UI/error handling.
-    """
+    """Create/run/fail a serialized mutation with one consistent lifecycle."""
     job_id = create(
         router_id,
         kind,
@@ -138,6 +137,20 @@ def latest(router_id: int, limit: int = 20):
             "SELECT * FROM router_jobs WHERE router_id=? ORDER BY id DESC LIMIT ?",
             (router_id, max(1, min(limit, 100))),
         ).fetchall()
+
+
+def active_change_router_ids() -> set[int]:
+    """Routers that read-only fleet work should leave alone for this tick."""
+    ensure_schema()
+    with core.db() as conn:
+        rows = conn.execute(
+            "SELECT DISTINCT router_id FROM router_jobs WHERE router_id IS NOT NULL AND status IN ('queued','running','verifying')"
+        ).fetchall()
+    return {int(r[0]) for r in rows}
+
+
+def router_has_active_change(router_id: int) -> bool:
+    return int(router_id) in active_change_router_ids()
 
 
 def next_queued(kind_prefix: str = ""):
