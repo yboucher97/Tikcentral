@@ -745,6 +745,8 @@ def register(app, page_func):
             approved = conn.execute("SELECT * FROM approved_versions WHERE model=?", (router["model"],)).fetchone()
             backups = conn.execute("SELECT * FROM router_backup_records WHERE router_id=? ORDER BY id DESC LIMIT 12", (router_id,)).fetchall()
         recent_jobs = jobs.latest(router_id, 15)
+        txs = change_control.latest(router_id, 15)
+        tx_by_job = {int(t["job_id"]): t for t in txs if t["job_id"] is not None}
         evs = events.recent(router_id, 80)
         profile = "fairness" if telem and telem["qos_enabled"] and not telem["fasttrack_enabled"] else "throughput"
         telemetry_text = "No telemetry yet" if not telem else f"CPU {telem['cpu_load']}% · RAM {html.escape(telem['free_memory'])}/{html.escape(telem['total_memory'])} · uptime {html.escape(telem['uptime'])} · RouterOS {html.escape(telem['routeros_version'])} · RouterBOOT {html.escape(telem['routerboot_current'])}/{html.escape(telem['routerboot_upgrade'])}"
@@ -762,7 +764,12 @@ def register(app, page_func):
         drift_status = "No baseline" if not expected or not expected["baseline_sha256"] else ("DRIFT DETECTED" if expected["drifted"] else "Matches baseline")
         commissioning = expected["commissioning_status"] if expected else "not_checked"
         backup_rows = ''.join(f"<tr><td>{html.escape(b['tier'])}</td><td>{html.escape(b['created_at'])}</td><td>{html.escape(b['created_by'])}</td><td>{html.escape((b['result'] or '')[-180:])}</td></tr>" for b in backups) or '<tr><td colspan="4">No tracked backups.</td></tr>'
-        job_rows = ''.join(f"<tr><td>{html.escape(j['created_at'])}</td><td>{html.escape(j['kind'])}</td><td>{html.escape(j['status'])}</td><td>{html.escape(j['target'] or '-')}</td><td>{html.escape(j['error_code'] or '')} {html.escape(j['error_message'] or '')}</td></tr>" for j in recent_jobs) or '<tr><td colspan="5">No jobs.</td></tr>'
+        job_rows_parts = []
+        for j in recent_jobs:
+            tx = tx_by_job.get(int(j["id"]))
+            transcript = f'<div><a href="/reliability#tx-{tx["id"]}">Transaction #{tx["id"]}</a></div>' if tx else ""
+            job_rows_parts.append(f"<tr><td>{html.escape(j['created_at'])}</td><td>{html.escape(j['kind'])}{transcript}</td><td>{html.escape(j['status'])}</td><td>{html.escape(j['target'] or '-')}</td><td>{html.escape(j['error_code'] or '')} {html.escape(j['error_message'] or '')}</td></tr>")
+        job_rows = ''.join(job_rows_parts) or '<tr><td colspan="5">No jobs.</td></tr>'
         event_rows = ''.join(f"<tr><td>{html.escape(e['event_at'])}</td><td>{html.escape(e['severity'])}</td><td>{html.escape(e['category'])}</td><td>{html.escape(e['summary'])}<div class=\"muted\">{html.escape((e['details'] or '')[-600:])}</div></td></tr>" for e in evs) or '<tr><td colspan="4">No events.</td></tr>'
         body = f'''<div class="panel pad"><h2>{html.escape(router['site_name'])}</h2><div class="muted">{html.escape(router['model'] or '')} · <code>{html.escape(router['vpn_ip'])}</code> · capability: {html.escape(cap['mode'] if cap else 'tikcentral_only')}</div></div>
 <div class="panel pad"><h3>Access / commissioning</h3><div>{'Healthy' if access and access['management_ok'] else 'Degraded'} · commissioning {html.escape(commissioning)} · config {html.escape(drift_status)}</div><div class="inline" style="margin-top:12px">{_post_button(f'/operations/{router_id}/commission',csrf,'Run commissioning validation')} {_post_button(f'/operations/{router_id}/baseline',csrf,'Accept current baseline')} {_post_button(f'/operations/{router_id}/drift/check',csrf,'Check drift')}</div></div>
