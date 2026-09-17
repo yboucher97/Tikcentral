@@ -51,8 +51,8 @@ def _router(router_id: int):
 
 
 # RouterOS hides sensitive values from /export by default. `show-sensitive` is
-# a flag that enables secrets, not a boolean option, so `show-sensitive=no` is
-# invalid syntax on current RouterOS and must not be used here.
+# a flag that enables secrets, not a boolean option. Passing an explicit false value is invalid
+# RouterOS syntax and must not be used here.
 AUDIT_COMMAND = '''/system resource print; /system identity print; /ip service print; /user print; /user ssh-keys print; /interface/wireguard print; /interface/wireguard/peers print; /ip/address print where interface="opticable-wg"; /ip/route print where comment~"Tikcentral"; /ip/firewall/filter print detail where comment~"Tikcentral"; /ip/firewall/nat print detail where comment~"Tikcentral"; /export'''
 
 
