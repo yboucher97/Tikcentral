@@ -38,6 +38,9 @@ REQUIRED_ROUTES = {
     ("POST", "/reliability/{router_id}/maintenance/start"),
     ("POST", "/reliability/{router_id}/maintenance/clear"),
     ("GET", "/reliability/{router_id}/quality"),
+    ("GET", "/reliability/{router_id}/known-good"),
+    ("POST", "/reliability/{router_id}/known-good/capture"),
+    ("GET", "/reliability/{router_id}/wan"),
     ("GET", "/reliability/{router_id}/breakglass"),
     ("POST", "/reliability/{router_id}/breakglass"),
     ("GET", "/reliability/{router_id}/support"),
@@ -196,6 +199,14 @@ def validate_source_boundaries():
     decryptor = ROOT / "scripts/decrypt_breakglass.py"
     if not decryptor.is_file() or "AESGCM" not in decryptor.read_text(encoding="utf-8"):
         fail("Encrypted break-glass decryptor missing")
+    state_capture_text = (ROOT / "app/state_capture.py").read_text(encoding="utf-8")
+    for marker in ("MANAGEMENT_STATE_COMMAND", "WAN_STATE_COMMAND", "capture_management_known_good", "compare_management_known_good", "collect_wan_state", "store_config_snapshot_content"):
+        if marker not in state_capture_text:
+            fail(f"State capture feature missing: {marker}")
+    changes_text = (ROOT / "app/changes.py").read_text(encoding="utf-8")
+    for marker in ("_render_diff", "_diff_counts", "Directly attributed to Tikcentral", "source_kind", "source_actor"):
+        if marker not in changes_text:
+            fail(f"Configuration history feature missing: {marker}")
     for path in (ROOT / "app").glob("*.py"):
         if "show-sensitive=no" in path.read_text(encoding="utf-8"):
             fail(f"Invalid RouterOS show-sensitive=no syntax returned: {path.name}")
@@ -269,13 +280,16 @@ def validate_persistence_and_jobs():
         "router_access_state", "router_access_history", "router_backup_records",
         "fleet_settings", "fleet_jobs", "fleet_job_results", "router_snapshots", "fleet_findings",
         "router_ai_analyses", "change_transactions", "change_transaction_steps",
-        "router_maintenance", "fleet_incidents",
+        "router_maintenance", "fleet_incidents", "router_management_known_good", "router_wan_history",
     }
     with sqlite3.connect(settings.DB_PATH) as conn:
         version = conn.execute("SELECT MAX(version) FROM schema_version").fetchone()[0]
         tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        snapshot_columns = {r[1] for r in conn.execute("PRAGMA table_info(router_snapshots)")}
     if version != expected or not required.issubset(tables):
         fail("Fresh migration schema validation failed")
+    if not {"source_kind", "source_id", "source_actor"}.issubset(snapshot_columns):
+        fail("Attributed snapshot schema validation failed")
 
     capabilities.set_mode(9001, capabilities.OPTICABLE_DEFAULT, "2026-01-01T00:00:00+00:00", "smoke")
     cap = capabilities.get(9001)
