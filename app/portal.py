@@ -39,6 +39,7 @@ def routers_page(request: Request):
         item_health = health.get(row["id"])
         state = item_health.state if item_health else ("Disabled" if not row["enabled"] else "Unknown")
         detail = item_health.detail if item_health else ""
+        actions = f'<a href="/operations/{row["id"]}"><button>Open</button></a> <a href="/ai/{row["id"]}"><button class="primary">AI Analysis</button></a>' if row["enabled"] else '<span class="muted">Disabled</span>'
         rendered.append(
             f'''<tr><td>{html.escape(state)}<div class="muted">{html.escape(detail)}</div></td>
 <td><strong>{html.escape(row['site_name'] or '-')}</strong></td>
@@ -47,10 +48,10 @@ def routers_page(request: Request):
 <td>{html.escape(row['routerboot_version'] or '-')}</td><td><code>{html.escape(public_ip)}</code></td>
 <td><code>{html.escape(row['vpn_ip'])}</code></td><td><code>{html.escape(remote_winbox)}</code></td>
 <td><code>{html.escape(row['vpn_ip'])}:8291</code></td><td>{'Enabled' if row['enabled'] else 'Disabled'}</td>
-<td class="muted">{html.escape(last_seen)}</td></tr>'''
+<td class="muted">{html.escape(last_seen)}</td><td>{actions}</td></tr>'''
         )
     if not rendered:
-        rendered.append('<tr><td colspan="13">No routers enrolled yet.</td></tr>')
+        rendered.append('<tr><td colspan="14">No routers enrolled yet.</td></tr>')
 
     counts = fleet_health.counts()
     cards = ''.join(
@@ -59,7 +60,7 @@ def routers_page(request: Request):
     )
     body = f'''<div class="cards"><div class="card"><div class="muted">Total routers</div><div class="value">{len(rows)}</div></div>{cards}</div>
 <div class="panel pad"><div class="inline"><a href="/enroll"><button class="primary">Enroll router</button></a><span class="muted">Fleet state comes from Guardian, active changes, drift, commissioning and upgrade state.</span></div></div>
-<div class="panel"><table><thead><tr><th>Health</th><th>Site</th><th>Identity</th><th>Model</th><th>Serial</th><th>RouterOS</th><th>RouterBOOT</th><th>Public IP</th><th>VPN IP</th><th>Remote WinBox</th><th>VPN WinBox</th><th>State</th><th>Last handshake</th></tr></thead><tbody>{''.join(rendered)}</tbody></table></div>'''
+<div class="panel"><table><thead><tr><th>Health</th><th>Site</th><th>Identity</th><th>Model</th><th>Serial</th><th>RouterOS</th><th>RouterBOOT</th><th>Public IP</th><th>VPN IP</th><th>Remote WinBox</th><th>VPN WinBox</th><th>State</th><th>Last handshake</th><th>Actions</th></tr></thead><tbody>{''.join(rendered)}</tbody></table></div>'''
     return ui.page("Routers", body, user, "routers")
 
 
@@ -85,5 +86,6 @@ def settings_page(request: Request):
 <tr><td>Remote WinBox port range</td><td><code>{settings.WINBOX_PUBLIC_PORT_MIN}-{settings.WINBOX_PUBLIC_PORT_MAX}</code></td></tr>
 <tr><td>Enrollment token lifetime</td><td>{settings.TOKEN_TTL_HOURS} hours</td></tr>
 <tr><td>UI timezone</td><td><code>{html.escape(settings.TIMEZONE)}</code></td></tr>
+<tr><td>Codex AI</td><td><code>{html.escape(settings.AI_CODEX_BIN)}</code> · read-only router analysis</td></tr>
 </tbody></table></div>'''
     return ui.page("Settings", body, user, "settings")
