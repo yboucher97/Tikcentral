@@ -63,6 +63,10 @@ def step(transaction_id: int, phase: str, status: str, message: str, details: st
 
 def finish(transaction_id: int, *, post_access: dict | None = None):
     with core.db() as conn:
+        tx = conn.execute(
+            "SELECT router_id,kind,actor FROM change_transactions WHERE id=?",
+            (transaction_id,),
+        ).fetchone()
         conn.execute(
             """UPDATE change_transactions
                SET status='succeeded',finished_at=?,post_access=?
@@ -70,6 +74,40 @@ def finish(transaction_id: int, *, post_access: dict | None = None):
             (now_iso(), json.dumps(post_access or {}, sort_keys=True), transaction_id),
         )
     step(transaction_id, "complete", "ok", "Transaction committed")
+
+    # A successful, verified mutation is the safest moment to refresh both the
+    # attributed configuration snapshot and the last-known-good management
+    # state. Capture is best-effort and can never turn a committed router change
+    # into a failed transaction.
+    if tx:
+        try:
+            from app import state_capture
+            snapshot_id = state_capture.capture_config_snapshot(
+                int(tx["router_id"]),
+                source_kind="transaction",
+                source_id=transaction_id,
+                actor=tx["actor"] or "",
+            )
+            step(transaction_id, "snapshot", "ok", "Post-change configuration snapshot captured", f"snapshot_id={snapshot_id}")
+        except Exception as exc:
+            step(transaction_id, "snapshot", "warning", "Post-change configuration snapshot unavailable", errors.short(exc))
+        try:
+            from app import state_capture
+            known = state_capture.capture_management_known_good(
+                int(tx["router_id"]),
+                source_kind=tx["kind"] or "transaction",
+                source_id=transaction_id,
+                actor=tx["actor"] or "",
+            )
+            step(
+                transaction_id,
+                "known-good",
+                "ok",
+                "Verified management state saved as known-good",
+                f"sha256={known['sha256']}" if known else "",
+            )
+        except Exception as exc:
+            step(transaction_id, "known-good", "warning", "Known-good management capture unavailable", errors.short(exc))
 
 
 def fail(transaction_id: int, exc: Exception, *, post_access: dict | None = None):
