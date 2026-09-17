@@ -41,6 +41,14 @@ def begin(router_id: int, kind: str, actor: str, *, job_id: int | None = None, p
     return tx
 
 
+def attach_job(transaction_id: int, job_id: int):
+    with core.db() as conn:
+        conn.execute(
+            "UPDATE change_transactions SET job_id=? WHERE id=? AND status='running'",
+            (job_id, transaction_id),
+        )
+
+
 def step(transaction_id: int, phase: str, status: str, message: str, details: str = ""):
     migrations.migrate()
     status = status if status in {"ok", "warning", "failed", "info"} else "info"
@@ -58,7 +66,7 @@ def finish(transaction_id: int, *, post_access: dict | None = None):
         conn.execute(
             """UPDATE change_transactions
                SET status='succeeded',finished_at=?,post_access=?
-               WHERE id=?""",
+               WHERE id=? AND status='running'""",
             (now_iso(), json.dumps(post_access or {}, sort_keys=True), transaction_id),
         )
     step(transaction_id, "complete", "ok", "Transaction committed")
@@ -70,7 +78,7 @@ def fail(transaction_id: int, exc: Exception, *, post_access: dict | None = None
         conn.execute(
             """UPDATE change_transactions
                SET status='failed',finished_at=?,post_access=?,error_code=?,error_detail=?
-               WHERE id=?""",
+               WHERE id=? AND status='running'""",
             (now_iso(), json.dumps(post_access or {}, sort_keys=True), err.code, err.detail or err.message, transaction_id),
         )
     step(transaction_id, "complete", "failed", err.message, err.detail)
