@@ -24,6 +24,12 @@ class RouterCapabilities:
     managed_baseline: bool
     source: str = "detected"
 
+    def __getitem__(self, key: str):
+        """Temporary row-style compatibility for consolidated callers."""
+        if not hasattr(self, key):
+            raise KeyError(key)
+        return getattr(self, key)
+
     @property
     def management_only(self) -> bool:
         return self.mode == TIKCENTRAL_ONLY
