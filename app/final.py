@@ -86,7 +86,27 @@ def audit_router(router_id: int, request: Request):
         output = errors.short(exc)
         status = "Audit failed"
     csrf = core.csrf_token(request)
-    body = f'''<div class="panel pad"><h2>{html.escape(router['site_name'])}</h2><div class="muted">{html.escape(router['identity'] or '')} · {html.escape(router['model'] or '')} · <code>{html.escape(router['vpn_ip'])}</code></div><div style="margin-top:12px"><strong>{html.escape(status)}</strong></div><div class="inline" style="margin-top:12px"><form method="post" action="/audit/{router_id}/normalize"><input type="hidden" name="csrf" value="{csrf}"><button class="primary" onclick="return confirm('Normalize only Tikcentral-owned management rules?')">Normalize Tikcentral rules</button></form><a href="/audit"><button>Back</button></a></div></div><div class="panel pad"><pre style="white-space:pre-wrap;max-height:75vh;overflow:auto">{html.escape(output or '(no output)')}</pre></div>'''
+    body = f'''<div class="panel pad"><h2>{html.escape(router['site_name'])}</h2><div class="muted">{html.escape(router['identity'] or '')} · {html.escape(router['model'] or '')} · <code>{html.escape(router['vpn_ip'])}</code></div><div style="margin-top:12px"><strong>{html.escape(status)}</strong></div><div class="inline" style="margin-top:12px"><button type="button" onclick="tcCopyAudit(this)">Copy audit output</button><form method="post" action="/audit/{router_id}/normalize"><input type="hidden" name="csrf" value="{csrf}"><button class="primary" onclick="return confirm('Normalize only Tikcentral-owned management firewall rules? Tikcentral will take a pre-change backup, replace only rules carrying Tikcentral management comments, then verify management access.')">Normalize Tikcentral rules</button></form><a href="/audit"><button>Back</button></a></div><div class="muted" style="margin-top:10px">Normalize replaces only Tikcentral-owned management firewall rules with the canonical access rules. It does not intentionally modify unrelated customer firewall rules.</div></div><div class="panel pad"><pre id="audit-output" style="white-space:pre-wrap;max-height:75vh;overflow:auto;user-select:text">{html.escape(output or '(no output)')}</pre></div><script>
+async function tcCopyAudit(button) {{
+  const el = document.getElementById('audit-output');
+  const text = el ? el.innerText : '';
+  const original = button.textContent;
+  try {{
+    await navigator.clipboard.writeText(text);
+    button.textContent = 'Copied';
+  }} catch (err) {{
+    const range = document.createRange();
+    range.selectNodeContents(el);
+    const selection = window.getSelection();
+    selection.removeAllRanges();
+    selection.addRange(range);
+    try {{ document.execCommand('copy'); button.textContent = 'Copied'; }}
+    catch (copyErr) {{ button.textContent = 'Select output and copy'; }}
+    selection.removeAllRanges();
+  }}
+  setTimeout(() => {{ button.textContent = original; }}, 1800);
+}}
+</script>'''
     return ui.page("Router Audit", body, user, "audit")
 
 
