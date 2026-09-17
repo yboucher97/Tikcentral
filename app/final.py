@@ -20,6 +20,7 @@ from app import fleet_web  # noqa: F401
 from app import guardian
 from app import jobs
 from app import main as core
+from app import management_script
 from app import operations
 from app import portal  # noqa: F401
 from app import production  # noqa: F401
@@ -47,15 +48,6 @@ def _router(router_id: int):
 
 
 AUDIT_COMMAND = '''/system resource print; /system identity print; /ip service print; /user print; /user ssh-keys print; /interface/wireguard print; /interface/wireguard/peers print; /ip/address print where interface="opticable-wg"; /ip/route print where comment~"Tikcentral"; /ip/firewall/filter print detail where comment~"Tikcentral"; /ip/firewall/nat print detail where comment~"Tikcentral"; /export show-sensitive=no'''
-
-NORMALIZE_COMMAND = '''
-:local tc [/ip/firewall/filter find where comment~"^Tikcentral "];
-:if ([:len $tc] > 0) do={ /ip/firewall/filter remove $tc };
-/ip/firewall/filter add chain=input action=accept in-interface="opticable-wg" src-address=10.250.0.1/32 protocol=tcp dst-port=22,8291,8728 place-before=0 comment="Tikcentral management TCP";
-/ip/firewall/filter add chain=input action=accept in-interface="opticable-wg" src-address=10.250.254.0/24 protocol=tcp dst-port=22,8291 place-before=0 comment="Tikcentral admin TCP";
-/ip/firewall/filter add chain=input action=accept in-interface="opticable-wg" src-address=10.250.254.0/24 protocol=icmp place-before=0 comment="Tikcentral admin ICMP";
-/ip/firewall/filter print detail where comment~"^Tikcentral "
-'''.strip()
 
 
 @app.get("/audit", response_class=HTMLResponse)
@@ -117,7 +109,12 @@ async def normalize_router(router_id: int, request: Request):
             fail_message="Tikcentral rule normalization failed",
         ) as job_id:
             operations.backup_router(router_id, "pre-change", actor, track_job=False)
-            output = router_exec.mutate(router["vpn_ip"], NORMALIZE_COMMAND, timeout=90, label="Tikcentral rule normalization")
+            output = router_exec.mutate(
+                router["vpn_ip"],
+                management_script.firewall_reconcile_command(include_print=True),
+                timeout=90,
+                label="Tikcentral rule normalization",
+            )
             jobs.verifying(job_id)
             if not guardian.probe_router(router)["management_ok"]:
                 raise errors.OperationError("ACCESS_VERIFY_FAILED", "Rules normalized but management verification failed", severity="critical")
