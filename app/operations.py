@@ -233,7 +233,7 @@ def backup_router(router_id: int, tier: str, created_by: str, *, track_job: bool
 
 
 def _export_hash(router):
-    content = router_exec.read(router["vpn_ip"], "/export show-sensitive=no terse", timeout=90, label="Configuration drift export")
+    content = router_exec.read(router["vpn_ip"], "/export terse", timeout=90, label="Configuration drift export")
     return hashlib.sha256(content.encode()).hexdigest(), content
 
 
