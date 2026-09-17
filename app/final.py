@@ -48,7 +48,10 @@ def _router(router_id: int):
         ).fetchone()
 
 
-AUDIT_COMMAND = '''/system resource print; /system identity print; /ip service print; /user print; /user ssh-keys print; /interface/wireguard print; /interface/wireguard/peers print; /ip/address print where interface="opticable-wg"; /ip/route print where comment~"Tikcentral"; /ip/firewall/filter print detail where comment~"Tikcentral"; /ip/firewall/nat print detail where comment~"Tikcentral"; /export show-sensitive=no'''
+# RouterOS hides sensitive values from /export by default. `show-sensitive` is
+# a flag that enables secrets, not a boolean option, so `show-sensitive=no` is
+# invalid syntax on current RouterOS and must not be used here.
+AUDIT_COMMAND = '''/system resource print; /system identity print; /ip service print; /user print; /user ssh-keys print; /interface/wireguard print; /interface/wireguard/peers print; /ip/address print where interface="opticable-wg"; /ip/route print where comment~"Tikcentral"; /ip/firewall/filter print detail where comment~"Tikcentral"; /ip/firewall/nat print detail where comment~"Tikcentral"; /export'''
 
 
 @app.get("/audit", response_class=HTMLResponse)
@@ -64,7 +67,7 @@ def audit_index(request: Request):
         f'''<tr><td>{html.escape(r['site_name'])}</td><td>{html.escape(r['identity'] or '-')}</td><td>{html.escape(r['model'] or '-')}</td><td><code>{html.escape(r['vpn_ip'])}</code></td><td>{'Enabled' if r['enabled'] else 'Disabled'}</td><td><a href="/audit/{r['id']}"><button {'disabled' if not r['enabled'] else ''}>Audit configuration</button></a></td></tr>'''
         for r in routers
     ) or '<tr><td colspan="6">No routers enrolled.</td></tr>'
-    body = f'''<div class="panel pad"><h2>Router Audit</h2><div class="muted">Live read-only audit over WireGuard. Export always uses <code>show-sensitive=no</code>.</div></div><div class="panel"><table><thead><tr><th>Site</th><th>Identity</th><th>Model</th><th>VPN IP</th><th>State</th><th></th></tr></thead><tbody>{rows}</tbody></table></div>'''
+    body = f'''<div class="panel pad"><h2>Router Audit</h2><div class="muted">Live read-only audit over WireGuard. RouterOS export uses its default secret-redaction behavior.</div></div><div class="panel"><table><thead><tr><th>Site</th><th>Identity</th><th>Model</th><th>VPN IP</th><th>State</th><th></th></tr></thead><tbody>{rows}</tbody></table></div>'''
     return ui.page("Audit", body, user, "audit")
 
 
