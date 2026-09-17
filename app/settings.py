@@ -93,11 +93,26 @@ UPDATE_CHECK_TIMEOUT = _int("TIKCENTRAL_UPDATE_CHECK_TIMEOUT", 90, minimum=10, m
 ROUTEROS_RETURN_TIMEOUT = _int("TIKCENTRAL_ROUTEROS_RETURN_TIMEOUT", 1200, minimum=120, maximum=3600)
 ROUTERBOOT_RETURN_TIMEOUT = _int("TIKCENTRAL_ROUTERBOOT_RETURN_TIMEOUT", 900, minimum=120, maximum=3600)
 
-# Static local Rescue profile.
+# Static local Rescue profile. Validate the values together here so a typo never
+# reaches a RouterOS mutation command.
 RESCUE_ADDRESS = os.getenv("TIKCENTRAL_RESCUE_ADDRESS", "10.255.255.1/24")
 RESCUE_NETWORK = os.getenv("TIKCENTRAL_RESCUE_NETWORK", "10.255.255.0/24")
 RESCUE_POOL = os.getenv("TIKCENTRAL_RESCUE_POOL", "10.255.255.100-10.255.255.200")
 RESCUE_DNS = os.getenv("TIKCENTRAL_RESCUE_DNS", "1.1.1.1")
+try:
+    _rescue_interface = ipaddress.ip_interface(RESCUE_ADDRESS)
+    _rescue_network = ipaddress.ip_network(RESCUE_NETWORK, strict=True)
+    if _rescue_interface.ip not in _rescue_network:
+        raise ValueError("rescue address is outside rescue network")
+    _pool_start_text, _pool_end_text = RESCUE_POOL.split("-", 1)
+    _pool_start = ipaddress.ip_address(_pool_start_text.strip())
+    _pool_end = ipaddress.ip_address(_pool_end_text.strip())
+    if _pool_start not in _rescue_network or _pool_end not in _rescue_network or int(_pool_start) > int(_pool_end):
+        raise ValueError("rescue pool is invalid or outside rescue network")
+    ipaddress.ip_address(RESCUE_DNS)
+except (ValueError, TypeError) as exc:
+    raise RuntimeError(f"Invalid Tikcentral Rescue network settings: {exc}") from exc
+RESCUE_GATEWAY = str(_rescue_interface.ip)
 
 # One logical asset manifest. Cache version changes once per asset set, not per file.
 ASSET_VERSION = os.getenv("TIKCENTRAL_ASSET_VERSION", "7").strip() or "7"
