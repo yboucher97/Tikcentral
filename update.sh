@@ -41,10 +41,6 @@ chown root:tikcentral "$SSH_DIR/tikcentral_ed25519.pub"
 chmod 0644 "$SSH_DIR/tikcentral_ed25519.pub"
 
 install -d -o tikcentral -g tikcentral -m 0750 "$ROUTER_BACKUP_DIR"
-# Older installs may contain router subdirectories created by root. This is a
-# dedicated Tikcentral backup tree, so normalize ownership during deployment.
-chown -R tikcentral:tikcentral "$ROUTER_BACKUP_DIR" 2>/dev/null || true
-install -d -o tikcentral -g tikcentral -m 0750 /var/lib/tikcentral/router-backups
 if [[ ! -f /var/lib/tikcentral/known_hosts ]]; then
   install -o tikcentral -g tikcentral -m 0600 /dev/null /var/lib/tikcentral/known_hosts
 else
@@ -86,13 +82,6 @@ if ! sudo -u tikcentral "$ROOT/venv/bin/python3" --version >/dev/null 2>&1; then
   exit 1
 fi
 
-for BRAND_ASSET in \
-  "$APP/app/static/opticable-logo-light.png" \
-  "$APP/app/static/opticable-logo-dark.png" \
-  "$APP/app/static/opticable-icon.png"; do
-  [[ -s "$BRAND_ASSET" ]] || { echo "Missing Opticable UI asset: $BRAND_ASSET" >&2; exit 1; }
-done
-
 "$ROOT/venv/bin/python3" -m py_compile \
   "$APP/app/main.py" \
   "$APP/app/portal.py" \
@@ -126,6 +115,13 @@ done
   "$APP/app/final.py" \
   "$APP/app/winbox_proxy.py"
 
+for ASSET in \
+  "$APP/app/static/opticable-icon.png" \
+  "$APP/app/static/opticable-logo-light.webp" \
+  "$APP/app/static/opticable-logo-dark.webp"; do
+  [[ -s "$ASSET" ]] || { echo "Required branding asset missing or empty: $ASSET" >&2; exit 1; }
+done
+
 set -a
 source "$ENV_FILE"
 set +a
@@ -139,7 +135,6 @@ for REQUIRED_ROUTE in /enroll /enroll/generate /enroll/admin-credentials /router
   fi
 done
 
-# Verify every Operations POST action is the safe wrapper and appears exactly once.
 cd "$APP"
 "$ROOT/venv/bin/python3" - <<'PY'
 from app.final import app
@@ -163,8 +158,6 @@ for path in required:
         raise SystemExit(f"Operations route {path} is not using app.operations_safe_routes")
 PY
 
-# The fleet timer is a separate Python process; verify it installs the same
-# hardened telemetry implementation as the web process.
 RUNNER_PROBE="$("$ROOT/venv/bin/python3" -c 'from app import fleet_runner, operations; print(operations.collect_telemetry.__module__)')"
 if [[ "$RUNNER_PROBE" != "app.operations_stability" ]]; then
   echo "Fleet runner is not using hardened telemetry: $RUNNER_PROBE" >&2
@@ -179,10 +172,10 @@ for UI_TEXT in 'tcGlobalSearch' 'tcTheme' 'tc-table-search' 'tikcentral:columns:
   fi
 done
 
-BRAND_CHECK="$("$ROOT/venv/bin/python3" -c 'from fastapi.responses import HTMLResponse; from app.branding import enhance_response; print(enhance_response(HTMLResponse("<html><head></head><body><div class=\"brand\"><h1>Tikcentral</h1><div class=\"sub\">MikroTik remote management</div></div></body></html>")).body.decode())')"
-for BRAND_TEXT in '/static/opticable-logo-light.png' '/static/opticable-logo-dark.png' '/static/opticable-icon.png' 'opticable-brand-theme' 'tc-status-ok'; do
+BRAND_CHECK="$("$ROOT/venv/bin/python3" -c 'from fastapi.responses import HTMLResponse; from app.branding import enhance_response; print(enhance_response(HTMLResponse("<html><head></head><body><main><header><div class=\"brand\"><h1>Tikcentral</h1><div class=\"sub\">MikroTik remote management</div></div></header></main></body></html>")).body.decode())')"
+for BRAND_TEXT in 'opticable-logo-light.webp?v=2' 'opticable-logo-dark.webp?v=2' 'opticable-icon.png?v=2' 'height:62px' 'max-width:none'; do
   if ! grep -Fq "$BRAND_TEXT" <<<"$BRAND_CHECK"; then
-    echo "Opticable branding validation failed: missing $BRAND_TEXT" >&2
+    echo "Tikcentral Opticable branding validation failed: missing $BRAND_TEXT" >&2
     exit 1
   fi
 done
@@ -245,8 +238,6 @@ caddy validate --config /etc/caddy/Caddyfile
 systemctl daemon-reload
 systemctl enable tikcentral tikcentral-winbox-proxy tikcentral-backup.timer tikcentral-fleet.timer >/dev/null
 systemctl disable --now tikcentral-enroll-ui >/dev/null 2>&1 || true
-# Kill any one-shot fleet job that may still be running legacy code loaded before
-# this deployment, then restart the timer so the next run imports the new code.
 systemctl stop tikcentral-fleet.service >/dev/null 2>&1 || true
 systemctl restart tikcentral
 systemctl restart tikcentral-winbox-proxy
@@ -274,17 +265,15 @@ for PATH_TO_CHECK in /enroll /routers /automation /ssh /guardian /operations /re
   CODE="$(curl -sS -o /dev/null -w '%{http_code}' "http://127.0.0.1:8080$PATH_TO_CHECK" || true)"
   if [[ "$CODE" != "200" && "$CODE" != "303" ]]; then
     echo "Tikcentral $PATH_TO_CHECK failed directly on the application (HTTP $CODE)." >&2
-    systemctl show tikcentral -p ExecStart --no-pager >&2 || true
     journalctl -u tikcentral -n 100 --no-pager >&2 || true
     exit 1
   fi
 done
 
-for STATIC_ASSET in /static/opticable-logo-light.png /static/opticable-logo-dark.png /static/opticable-icon.png; do
-  STATIC_CODE="$(curl -sS -o /dev/null -w '%{http_code}' "http://127.0.0.1:8080$STATIC_ASSET" || true)"
-  if [[ "$STATIC_CODE" != "200" ]]; then
-    echo "Tikcentral branding asset $STATIC_ASSET failed directly on the application (HTTP $STATIC_CODE)." >&2
-    journalctl -u tikcentral -n 100 --no-pager >&2 || true
+for ASSET_PATH in /static/opticable-icon.png /static/opticable-logo-light.webp /static/opticable-logo-dark.webp; do
+  CODE="$(curl -sS -o /dev/null -w '%{http_code}' "http://127.0.0.1:8080$ASSET_PATH" || true)"
+  if [[ "$CODE" != "200" ]]; then
+    echo "Tikcentral branding asset $ASSET_PATH failed directly on the application (HTTP $CODE)." >&2
     exit 1
   fi
 done
@@ -302,6 +291,7 @@ rm -f /tmp/tikcentral-update-health.json
 echo
 echo "Tikcentral updated successfully."
 echo "Deployed commit: $DEPLOYED_COMMIT"
+echo "Opticable high-resolution light/dark branding: ready"
 echo "Fleet SSH identity: ready"
 echo "Router API credential: ready (secret retained on VPS)"
 echo "Encrypted personal-router credential store: ready"
@@ -319,7 +309,6 @@ echo "Configuration change history: ready"
 echo "Live router audit/normalization: ready"
 echo "Searchable/sortable tables + saved column visibility: ready"
 echo "Persistent light/dark UI mode: ready"
-echo "Opticable branded light/dark logos, colors and status visuals: ready"
 echo "Operations Caddy check: HTTP $CADDY_CODE"
 echo "Persistent state preserved: users, routers, WireGuard assignments, authorized IPs and existing configuration."
 echo "Pre-update backup: /var/backups/tikcentral/pre-update-$STAMP.db"
