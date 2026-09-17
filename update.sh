@@ -11,6 +11,15 @@ ROUTER_BACKUP_DIR="/var/backups/tikcentral/routers"
 [[ -f "$ENV_FILE" ]] || { echo "Tikcentral is not installed: $ENV_FILE is missing. Run bootstrap.sh once first." >&2; exit 1; }
 [[ -d "$APP/.git" ]] || { echo "Tikcentral app repository is missing at $APP. Run bootstrap.sh once first." >&2; exit 1; }
 
+# Always reload the updater from origin/main once before doing deployment work.
+# This prevents Bash from continuing to execute a stale copy after git reset.
+if [[ "${TIKCENTRAL_UPDATE_REEXEC:-0}" != "1" ]]; then
+  git -C "$APP" fetch --prune origin
+  git -C "$APP" reset --hard origin/main
+  export TIKCENTRAL_UPDATE_REEXEC=1
+  exec bash "$APP/update.sh"
+fi
+
 STAMP="$(date -u +%Y%m%d-%H%M%S)"
 mkdir -p /var/backups/tikcentral
 if [[ -f /var/lib/tikcentral/tikcentral.db ]]; then
@@ -117,8 +126,8 @@ fi
 
 for ASSET in \
   "$APP/app/static/opticable-icon.png" \
-  "$APP/app/static/opticable-logo-light.webp" \
-  "$APP/app/static/opticable-logo-dark.webp"; do
+  "$APP/app/static/opticable-logo-light.svg" \
+  "$APP/app/static/opticable-logo-dark.svg"; do
   [[ -s "$ASSET" ]] || { echo "Required branding asset missing or empty: $ASSET" >&2; exit 1; }
 done
 
@@ -173,7 +182,7 @@ for UI_TEXT in 'tcGlobalSearch' 'tcTheme' 'tc-table-search' 'tikcentral:columns:
 done
 
 BRAND_CHECK="$("$ROOT/venv/bin/python3" -c 'from fastapi.responses import HTMLResponse; from app.branding import enhance_response; print(enhance_response(HTMLResponse("<html><head></head><body><main><header><div class=\"brand\"><h1>Tikcentral</h1><div class=\"sub\">MikroTik remote management</div></div></header></main></body></html>")).body.decode())')"
-for BRAND_TEXT in 'opticable-logo-light.webp?v=2' 'opticable-logo-dark.webp?v=2' 'opticable-icon.png?v=2' 'height:62px' 'max-width:none'; do
+for BRAND_TEXT in 'opticable-logo-light.svg?v=5' 'opticable-logo-dark.svg?v=5' 'opticable-icon.png?v=5' 'width:200px' 'height:auto'; do
   if ! grep -Fq "$BRAND_TEXT" <<<"$BRAND_CHECK"; then
     echo "Tikcentral Opticable branding validation failed: missing $BRAND_TEXT" >&2
     exit 1
@@ -270,7 +279,7 @@ for PATH_TO_CHECK in /enroll /routers /automation /ssh /guardian /operations /re
   fi
 done
 
-for ASSET_PATH in /static/opticable-icon.png /static/opticable-logo-light.webp /static/opticable-logo-dark.webp; do
+for ASSET_PATH in /static/opticable-icon.png /static/opticable-logo-light.svg /static/opticable-logo-dark.svg; do
   CODE="$(curl -sS -o /dev/null -w '%{http_code}' "http://127.0.0.1:8080$ASSET_PATH" || true)"
   if [[ "$CODE" != "200" ]]; then
     echo "Tikcentral branding asset $ASSET_PATH failed directly on the application (HTTP $CODE)." >&2
@@ -291,7 +300,7 @@ rm -f /tmp/tikcentral-update-health.json
 echo
 echo "Tikcentral updated successfully."
 echo "Deployed commit: $DEPLOYED_COMMIT"
-echo "Opticable high-resolution light/dark branding: ready"
+echo "Opticable SVG light/dark branding: ready"
 echo "Fleet SSH identity: ready"
 echo "Router API credential: ready (secret retained on VPS)"
 echo "Encrypted personal-router credential store: ready"
