@@ -2,7 +2,6 @@ import hashlib
 import hmac
 import html
 import ipaddress
-import os
 import secrets
 import sqlite3
 import subprocess
@@ -15,77 +14,31 @@ from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import BaseModel, Field
 
-DB_PATH = os.getenv("DB_PATH", "/var/lib/tikcentral/tikcentral.db")
-ADMIN_API_KEY = os.environ["ADMIN_API_KEY"]
-ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "").strip().lower()
-BOOTSTRAP_PASSWORD = os.getenv("DASHBOARD_PASSWORD", "")
-WG_HELPER = os.getenv("WG_HELPER", "/usr/local/sbin/tikcentral-wg-peer")
-WG_SERVER_PUBLIC_KEY = os.environ["WG_SERVER_PUBLIC_KEY"]
-WG_ENDPOINT = os.environ["WG_ENDPOINT"]
-WG_ROUTER_POOL = ipaddress.ip_network(os.getenv("WG_ROUTER_POOL", "10.250.1.0/24"))
-WG_ALLOWED_NETWORK = os.getenv("WG_ALLOWED_NETWORK", "10.250.0.0/16")
-TOKEN_TTL_HOURS = int(os.getenv("TOKEN_TTL_HOURS", "24"))
-ONLINE_SECONDS = int(os.getenv("ONLINE_SECONDS", "180"))
-WINBOX_PUBLIC_PORT_MIN = int(os.getenv("WINBOX_PUBLIC_PORT_MIN", "20000"))
-WINBOX_PUBLIC_PORT_MAX = int(os.getenv("WINBOX_PUBLIC_PORT_MAX", "49999"))
-TEMP_ACCESS_DAYS = int(os.getenv("TEMP_ACCESS_DAYS", "5"))
-PUBLIC_HOSTNAME = os.getenv("PUBLIC_HOSTNAME", WG_ENDPOINT.rsplit(":", 1)[0])
-SESSION_DAYS = int(os.getenv("SESSION_DAYS", "7"))
+from app import migrations
+from app import settings
+from app import ui
+
+# Compatibility names used by route modules and helper scripts. Environment
+# parsing/validation itself is owned only by app.settings.
+DB_PATH = settings.DB_PATH
+ADMIN_API_KEY = settings.ADMIN_API_KEY
+ADMIN_EMAIL = settings.ADMIN_EMAIL
+BOOTSTRAP_PASSWORD = settings.BOOTSTRAP_PASSWORD
+WG_HELPER = settings.WG_HELPER
+WG_SERVER_PUBLIC_KEY = settings.WG_SERVER_PUBLIC_KEY
+WG_ENDPOINT = settings.WG_ENDPOINT
+WG_ROUTER_POOL = settings.WG_ROUTER_POOL
+WG_ALLOWED_NETWORK = settings.WG_ALLOWED_NETWORK
+TOKEN_TTL_HOURS = settings.TOKEN_TTL_HOURS
+ONLINE_SECONDS = settings.ONLINE_SECONDS
+WINBOX_PUBLIC_PORT_MIN = settings.WINBOX_PUBLIC_PORT_MIN
+WINBOX_PUBLIC_PORT_MAX = settings.WINBOX_PUBLIC_PORT_MAX
+TEMP_ACCESS_DAYS = settings.TEMP_ACCESS_DAYS
+PUBLIC_HOSTNAME = settings.PUBLIC_HOSTNAME
+SESSION_DAYS = settings.SESSION_DAYS
 
 app = FastAPI(title="Tikcentral MikroTik Hub", version="1.4.0")
-
-SCHEMA = """
-PRAGMA journal_mode=WAL;
-PRAGMA foreign_keys=ON;
-CREATE TABLE IF NOT EXISTS enrollment_tokens (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    token_hash TEXT NOT NULL UNIQUE,
-    site_name TEXT NOT NULL,
-    created_at TEXT NOT NULL,
-    expires_at TEXT NOT NULL,
-    used_at TEXT
-);
-CREATE TABLE IF NOT EXISTS routers (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    site_name TEXT NOT NULL,
-    identity TEXT NOT NULL DEFAULT '',
-    serial TEXT NOT NULL DEFAULT '',
-    model TEXT NOT NULL DEFAULT '',
-    routeros_version TEXT NOT NULL DEFAULT '',
-    routerboot_version TEXT NOT NULL DEFAULT '',
-    public_key TEXT NOT NULL UNIQUE,
-    vpn_ip TEXT NOT NULL UNIQUE,
-    enabled INTEGER NOT NULL DEFAULT 1,
-    winbox_port INTEGER NOT NULL DEFAULT 8291,
-    public_winbox_port INTEGER,
-    created_at TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS authorized_ips (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    ip_address TEXT NOT NULL UNIQUE,
-    label TEXT NOT NULL DEFAULT '',
-    always_allow INTEGER NOT NULL DEFAULT 0,
-    expires_at TEXT,
-    created_at TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS users (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    email TEXT NOT NULL UNIQUE,
-    password_hash TEXT NOT NULL,
-    role TEXT NOT NULL DEFAULT 'admin',
-    enabled INTEGER NOT NULL DEFAULT 1,
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS sessions (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id INTEGER NOT NULL,
-    token_hash TEXT NOT NULL UNIQUE,
-    expires_at TEXT NOT NULL,
-    created_at TEXT NOT NULL,
-    FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
-);
-"""
+page = ui.page
 
 
 def utcnow() -> datetime:
@@ -106,12 +59,6 @@ def db():
         conn.commit()
     finally:
         conn.close()
-
-
-def ensure_column(conn: sqlite3.Connection, table: str, name: str, definition: str):
-    columns = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
-    if name not in columns:
-        conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {definition}")
 
 
 def hash_token(token: str) -> str:
@@ -158,14 +105,10 @@ def allocate_public_port(conn: sqlite3.Connection) -> int:
 
 
 def init_db():
-    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+    migrations.migrate()
     with db() as conn:
-        conn.executescript(SCHEMA)
-        ensure_column(conn, "routers", "winbox_port", "INTEGER NOT NULL DEFAULT 8291")
-        ensure_column(conn, "routers", "public_winbox_port", "INTEGER")
-        ensure_column(conn, "routers", "model", "TEXT NOT NULL DEFAULT ''")
-        ensure_column(conn, "routers", "routeros_version", "TEXT NOT NULL DEFAULT ''")
-        ensure_column(conn, "routers", "routerboot_version", "TEXT NOT NULL DEFAULT ''")
+        # Historical installations may have routers created before public relay
+        # ports were assigned. Schema evolution itself is owned by migrations.
         rows = conn.execute("SELECT id FROM routers WHERE public_winbox_port IS NULL").fetchall()
         for row in rows:
             conn.execute("UPDATE routers SET public_winbox_port=? WHERE id=?", (allocate_public_port(conn), row["id"]))
@@ -248,7 +191,12 @@ def next_router_ip(conn: sqlite3.Connection) -> str:
 
 
 def wg_helper(*args: str) -> str:
-    p = subprocess.run(["sudo", "-n", WG_HELPER, *args], capture_output=True, text=True, timeout=10)
+    p = subprocess.run(
+        ["sudo", "-n", WG_HELPER, *args],
+        capture_output=True,
+        text=True,
+        timeout=settings.WG_HELPER_TIMEOUT,
+    )
     if p.returncode != 0:
         raise HTTPException(status_code=500, detail="WireGuard helper failed")
     return p.stdout.strip()
@@ -289,18 +237,7 @@ def wireguard_peers() -> dict[str, dict]:
 async def form_data(request: Request) -> dict[str, str]:
     raw = (await request.body()).decode("utf-8", "replace")
     parsed = parse_qs(raw, keep_blank_values=True)
-    return {k: v[-1] for k, v in parsed.items()}
-
-
-def page(title: str, body: str, user=None) -> HTMLResponse:
-    nav = ""
-    if user:
-        nav = f'<div class="nav"><span>{html.escape(user["email"])}</span><a href="/">Dashboard</a><a href="/admin/users">Users</a><a href="/account/password">Password</a><form method="post" action="/logout" style="display:inline"><button>Logout</button></form></div>'
-    return HTMLResponse(f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{html.escape(title)} - Tikcentral</title>
-<style>
-:root{{--bg:#0b1020;--panel:#121a2d;--line:#26324c;--text:#ecf2ff;--muted:#92a0bb;--ok:#46d17d;--bad:#68758d;--accent:#5b86e5;--danger:#b94c5a}}
-*{{box-sizing:border-box}}body{{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 system-ui,-apple-system,Segoe UI,sans-serif}}main{{max-width:1600px;margin:36px auto;padding:0 20px}}a{{color:#9dbaff;text-decoration:none}}header{{display:flex;justify-content:space-between;align-items:center;gap:20px;margin-bottom:22px;flex-wrap:wrap}}h1{{margin:0}}h2{{margin:0 0 14px}}.sub,.muted{{color:var(--muted)}}.panel{{overflow:auto;background:var(--panel);border:1px solid var(--line);border-radius:14px;margin-bottom:22px}}.pad{{padding:18px}}table{{width:100%;border-collapse:collapse;min-width:900px}}th,td{{padding:13px 15px;text-align:left;border-bottom:1px solid var(--line)}}th{{font-size:12px;text-transform:uppercase;color:var(--muted)}}code{{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}}.dot{{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:8px}}.online{{background:var(--ok)}}.offline{{background:var(--bad)}}button{{border:1px solid #395182;background:#1a2846;color:var(--text);border-radius:7px;padding:8px 12px;cursor:pointer}}button.primary{{background:#294d8f}}button.danger{{border-color:#6f3340;background:#3e2027}}input,select{{background:#0d1528;color:var(--text);border:1px solid var(--line);border-radius:7px;padding:9px 10px}}.inline,.nav{{display:flex;gap:10px;align-items:center;flex-wrap:wrap}}.login{{max-width:430px;margin:90px auto}}.error{{background:#3a2028;border:1px solid #6f3340;padding:10px;border-radius:8px;margin-bottom:12px}}.copy-wrap{{display:flex;gap:8px;align-items:center;flex-wrap:wrap}}
-</style></head><body><main><header><div><h1>Tikcentral</h1><div class="sub">MikroTik remote management</div></div>{nav}</header>{body}</main></body></html>""")
+    return {key: values[-1] for key, values in parsed.items()}
 
 
 class TokenCreate(BaseModel):
@@ -354,9 +291,15 @@ async def login(request: Request):
         raw = secrets.token_urlsafe(32)
         now = utcnow()
         conn.execute("DELETE FROM sessions WHERE user_id=? AND expires_at<=?", (user["id"], iso(now)))
-        conn.execute("INSERT INTO sessions(user_id,token_hash,expires_at,created_at) VALUES(?,?,?,?)", (user["id"], hash_token(raw), iso(now + timedelta(days=SESSION_DAYS)), iso(now)))
+        conn.execute(
+            "INSERT INTO sessions(user_id,token_hash,expires_at,created_at) VALUES(?,?,?,?)",
+            (user["id"], hash_token(raw), iso(now + timedelta(days=SESSION_DAYS)), iso(now)),
+        )
     response = RedirectResponse("/", status_code=303)
-    response.set_cookie("tikcentral_session", raw, max_age=SESSION_DAYS * 86400, httponly=True, secure=True, samesite="lax", path="/")
+    response.set_cookie(
+        "tikcentral_session", raw, max_age=SESSION_DAYS * 86400,
+        httponly=True, secure=True, samesite="lax", path="/",
+    )
     return response
 
 
@@ -381,9 +324,12 @@ def dashboard(request: Request):
     now = utcnow()
     csrf = csrf_token(request)
     with db() as conn:
-        rows = conn.execute("SELECT id,site_name,identity,serial,model,routeros_version,routerboot_version,public_key,vpn_ip,public_winbox_port FROM routers WHERE enabled=1 ORDER BY site_name COLLATE NOCASE,id").fetchall()
-        access_rows = conn.execute("SELECT id,ip_address,label,always_allow,expires_at FROM authorized_ips ORDER BY always_allow DESC,ip_address").fetchall()
-    online_count = sum(1 for row in rows if peers.get(row["public_key"], {}).get("online"))
+        rows = conn.execute(
+            "SELECT id,site_name,identity,serial,model,routeros_version,routerboot_version,public_key,vpn_ip,public_winbox_port FROM routers WHERE enabled=1 ORDER BY site_name COLLATE NOCASE,id"
+        ).fetchall()
+        access_rows = conn.execute(
+            "SELECT id,ip_address,label,always_allow,expires_at FROM authorized_ips ORDER BY always_allow DESC,ip_address"
+        ).fetchall()
     router_rows = []
     for row in rows:
         live = peers.get(row["public_key"], {})
@@ -393,9 +339,12 @@ def dashboard(request: Request):
         last_seen = datetime.fromtimestamp(latest, timezone.utc).strftime("%Y-%m-%d %H:%M:%S") if latest else "Never"
         remote_winbox = f'{PUBLIC_HOSTNAME}:{row["public_winbox_port"]}'
         direct_winbox = f'{row["vpn_ip"]}:8291'
-        router_rows.append(f'''<tr><td><span class="dot {'online' if online else 'offline'}"></span>{'Online' if online else 'Offline'}</td><td>{html.escape(row['identity'] or '-')}</td><td>{html.escape(row['model'] or '-')}</td><td>{html.escape(row['serial'] or '-')}</td><td>{html.escape(row['routeros_version'] or '-')}</td><td>{html.escape(row['routerboot_version'] or '-')}</td><td><code>{html.escape(public_ip)}</code></td><td><code>{html.escape(row['vpn_ip'])}</code></td><td><code>{html.escape(remote_winbox)}</code></td><td><code>{html.escape(direct_winbox)}</code></td><td class="muted">{html.escape(last_seen)}</td></tr>''')
+        router_rows.append(
+            f'''<tr><td><span class="dot {'online' if online else 'offline'}"></span>{'Online' if online else 'Offline'}</td><td>{html.escape(row['identity'] or '-')}</td><td>{html.escape(row['model'] or '-')}</td><td>{html.escape(row['serial'] or '-')}</td><td>{html.escape(row['routeros_version'] or '-')}</td><td>{html.escape(row['routerboot_version'] or '-')}</td><td><code>{html.escape(public_ip)}</code></td><td><code>{html.escape(row['vpn_ip'])}</code></td><td><code>{html.escape(remote_winbox)}</code></td><td><code>{html.escape(direct_winbox)}</code></td><td class="muted">{html.escape(last_seen)}</td></tr>'''
+        )
     if not router_rows:
         router_rows.append('<tr><td colspan="11" class="muted">No MikroTik routers enrolled yet.</td></tr>')
+
     access_html = []
     for item in access_rows:
         if item["always_allow"]:
@@ -405,11 +354,14 @@ def dashboard(request: Request):
             if expiry_dt <= now:
                 continue
             expiry, mode = expiry_dt.strftime("%Y-%m-%d %H:%M UTC"), "Temporary"
-        access_html.append(f'''<tr><td><code>{html.escape(item['ip_address'])}</code></td><td>{html.escape(item['label'] or '-')}</td><td>{mode}</td><td>{html.escape(expiry)}</td><td><form method="post" action="/dashboard/access/{item['id']}/delete"><input type="hidden" name="csrf" value="{csrf}"><button class="danger">Remove</button></form></td></tr>''')
+        access_html.append(
+            f'''<tr><td><code>{html.escape(item['ip_address'])}</code></td><td>{html.escape(item['label'] or '-')}</td><td>{mode}</td><td>{html.escape(expiry)}</td><td><form method="post" action="/dashboard/access/{item['id']}/delete"><input type="hidden" name="csrf" value="{csrf}"><button class="danger">Remove</button></form></td></tr>'''
+        )
     if not access_html:
         access_html.append('<tr><td colspan="5" class="muted">No authorized public IPs.</td></tr>')
+
     body = f'''<div class="panel pad"><div class="inline" style="justify-content:space-between"><div><h2>Remote WinBox access</h2><div>Your current public IP: <code>{html.escape(current_ip or 'Unknown')}</code></div><div class="muted">Temporary authorization lasts {TEMP_ACCESS_DAYS} days.</div></div><form method="post" action="/dashboard/access/current"><input type="hidden" name="csrf" value="{csrf}"><button class="primary">Authorize my current IP for {TEMP_ACCESS_DAYS} days</button></form></div></div><div class="panel"><table><thead><tr><th>Status</th><th>Identity</th><th>Model</th><th>Serial</th><th>RouterOS</th><th>RouterBOOT</th><th>Public IP</th><th>VPN IP</th><th>Remote WinBox</th><th>VPN WinBox</th><th>Last handshake UTC</th></tr></thead><tbody>{''.join(router_rows)}</tbody></table></div><div class="panel pad"><h2>Always Authorized IPs</h2><form class="inline" method="post" action="/dashboard/access/always"><input type="hidden" name="csrf" value="{csrf}"><input name="ip_address" placeholder="203.0.113.10" required><input name="label" placeholder="Office / Home / Technician"><button>Add</button></form></div><div class="panel"><table><thead><tr><th>IP address</th><th>Label</th><th>Type</th><th>Expires</th><th></th></tr></thead><tbody>{''.join(access_html)}</tbody></table></div>'''
-    return page("Dashboard", body, user)
+    return page("Dashboard", body, user, "dashboard")
 
 
 @app.post("/dashboard/access/current")
@@ -422,11 +374,15 @@ async def authorize_current(request: Request):
     ip = request_public_ip(request)
     if not ip:
         raise HTTPException(status_code=400, detail="could not determine public IPv4 address")
-    now = utcnow(); expires = now + timedelta(days=TEMP_ACCESS_DAYS)
+    now = utcnow()
+    expires = now + timedelta(days=TEMP_ACCESS_DAYS)
     with db() as conn:
         existing = conn.execute("SELECT always_allow FROM authorized_ips WHERE ip_address=?", (ip,)).fetchone()
         if not (existing and existing["always_allow"]):
-            conn.execute("INSERT INTO authorized_ips(ip_address,label,always_allow,expires_at,created_at) VALUES(?,?,0,?,?) ON CONFLICT(ip_address) DO UPDATE SET always_allow=0,expires_at=excluded.expires_at", (ip, "Current dashboard IP", iso(expires), iso(now)))
+            conn.execute(
+                "INSERT INTO authorized_ips(ip_address,label,always_allow,expires_at,created_at) VALUES(?,?,0,?,?) ON CONFLICT(ip_address) DO UPDATE SET always_allow=0,expires_at=excluded.expires_at",
+                (ip, "Current dashboard IP", iso(expires), iso(now)),
+            )
     return RedirectResponse("/", status_code=303)
 
 
@@ -435,111 +391,163 @@ async def add_always(request: Request):
     user = require_web_admin(request)
     if not user:
         return RedirectResponse("/login", status_code=303)
-    data = await form_data(request); require_csrf(request, data.get("csrf", ""))
-    raw_ip = data.get("ip_address", "").strip(); label = data.get("label", "").strip()[:120]
-    try: ip = ipaddress.ip_address(raw_ip)
-    except ValueError: raise HTTPException(status_code=400, detail="invalid IP address")
-    if ip.version != 4: raise HTTPException(status_code=400, detail="IPv4 only")
+    data = await form_data(request)
+    require_csrf(request, data.get("csrf", ""))
+    raw_ip = data.get("ip_address", "").strip()
+    label = data.get("label", "").strip()[:120]
+    try:
+        ip = ipaddress.ip_address(raw_ip)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="invalid IP address")
+    if ip.version != 4:
+        raise HTTPException(status_code=400, detail="IPv4 only")
     with db() as conn:
-        conn.execute("INSERT INTO authorized_ips(ip_address,label,always_allow,expires_at,created_at) VALUES(?,?,1,NULL,?) ON CONFLICT(ip_address) DO UPDATE SET label=excluded.label,always_allow=1,expires_at=NULL", (str(ip), label, iso(utcnow())))
+        conn.execute(
+            "INSERT INTO authorized_ips(ip_address,label,always_allow,expires_at,created_at) VALUES(?,?,1,NULL,?) ON CONFLICT(ip_address) DO UPDATE SET label=excluded.label,always_allow=1,expires_at=NULL",
+            (str(ip), label, iso(utcnow())),
+        )
     return RedirectResponse("/", status_code=303)
 
 
 @app.post("/dashboard/access/{access_id}/delete")
 async def delete_access(access_id: int, request: Request):
     user = require_web_admin(request)
-    if not user: return RedirectResponse("/login", status_code=303)
-    data = await form_data(request); require_csrf(request, data.get("csrf", ""))
-    with db() as conn: conn.execute("DELETE FROM authorized_ips WHERE id=?", (access_id,))
+    if not user:
+        return RedirectResponse("/login", status_code=303)
+    data = await form_data(request)
+    require_csrf(request, data.get("csrf", ""))
+    with db() as conn:
+        conn.execute("DELETE FROM authorized_ips WHERE id=?", (access_id,))
     return RedirectResponse("/", status_code=303)
 
 
 @app.get("/account/password", response_class=HTMLResponse)
 def password_page(request: Request):
     user = require_web_admin(request)
-    if not user: return RedirectResponse("/login", status_code=303)
+    if not user:
+        return RedirectResponse("/login", status_code=303)
     csrf = csrf_token(request)
     body = f'''<div class="panel pad" style="max-width:600px"><h2>Change password</h2><form method="post" action="/account/password"><input type="hidden" name="csrf" value="{csrf}"><div><input style="width:100%;margin-bottom:10px" type="password" name="current_password" placeholder="Current password" required></div><div><input style="width:100%;margin-bottom:10px" type="password" name="new_password" placeholder="New password (12+ characters)" minlength="12" required></div><button class="primary">Change password</button></form></div>'''
-    return page("Password", body, user)
+    return page("Password", body, user, "settings")
 
 
 @app.post("/account/password")
 async def change_password(request: Request):
     user = require_web_admin(request)
-    if not user: return RedirectResponse("/login", status_code=303)
-    data = await form_data(request); require_csrf(request, data.get("csrf", ""))
-    current = data.get("current_password", ""); new = data.get("new_password", "")
-    if len(new) < 12: raise HTTPException(status_code=400, detail="password must be at least 12 characters")
+    if not user:
+        return RedirectResponse("/login", status_code=303)
+    data = await form_data(request)
+    require_csrf(request, data.get("csrf", ""))
+    current = data.get("current_password", "")
+    new = data.get("new_password", "")
+    if len(new) < 12:
+        raise HTTPException(status_code=400, detail="password must be at least 12 characters")
     with db() as conn:
         row = conn.execute("SELECT password_hash FROM users WHERE id=?", (user["id"],)).fetchone()
-        if not row or not verify_password(current, row["password_hash"]): raise HTTPException(status_code=400, detail="current password is incorrect")
+        if not row or not verify_password(current, row["password_hash"]):
+            raise HTTPException(status_code=400, detail="current password is incorrect")
         conn.execute("UPDATE users SET password_hash=?,updated_at=? WHERE id=?", (hash_password(new), iso(utcnow()), user["id"]))
         conn.execute("DELETE FROM sessions WHERE user_id=?", (user["id"],))
-    response = RedirectResponse("/login", status_code=303); response.delete_cookie("tikcentral_session", path="/"); return response
+    response = RedirectResponse("/login", status_code=303)
+    response.delete_cookie("tikcentral_session", path="/")
+    return response
 
 
 @app.get("/admin/users", response_class=HTMLResponse)
 def users_page(request: Request):
     user = require_web_admin(request)
-    if not user: return RedirectResponse("/login", status_code=303)
+    if not user:
+        return RedirectResponse("/login", status_code=303)
     csrf = csrf_token(request)
-    with db() as conn: rows = conn.execute("SELECT id,email,role,enabled,created_at FROM users ORDER BY email").fetchall()
+    with db() as conn:
+        rows = conn.execute("SELECT id,email,role,enabled,created_at FROM users ORDER BY email").fetchall()
     rendered = []
     for row in rows:
         if row["id"] == user["id"]:
             action = '<span class="muted">Current user</span>'
         else:
             action = f'''<form method="post" action="/admin/users/{row['id']}/toggle"><input type="hidden" name="csrf" value="{csrf}"><button>{'Disable' if row['enabled'] else 'Enable'}</button></form>'''
-        rendered.append(f'''<tr><td>{html.escape(row['email'])}</td><td>{html.escape(row['role'])}</td><td>{'Active' if row['enabled'] else 'Disabled'}</td><td>{action}</td></tr>''')
+        rendered.append(
+            f'''<tr><td>{html.escape(row['email'])}</td><td>{html.escape(row['role'])}</td><td>{'Active' if row['enabled'] else 'Disabled'}</td><td>{action}</td></tr>'''
+        )
     body = f'''<div class="panel pad"><h2>Add user</h2><form class="inline" method="post" action="/admin/users"><input type="hidden" name="csrf" value="{csrf}"><input type="email" name="email" placeholder="user@example.com" required><input type="password" name="password" placeholder="Temporary password (12+)" minlength="12" required><select name="role"><option value="admin">Admin</option></select><button>Add user</button></form></div><div class="panel"><table><thead><tr><th>Email</th><th>Role</th><th>Status</th><th></th></tr></thead><tbody>{''.join(rendered)}</tbody></table></div>'''
-    return page("Users", body, user)
+    return page("Users", body, user, "users")
 
 
 @app.post("/admin/users")
 async def add_user(request: Request):
     user = require_web_admin(request)
-    if not user: return RedirectResponse("/login", status_code=303)
-    data = await form_data(request); require_csrf(request, data.get("csrf", ""))
-    email = data.get("email", "").strip().lower(); password = data.get("password", "")
-    if not valid_email(email): raise HTTPException(status_code=400, detail="invalid email")
-    if len(password) < 12: raise HTTPException(status_code=400, detail="password must be at least 12 characters")
+    if not user:
+        return RedirectResponse("/login", status_code=303)
+    data = await form_data(request)
+    require_csrf(request, data.get("csrf", ""))
+    email = data.get("email", "").strip().lower()
+    password = data.get("password", "")
+    if not valid_email(email):
+        raise HTTPException(status_code=400, detail="invalid email")
+    if len(password) < 12:
+        raise HTTPException(status_code=400, detail="password must be at least 12 characters")
     now = iso(utcnow())
     try:
-        with db() as conn: conn.execute("INSERT INTO users(email,password_hash,role,enabled,created_at,updated_at) VALUES(?,?, 'admin',1,?,?)", (email, hash_password(password), now, now))
-    except sqlite3.IntegrityError: raise HTTPException(status_code=409, detail="email already exists")
+        with db() as conn:
+            conn.execute(
+                "INSERT INTO users(email,password_hash,role,enabled,created_at,updated_at) VALUES(?,?, 'admin',1,?,?)",
+                (email, hash_password(password), now, now),
+            )
+    except sqlite3.IntegrityError:
+        raise HTTPException(status_code=409, detail="email already exists")
     return RedirectResponse("/admin/users", status_code=303)
 
 
 @app.post("/admin/users/{user_id}/toggle")
 async def toggle_user(user_id: int, request: Request):
     user = require_web_admin(request)
-    if not user: return RedirectResponse("/login", status_code=303)
-    data = await form_data(request); require_csrf(request, data.get("csrf", ""))
-    if user_id == user["id"]: raise HTTPException(status_code=400, detail="cannot disable your own account")
+    if not user:
+        return RedirectResponse("/login", status_code=303)
+    data = await form_data(request)
+    require_csrf(request, data.get("csrf", ""))
+    if user_id == user["id"]:
+        raise HTTPException(status_code=400, detail="cannot disable your own account")
     with db() as conn:
         row = conn.execute("SELECT enabled FROM users WHERE id=?", (user_id,)).fetchone()
-        if not row: raise HTTPException(status_code=404, detail="user not found")
+        if not row:
+            raise HTTPException(status_code=404, detail="user not found")
         enabled = 0 if row["enabled"] else 1
         conn.execute("UPDATE users SET enabled=?,updated_at=? WHERE id=?", (enabled, iso(utcnow()), user_id))
-        if not enabled: conn.execute("DELETE FROM sessions WHERE user_id=?", (user_id,))
+        if not enabled:
+            conn.execute("DELETE FROM sessions WHERE user_id=?", (user_id,))
     return RedirectResponse("/admin/users", status_code=303)
 
 
 @app.post("/admin/tokens")
 def create_token(req: TokenCreate, x_api_key: str = Header(default="")):
     require_api_admin(x_api_key)
-    raw = secrets.token_urlsafe(24); now = utcnow(); expires = now + timedelta(hours=TOKEN_TTL_HOURS)
-    with db() as conn: conn.execute("INSERT INTO enrollment_tokens(token_hash,site_name,created_at,expires_at) VALUES(?,?,?,?)", (hash_token(raw), req.site_name, iso(now), iso(expires)))
+    raw = secrets.token_urlsafe(24)
+    now = utcnow()
+    expires = now + timedelta(hours=TOKEN_TTL_HOURS)
+    with db() as conn:
+        conn.execute(
+            "INSERT INTO enrollment_tokens(token_hash,site_name,created_at,expires_at) VALUES(?,?,?,?)",
+            (hash_token(raw), req.site_name, iso(now), iso(expires)),
+        )
     return {"token": raw, "site_name": req.site_name, "expires_at": iso(expires)}
 
 
 @app.get("/admin/routers")
 def routers(x_api_key: str = Header(default="")):
-    require_api_admin(x_api_key); peers = wireguard_peers()
-    with db() as conn: rows = conn.execute("SELECT id,site_name,identity,serial,model,routeros_version,routerboot_version,vpn_ip,public_winbox_port,public_key,enabled,created_at FROM routers ORDER BY id").fetchall()
+    require_api_admin(x_api_key)
+    peers = wireguard_peers()
+    with db() as conn:
+        rows = conn.execute(
+            "SELECT id,site_name,identity,serial,model,routeros_version,routerboot_version,vpn_ip,public_winbox_port,public_key,enabled,created_at FROM routers ORDER BY id"
+        ).fetchall()
     result = []
     for row in rows:
-        item = dict(row); item.update(peers.get(row["public_key"], {})); item["remote_winbox"] = f'{PUBLIC_HOSTNAME}:{row["public_winbox_port"]}'; item["vpn_winbox"] = f'{row["vpn_ip"]}:8291'; result.append(item)
+        item = dict(row)
+        item.update(peers.get(row["public_key"], {}))
+        item["remote_winbox"] = f'{PUBLIC_HOSTNAME}:{row["public_winbox_port"]}'
+        item["vpn_winbox"] = f'{row["vpn_ip"]}:8291'
+        result.append(item)
     return result
 
 
@@ -547,17 +555,46 @@ def routers(x_api_key: str = Header(default="")):
 def enroll(req: EnrollRequest, request: Request):
     now = utcnow()
     with db() as conn:
-        token = conn.execute("SELECT id,site_name,expires_at,used_at FROM enrollment_tokens WHERE token_hash=?", (hash_token(req.token),)).fetchone()
-        if not token or token["used_at"]: raise HTTPException(status_code=401, detail="invalid or already-used enrollment token")
-        if datetime.fromisoformat(token["expires_at"]) < now: raise HTTPException(status_code=401, detail="enrollment token expired")
-        existing = conn.execute("SELECT site_name,vpn_ip,public_key,enabled,public_winbox_port FROM routers WHERE public_key=?", (req.public_key,)).fetchone()
+        token = conn.execute(
+            "SELECT id,site_name,expires_at,used_at FROM enrollment_tokens WHERE token_hash=?",
+            (hash_token(req.token),),
+        ).fetchone()
+        if not token or token["used_at"]:
+            raise HTTPException(status_code=401, detail="invalid or already-used enrollment token")
+        if datetime.fromisoformat(token["expires_at"]) < now:
+            raise HTTPException(status_code=401, detail="enrollment token expired")
+        existing = conn.execute(
+            "SELECT site_name,vpn_ip,public_key,enabled,public_winbox_port FROM routers WHERE public_key=?",
+            (req.public_key,),
+        ).fetchone()
         if existing:
-            if not existing["enabled"]: raise HTTPException(status_code=403, detail="router disabled")
+            if not existing["enabled"]:
+                raise HTTPException(status_code=403, detail="router disabled")
             wg_helper("add", existing["public_key"], existing["vpn_ip"])
-            conn.execute("UPDATE routers SET identity=?,serial=?,model=?,routeros_version=?,routerboot_version=? WHERE public_key=?", (req.identity, req.serial, req.model, req.routeros_version, req.routerboot_version, req.public_key))
+            conn.execute(
+                "UPDATE routers SET identity=?,serial=?,model=?,routeros_version=?,routerboot_version=? WHERE public_key=?",
+                (req.identity, req.serial, req.model, req.routeros_version, req.routerboot_version, req.public_key),
+            )
             conn.execute("UPDATE enrollment_tokens SET used_at=? WHERE id=?", (iso(now), token["id"]))
-            return {"vpn_ip": existing["vpn_ip"], "server_public_key": WG_SERVER_PUBLIC_KEY, "endpoint": WG_ENDPOINT, "allowed_network": WG_ALLOWED_NETWORK, "remote_winbox": f'{PUBLIC_HOSTNAME}:{existing["public_winbox_port"]}'}
-        vpn_ip = next_router_ip(conn); public_port = allocate_public_port(conn); wg_helper("add", req.public_key, vpn_ip)
-        conn.execute("INSERT INTO routers(site_name,identity,serial,model,routeros_version,routerboot_version,public_key,vpn_ip,public_winbox_port,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)", (token["site_name"], req.identity, req.serial, req.model, req.routeros_version, req.routerboot_version, req.public_key, vpn_ip, public_port, iso(now)))
+            return {
+                "vpn_ip": existing["vpn_ip"],
+                "server_public_key": WG_SERVER_PUBLIC_KEY,
+                "endpoint": WG_ENDPOINT,
+                "allowed_network": WG_ALLOWED_NETWORK,
+                "remote_winbox": f'{PUBLIC_HOSTNAME}:{existing["public_winbox_port"]}',
+            }
+        vpn_ip = next_router_ip(conn)
+        public_port = allocate_public_port(conn)
+        wg_helper("add", req.public_key, vpn_ip)
+        conn.execute(
+            "INSERT INTO routers(site_name,identity,serial,model,routeros_version,routerboot_version,public_key,vpn_ip,public_winbox_port,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)",
+            (token["site_name"], req.identity, req.serial, req.model, req.routeros_version, req.routerboot_version, req.public_key, vpn_ip, public_port, iso(now)),
+        )
         conn.execute("UPDATE enrollment_tokens SET used_at=? WHERE id=?", (iso(now), token["id"]))
-    return {"vpn_ip": vpn_ip, "server_public_key": WG_SERVER_PUBLIC_KEY, "endpoint": WG_ENDPOINT, "allowed_network": WG_ALLOWED_NETWORK, "remote_winbox": f"{PUBLIC_HOSTNAME}:{public_port}"}
+    return {
+        "vpn_ip": vpn_ip,
+        "server_public_key": WG_SERVER_PUBLIC_KEY,
+        "endpoint": WG_ENDPOINT,
+        "allowed_network": WG_ALLOWED_NETWORK,
+        "remote_winbox": f"{PUBLIC_HOSTNAME}:{public_port}",
+    }
