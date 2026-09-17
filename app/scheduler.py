@@ -7,7 +7,7 @@ next timer tick.
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from app import errors, events, fleet_health, jobs, main as core, operations, settings, state_capture
+from app import errors, events, fleet_health, jobs, main as core, operations, settings, state_capture, system_health
 
 
 def _eligible_healthy_router_ids() -> list[int]:
@@ -129,4 +129,5 @@ def scheduled_tick():
     _optional("telemetry", lambda: _telemetry_lane(state, now))
     _optional("drift", lambda: _drift_lane(state, now))
     _optional("fleet_health", fleet_health.counts)
+    _optional("system_health", system_health.scheduled_tick)
     _optional("event_maintenance", events.maintenance)
