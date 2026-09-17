@@ -43,7 +43,6 @@ git --git-dir="$REPO" fetch --prune origin '+refs/heads/main:refs/heads/main'
 TARGET_SHA="$(git --git-dir="$REPO" rev-parse refs/heads/main)"
 SHORT_SHA="${TARGET_SHA:0:12}"
 
-# Execute the updater from the target commit before touching the live release.
 if [[ "${TIKCENTRAL_UPDATE_TARGET:-}" != "$TARGET_SHA" ]]; then
   tmp_updater="$(mktemp /tmp/tikcentral-update.XXXXXX.sh)"
   git --git-dir="$REPO" show "$TARGET_SHA:update.sh" > "$tmp_updater"
@@ -58,13 +57,11 @@ BUILD="$RELEASES/.build-$SHORT_SHA-$$"
 DB_BACKUP="/var/backups/tikcentral/pre-update-$STAMP.db"
 ENV_BACKUP="/var/backups/tikcentral/pre-update-$STAMP.env"
 
-# Back up persistent state before target code is imported or migrations run.
 if [[ -f /var/lib/tikcentral/tikcentral.db ]]; then
   sqlite3 /var/lib/tikcentral/tikcentral.db ".backup '$DB_BACKUP'"
 fi
 cp -a "$ENV_FILE" "$ENV_BACKUP"
 
-# Shared state survives every code release and rollback.
 install -d -o root -g tikcentral -m 0750 "$SSH_DIR"
 if [[ ! -f "$SSH_DIR/tikcentral_ed25519" ]]; then
   ssh-keygen -q -t ed25519 -N '' -C 'tikcentral-vps' -f "$SSH_DIR/tikcentral_ed25519"
@@ -102,7 +99,6 @@ fi
 chmod 0640 "$ENV_FILE"
 chown root:tikcentral "$ENV_FILE"
 
-# Build one immutable release with its own dependencies.
 if [[ ! -f "$RELEASE/.tikcentral-validated" ]] || [[ "$(cat "$RELEASE/.tikcentral-validated" 2>/dev/null || true)" != "$TARGET_SHA" ]]; then
   rm -rf "$BUILD" "$RELEASE"
   mkdir -p "$BUILD"
@@ -122,13 +118,13 @@ if [[ ! -f "$RELEASE/.tikcentral-validated" ]] || [[ "$(cat "$RELEASE/.tikcentra
   printf '%s\n' "$TARGET_SHA" > "$RELEASE/.tikcentral-validated"
 fi
 
-# Migrations are additive; the SQLite snapshot above is the recovery point.
 sudo -u tikcentral bash -c "set -a; source '$ENV_FILE'; set +a; cd '$RELEASE'; '$RELEASE/.venv/bin/python3' -c 'from app import migrations; migrations.migrate()'"
 
 install_runtime_files() {
   local release="$1"
-  chmod +x "$release/helpers/tikcentral-wg-peer"
+  chmod +x "$release/helpers/tikcentral-wg-peer" "$release/helpers/tikcentral-update"
   install -o root -g root -m 0755 "$release/helpers/tikcentral-wg-peer" /usr/local/sbin/tikcentral-wg-peer
+  install -o root -g root -m 0755 "$release/helpers/tikcentral-update" /usr/local/sbin/tikcentral-update
   printf 'tikcentral ALL=(root) NOPASSWD: /usr/local/sbin/tikcentral-wg-peer *\n' > /etc/sudoers.d/tikcentral-wg
   chmod 0440 /etc/sudoers.d/tikcentral-wg
   visudo -cf /etc/sudoers.d/tikcentral-wg >/dev/null
@@ -209,7 +205,6 @@ activation_error() {
 }
 trap activation_error ERR
 
-# Build/validate Caddy configuration before changing the live release.
 set -a
 source "$ENV_FILE"
 set +a
@@ -224,12 +219,10 @@ EOF
 caddy fmt --overwrite /etc/caddy/Caddyfile >/dev/null
 caddy validate --config /etc/caddy/Caddyfile
 
-# Pause scheduled jobs only for the release switch. Web stays on old code until now.
 systemctl stop tikcentral-fleet.timer >/dev/null 2>&1 || true
 systemctl stop tikcentral-fleet.service >/dev/null 2>&1 || true
 ACTIVATION_STARTED=1
 
-# First atomic update converts the historical git checkout into a rollback target.
 if [[ -d "$CURRENT" && ! -L "$CURRENT" ]]; then
   mv "$CURRENT" "$PREVIOUS"
 fi
@@ -273,7 +266,6 @@ fi
 ACTIVATION_STARTED=0
 trap - ERR
 
-# Keep a small immutable release history. Preserve current and immediate previous.
 current_real="$(readlink -f "$CURRENT")"
 kept=0
 while IFS= read -r dir; do
@@ -298,6 +290,10 @@ echo "Release path: $RELEASE"
 echo "Previous release: ${PREVIOUS:-none}"
 echo "Atomic rollback: enabled for all activation failures"
 echo "Runtime: consolidated Operations + Rescue + UI"
+echo "Read/change scheduler isolation: enabled"
+echo "Structured operational errors: enabled"
+echo "Central runtime settings: enabled"
+echo "Stable updater command: sudo tikcentral-update"
 echo "Per-release Python environment: ready"
 echo "Access Guardian: enabled"
 echo "Montréal UI time: enabled"
