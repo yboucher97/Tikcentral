@@ -12,6 +12,7 @@ NAV = [
     ("routers", "/routers", "Routers"),
     ("enroll", "/enroll", "Enroll"),
     ("guardian", "/guardian", "Guardian"),
+    ("reliability", "/reliability", "Reliability"),
     ("operations", "/operations", "Operations"),
     ("rescue", "/rescue", "Rescue"),
     ("automation", "/automation", "Automation"),
