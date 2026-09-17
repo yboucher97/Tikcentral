@@ -88,6 +88,9 @@ ROUTERBOOT_RETURN_TIMEOUT = _int("TIKCENTRAL_ROUTERBOOT_RETURN_TIMEOUT", 900, mi
 # Read-only Codex analysis. Tikcentral invokes only the privileged wrapper; the
 # wrapper drops to a separate tikcentral-ai user before starting Codex.
 AI_CODEX_HELPER = os.getenv("TIKCENTRAL_CODEX_HELPER", "/usr/local/sbin/tikcentral-codex-analyze")
+AI_MODEL = os.getenv("TIKCENTRAL_AI_MODEL", "gpt-5.6-luna").strip() or "gpt-5.6-luna"
+if AI_MODEL not in {"gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-sol", "gpt-6-astra"}:
+    raise RuntimeError("TIKCENTRAL_AI_MODEL must be gpt-5.6-luna, gpt-5.6-terra, gpt-5.6-sol, or gpt-6-astra")
 AI_TIMEOUT = _int("TIKCENTRAL_AI_TIMEOUT", 300, minimum=30, maximum=1800)
 AI_ROUTER_READ_TIMEOUT = _int("TIKCENTRAL_AI_ROUTER_READ_TIMEOUT", 60, minimum=10, maximum=300)
 AI_MAX_SECTION_CHARS = _int("TIKCENTRAL_AI_MAX_SECTION_CHARS", 60000, minimum=5000, maximum=250000)
