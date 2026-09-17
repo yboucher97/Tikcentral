@@ -188,12 +188,7 @@ def guardian_tick():
 
 
 def repair_router(router_id: int, actor: str = "guardian"):
-    """Repair only Tikcentral-owned access objects.
-
-    Access recovery intentionally does not require a backup and is not blocked by
-    an existing router job; recovering management access has priority over other
-    control-plane work. It is still recorded in the unified job lifecycle.
-    """
+    """Repair only Tikcentral-owned access objects and keep a full transcript."""
     ensure_schema()
     with core.db() as conn:
         router = conn.execute(
@@ -204,21 +199,36 @@ def repair_router(router_id: int, actor: str = "guardian"):
         raise errors.OperationError("ROUTER_NOT_FOUND", "Enabled router not found")
 
     before = probe_router(router)
-    if not before["wg_online"]:
-        raise errors.OperationError(
-            "GUARDIAN_REPAIR_UNREACHABLE",
-            "Repair cannot run while the WireGuard peer is offline",
-            "Tikcentral needs the management tunnel before it can repair router-side access.",
-        )
-    if not before["ssh_open"]:
-        raise errors.OperationError(
-            "GUARDIAN_REPAIR_NO_SSH",
-            "Repair requires the Tikcentral SSH path",
-            "SSH TCP/22 is not reachable, so Tikcentral cannot safely execute the repair command. WinBox/API state is still shown for diagnosis.",
-        )
+    tx_id = change_control.begin(router_id, "guardian_repair", actor, pre_access=before)
+    change_control.step(
+        tx_id,
+        "probe",
+        "ok" if before["wg_online"] else "failed",
+        "Initial management probe completed",
+        json.dumps(before, sort_keys=True),
+    )
 
-    tx_id = None
     try:
+        if not before["wg_online"]:
+            raise errors.OperationError(
+                "GUARDIAN_REPAIR_UNREACHABLE",
+                "Repair cannot run while the WireGuard peer is offline",
+                "Tikcentral needs the management tunnel before it can repair router-side access.",
+            )
+        if not before["ssh_open"]:
+            raise errors.OperationError(
+                "GUARDIAN_REPAIR_NO_SSH",
+                "Repair requires the Tikcentral SSH path",
+                "SSH TCP/22 is not reachable, so Tikcentral cannot safely execute the repair command. WinBox/API state is still shown for diagnosis.",
+            )
+
+        change_control.step(
+            tx_id,
+            "preflight",
+            "ok",
+            "WireGuard and SSH recovery path reachable",
+            access_issue(before) or "Recovery prerequisites satisfied",
+        )
         with jobs.operation(
             router_id,
             "guardian_repair",
@@ -227,8 +237,7 @@ def repair_router(router_id: int, actor: str = "guardian"):
             fail_code="GUARDIAN_REPAIR_FAILED",
             fail_message="Guardian access repair failed",
         ) as job_id:
-            tx_id = change_control.begin(router_id, "guardian_repair", actor, job_id=job_id, pre_access=before)
-            change_control.step(tx_id, "preflight", "ok", "WireGuard and SSH recovery path reachable", access_issue(before))
+            change_control.attach_job(tx_id, job_id)
             change_control.step(tx_id, "apply", "info", "Applying Tikcentral-owned access repair")
             output = router_exec.mutate(
                 router["vpn_ip"],
@@ -236,9 +245,22 @@ def repair_router(router_id: int, actor: str = "guardian"):
                 timeout=settings.MUTATION_TIMEOUT,
                 label="Guardian access repair",
             )
+            change_control.step(
+                tx_id,
+                "apply",
+                "ok",
+                "Tikcentral-owned access repair command completed",
+                router_exec.sanitize(output, 2000),
+            )
             jobs.verifying(job_id)
             result = probe_router(router)
-            change_control.step(tx_id, "verify", "ok" if result["management_ok"] else "failed", "Management paths re-probed", access_issue(result))
+            change_control.step(
+                tx_id,
+                "verify",
+                "ok" if result["management_ok"] else "failed",
+                "Management paths re-probed",
+                json.dumps(result, sort_keys=True),
+            )
             if not result["management_ok"]:
                 raise errors.OperationError(
                     "ACCESS_VERIFY_FAILED",
@@ -248,11 +270,10 @@ def repair_router(router_id: int, actor: str = "guardian"):
                 )
             change_control.finish(tx_id, post_access=result)
     except Exception as exc:
-        if tx_id is not None:
-            try:
-                change_control.fail(tx_id, exc, post_access=probe_router(router))
-            except Exception:
-                pass
+        try:
+            change_control.fail(tx_id, exc, post_access=probe_router(router))
+        except Exception:
+            pass
         raise
 
     guardian_tick()
