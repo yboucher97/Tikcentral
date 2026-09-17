@@ -93,6 +93,16 @@ UPDATE_CHECK_TIMEOUT = _int("TIKCENTRAL_UPDATE_CHECK_TIMEOUT", 90, minimum=10, m
 ROUTEROS_RETURN_TIMEOUT = _int("TIKCENTRAL_ROUTEROS_RETURN_TIMEOUT", 1200, minimum=120, maximum=3600)
 ROUTERBOOT_RETURN_TIMEOUT = _int("TIKCENTRAL_ROUTERBOOT_RETURN_TIMEOUT", 900, minimum=120, maximum=3600)
 
+# Read-only Codex analysis. Codex runs as the existing tikcentral service user in
+# an isolated temporary directory and is never given router credentials.
+AI_CODEX_BIN = os.getenv("TIKCENTRAL_CODEX_BIN", "/usr/local/bin/codex")
+AI_CODEX_HOME = os.getenv("TIKCENTRAL_CODEX_HOME", "/var/lib/tikcentral/codex-home")
+AI_TEMP_ROOT = os.getenv("TIKCENTRAL_AI_TEMP_ROOT", "/var/lib/tikcentral/ai-tmp")
+AI_TIMEOUT = _int("TIKCENTRAL_AI_TIMEOUT", 300, minimum=30, maximum=1800)
+AI_ROUTER_READ_TIMEOUT = _int("TIKCENTRAL_AI_ROUTER_READ_TIMEOUT", 60, minimum=10, maximum=300)
+AI_MAX_SECTION_CHARS = _int("TIKCENTRAL_AI_MAX_SECTION_CHARS", 60000, minimum=5000, maximum=250000)
+AI_MAX_REPORT_CHARS = _int("TIKCENTRAL_AI_MAX_REPORT_CHARS", 50000, minimum=5000, maximum=200000)
+
 # Static local Rescue profile. Validate the values together here so a typo never
 # reaches a RouterOS mutation command.
 RESCUE_ADDRESS = os.getenv("TIKCENTRAL_RESCUE_ADDRESS", "10.255.255.1/24")
