@@ -139,6 +139,15 @@ def latest(router_id: int, limit: int = 20):
         ).fetchall()
 
 
+def active_for_router(router_id: int):
+    ensure_schema()
+    with core.db() as conn:
+        return conn.execute(
+            "SELECT * FROM router_jobs WHERE router_id=? AND status IN ('queued','running','verifying') ORDER BY id LIMIT 1",
+            (router_id,),
+        ).fetchone()
+
+
 def active_change_router_ids() -> set[int]:
     """Routers that read-only fleet work should leave alone for this tick."""
     ensure_schema()
@@ -150,7 +159,7 @@ def active_change_router_ids() -> set[int]:
 
 
 def router_has_active_change(router_id: int) -> bool:
-    return int(router_id) in active_change_router_ids()
+    return active_for_router(router_id) is not None
 
 
 def next_queued(kind_prefix: str = ""):
