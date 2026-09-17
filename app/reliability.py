@@ -15,7 +15,7 @@ from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from fastapi import Request
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 
-from app import change_control, events, main as core, management_script, migrations, router_exec
+from app import change_control, events, guardian, main as core, management_script, migrations, router_exec, state_capture
 
 
 def now_iso():
@@ -332,6 +332,45 @@ def _latency_svg(rows):
     return f'<div class="muted" style="margin-bottom:8px">{legend}</div>{svg}'
 
 
+def _wan_svg(rows):
+    rows = list(rows or [])
+    if not rows:
+        return '<div class="muted">No WAN history in this window.</div>'
+    width, height, pad = 1000, 170, 24
+    usable = width - pad * 2
+    step = usable / max(1, len(rows))
+    bars = []
+    for i, row in enumerate(rows):
+        x = pad + i * step
+        internet_ok = (row["internet_ping"] or 0) > 0
+        dns_ok = row["dns_ok"] == 1
+        route_ok = (row["active_default_routes"] or 0) > 0
+        color = "var(--green)" if internet_ok and dns_ok and route_ok else ("var(--warn)" if route_ok else "var(--danger)")
+        title = (
+            f'{row["captured_at"]} · routes={row["active_default_routes"]} · '
+            f'ping={row["internet_ping"]} · dns={row["dns_ok"]}'
+        )
+        bars.append(
+            f'<rect x="{x:.2f}" y="38" width="{max(1.0, step + .25):.2f}" height="78" rx="1" fill="{color}" opacity=".9"><title>{html.escape(title)}</title></rect>'
+        )
+    return f'''<svg viewBox="0 0 {width} {height}" role="img" aria-label="WAN health history" style="width:100%;height:170px;display:block">
+<line x1="{pad}" y1="116" x2="{width-pad}" y2="116" stroke="var(--line)"/>
+{''.join(bars)}
+<text x="{pad}" y="145" fill="var(--muted)" font-size="12">Oldest</text>
+<text x="{width-pad}" y="145" fill="var(--muted)" font-size="12" text-anchor="end">Newest</text>
+</svg>'''
+
+
+def _management_diff(known: str, current: str):
+    return "\n".join(difflib.unified_diff(
+        (known or "").splitlines(),
+        (current or "").splitlines(),
+        fromfile="last-known-good",
+        tofile="current",
+        lineterm="",
+    )) or "No differences."
+
+
 def register(app, page_func):
     migrations.migrate()
 
@@ -348,7 +387,11 @@ def register(app, page_func):
                           a.management_ok,a.last_good_at,a.last_error,
                           m.start_at,m.end_at,m.reason,
                           (SELECT COUNT(*) FROM router_access_history h WHERE h.router_id=r.id AND h.management_ok=0 AND h.checked_at>=datetime('now','-24 hours')) AS failed_24h,
-                          (SELECT AVG(h.winbox_latency_ms) FROM router_access_history h WHERE h.router_id=r.id AND h.winbox_latency_ms IS NOT NULL AND h.checked_at>=datetime('now','-24 hours')) AS avg_winbox_ms
+                          (SELECT AVG(h.winbox_latency_ms) FROM router_access_history h WHERE h.router_id=r.id AND h.winbox_latency_ms IS NOT NULL AND h.checked_at>=datetime('now','-24 hours')) AS avg_winbox_ms,
+                          (SELECT captured_at FROM router_management_known_good k WHERE k.router_id=r.id) AS known_good_at,
+                          (SELECT active_default_routes FROM router_wan_history w WHERE w.router_id=r.id ORDER BY w.id DESC LIMIT 1) AS wan_routes,
+                          (SELECT internet_ping FROM router_wan_history w WHERE w.router_id=r.id ORDER BY w.id DESC LIMIT 1) AS wan_ping,
+                          (SELECT dns_ok FROM router_wan_history w WHERE w.router_id=r.id ORDER BY w.id DESC LIMIT 1) AS wan_dns
                    FROM routers r
                    LEFT JOIN router_access_state a ON a.router_id=r.id
                    LEFT JOIN router_maintenance m ON m.router_id=r.id
@@ -380,6 +423,8 @@ def register(app, page_func):
 <td><span class="tc-status {tone} live"><span class="tc-status-dot"></span>{state}</span>{maintenance}</td>
 <td>{int(r["failed_24h"] or 0)} failed probes<div class="muted">{f'{float(r["avg_winbox_ms"]):.1f} ms avg WinBox' if r["avg_winbox_ms"] is not None else 'No latency sample'}</div><div style="margin-top:7px"><a href="/reliability/{r['id']}/quality">View quality history</a></div></td>
 <td>{maintenance_action}</td>
+<td><div><a href="/reliability/{r['id']}/known-good">Known-good management</a><div class="muted">{html.escape(r["known_good_at"] or "Not captured yet")}</div></div>
+<div style="margin-top:7px"><a href="/reliability/{r['id']}/wan">WAN history</a><div class="muted">{("route ✓" if (r["wan_routes"] or 0)>0 else "route ✕")} · {("internet ✓" if (r["wan_ping"] or 0)>0 else "internet ✕")} · {("DNS ✓" if r["wan_dns"]==1 else "DNS ✕")}</div></div></td>
 <td><a href="/reliability/{r['id']}/breakglass"><button>Encrypted break-glass bundle</button></a> <a href="/reliability/{r['id']}/support"><button>Support package</button></a></td></tr>'''
             )
 
@@ -406,10 +451,119 @@ def register(app, page_func):
                 f'''<tr id="tx-{t["id"]}"><td>#{t["id"]}</td><td>{html.escape(t["site_name"])}</td><td>{html.escape(t["kind"])}</td><td>{html.escape(t["status"])}</td><td>{html.escape(t["actor"] or "")}</td><td>{transcript or '<span class="muted">No transcript steps.</span>'}</td></tr>'''
             )
         body = f'''<div class="panel pad"><h2>Reliability Center</h2><div class="muted">Access-first change safety, maintenance windows, correlated incidents, connectivity quality, recovery bundles and support packages.</div></div>
-<div class="panel"><table><thead><tr><th>Router</th><th>State</th><th>24h quality</th><th>Maintenance</th><th>Recovery / support</th></tr></thead><tbody>{''.join(router_rows) or '<tr><td colspan="5">No routers.</td></tr>'}</tbody></table></div>
+<div class="panel"><table><thead><tr><th>Router</th><th>State</th><th>24h quality</th><th>Maintenance</th><th>Known-good / WAN</th><th>Recovery / support</th></tr></thead><tbody>{''.join(router_rows) or '<tr><td colspan="6">No routers.</td></tr>'}</tbody></table></div>
 <div class="panel"><div class="pad"><h3>Correlated incidents</h3><div class="muted">Guardian groups simultaneous multi-router access failures so central outages are easier to distinguish from site failures.</div></div><table><thead><tr><th>ID</th><th>Opened</th><th>Status</th><th>Routers</th><th>Incident</th><th>Resolved</th></tr></thead><tbody>{incident_rows}</tbody></table></div>
 <div class="panel"><div class="pad"><h3>Change transaction transcripts</h3><div class="muted">Preflight, backup, apply and verification steps for access-sensitive changes.</div></div><table><thead><tr><th>TX</th><th>Router</th><th>Change</th><th>Status</th><th>Actor</th><th>Transcript</th></tr></thead><tbody>{''.join(tx_rows) or '<tr><td colspan="6">No transactions.</td></tr>'}</tbody></table></div>'''
         return page_func("Reliability", body, user, "reliability")
+
+    @app.get("/reliability/{router_id}/known-good", response_class=HTMLResponse)
+    def known_good_page(router_id: int, request: Request):
+        user = core.require_web_admin(request)
+        if not user:
+            return RedirectResponse("/login", status_code=303)
+        router = _router(router_id)
+        if not router:
+            return RedirectResponse("/reliability", status_code=303)
+        csrf = core.csrf_token(request)
+        try:
+            comparison = state_capture.compare_management_known_good(router_id)
+        except Exception as exc:
+            comparison = {"status": "error", "known": None, "current": "", "current_sha256": "", "error": str(exc)}
+        if comparison["status"] == "missing":
+            status_html = '<span class="tc-status warn"><span class="tc-status-dot"></span>No known-good snapshot yet</span>'
+            details = '<div class="muted" style="margin-top:8px">Tikcentral will capture one automatically while Guardian is Healthy, or you can capture the verified current state below.</div>'
+            diff = ""
+        elif comparison["status"] == "match":
+            known = comparison["known"]
+            status_html = '<span class="tc-status ok"><span class="tc-status-dot"></span>Current management state matches known-good</span>'
+            details = f'<div class="muted" style="margin-top:8px">Saved {html.escape(known["captured_at"])} · source {html.escape(known["source_kind"] or "-")} · actor {html.escape(known["source_actor"] or "-")}</div>'
+            diff = "No differences."
+        elif comparison["status"] == "drift":
+            known = comparison["known"]
+            status_html = '<span class="tc-status bad"><span class="tc-status-dot"></span>Management state differs from known-good</span>'
+            details = f'<div class="muted" style="margin-top:8px">Known-good saved {html.escape(known["captured_at"])} · source {html.escape(known["source_kind"] or "-")}</div>'
+            diff = _management_diff(known["content"], comparison["current"])
+        else:
+            status_html = '<span class="tc-status bad"><span class="tc-status-dot"></span>Comparison unavailable</span>'
+            details = f'<div class="muted" style="margin-top:8px">{html.escape(comparison.get("error", ""))}</div>'
+            diff = ""
+        body = f'''<div class="panel pad"><h2>Known-good management · {html.escape(router["site_name"])}</h2>
+<div class="muted">{html.escape(router["model"] or "")} · <code>{html.escape(router["vpn_ip"])}</code></div>
+<div style="margin-top:12px">{status_html}{details}</div>
+<form method="post" action="/reliability/{router_id}/known-good/capture" style="margin-top:14px"><input type="hidden" name="csrf" value="{csrf}"><button class="primary" onclick="return confirm('Save the currently verified Tikcentral management state as known-good?')">Capture verified current state</button> <a href="/reliability"><button type="button">Back</button></a></form></div>
+<div class="panel pad"><h3>Management-state difference</h3><div class="muted">Only Tikcentral management objects are compared. Customer firewall/NAT/VLAN configuration is outside this snapshot.</div><pre style="white-space:pre-wrap;max-height:60vh;overflow:auto;user-select:text">{html.escape(diff)}</pre></div>'''
+        return page_func("Known-good Management", body, user, "reliability")
+
+    @app.post("/reliability/{router_id}/known-good/capture")
+    async def known_good_capture(router_id: int, request: Request):
+        user = core.require_web_admin(request)
+        if not user:
+            return RedirectResponse("/login", status_code=303)
+        data = await core.form_data(request)
+        core.require_csrf(request, data.get("csrf", ""))
+        router = _router(router_id)
+        if not router:
+            return RedirectResponse("/reliability", status_code=303)
+        access = guardian.probe_router(router)
+        if not access["management_ok"]:
+            body = f'''<div class="panel pad"><h2>Known-good snapshot not changed</h2><div class="error">Guardian is not Healthy. Tikcentral will not bless a degraded management state as known-good.<div class="muted">{html.escape(guardian.access_issue(access))}</div></div><div style="margin-top:12px"><a href="/guardian"><button>Open Guardian</button></a> <a href="/reliability/{router_id}/known-good"><button>Back</button></a></div></div>'''
+            return page_func("Known-good Management", body, user, "reliability")
+        actor = user["email"] if "email" in user.keys() else "admin"
+        state_capture.capture_management_known_good(router_id, source_kind="manual_verified", actor=actor)
+        events.record(router_id, "known_good", "Verified management state saved as known-good", f"actor={actor}")
+        return RedirectResponse(f"/reliability/{router_id}/known-good", status_code=303)
+
+    @app.get("/reliability/{router_id}/wan", response_class=HTMLResponse)
+    def wan_history(router_id: int, request: Request):
+        user = core.require_web_admin(request)
+        if not user:
+            return RedirectResponse("/login", status_code=303)
+        router = _router(router_id)
+        if not router:
+            return RedirectResponse("/reliability", status_code=303)
+        window = request.query_params.get("window", "24h")
+        windows = {"6h": 6, "24h": 24, "7d": 168, "30d": 720}
+        hours = windows.get(window, 24)
+        window = window if window in windows else "24h"
+        cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
+        with core.db() as conn:
+            rows = conn.execute(
+                """SELECT * FROM router_wan_history WHERE router_id=? AND captured_at>=?
+                   ORDER BY id""",
+                (router_id, cutoff),
+            ).fetchall()
+        latest = rows[-1] if rows else None
+        changes = []
+        previous = None
+        for row in rows:
+            if previous is None or row["fingerprint"] != previous["fingerprint"]:
+                changes.append(row)
+            previous = row
+        links = " ".join(
+            f'<a href="/reliability/{router_id}/wan?window={key}"><button class="{"primary" if key == window else ""}">{key}</button></a>'
+            for key in windows
+        )
+        if latest:
+            cards = f'''<div class="tc-health-grid">
+<div class="tc-health-card {"ok" if latest["active_default_routes"] else "bad"}"><div class="big">{latest["active_default_routes"]}</div><div class="muted">Active default routes</div></div>
+<div class="tc-health-card {"ok" if (latest["internet_ping"] or 0)>0 else "bad"}"><div class="big">{latest["internet_ping"] if latest["internet_ping"] is not None else "—"}/2</div><div class="muted">Internet ping replies</div></div>
+<div class="tc-health-card {"ok" if latest["dns_ok"]==1 else "bad"}"><div class="big">{"OK" if latest["dns_ok"]==1 else "Failed"}</div><div class="muted">DNS resolution</div></div>
+<div class="tc-health-card"><div class="big">{latest["dhcp_bound"]} / {latest["pppoe_running"]}</div><div class="muted">Bound DHCP / running PPPoE</div></div>
+</div>'''
+            detail = html.escape(latest["summary"] or "No WAN detail returned.")
+        else:
+            cards = '<div class="panel pad muted">No WAN samples yet. They are collected with scheduled telemetry while Guardian is Healthy.</div>'
+            detail = "No WAN detail available."
+        change_rows = "".join(
+            f'''<tr><td>{html.escape(x["captured_at"])}</td><td>{x["active_default_routes"]}</td><td>{x["dhcp_bound"]}</td><td>{x["pppoe_running"]}</td><td>{html.escape(str(x["internet_ping"]))}</td><td>{"OK" if x["dns_ok"]==1 else "Failed"}</td></tr>'''
+            for x in reversed(changes[-100:])
+        ) or '<tr><td colspan="6">No WAN state changes in this window.</td></tr>'
+        body = f'''<div class="panel pad"><h2>WAN history · {html.escape(router["site_name"])}</h2><div class="muted">Internet/WAN health is tracked separately from Tikcentral management access.</div><div class="inline" style="margin-top:12px">{links}<a href="/reliability"><button>Back</button></a></div></div>
+{cards}
+<div class="panel pad"><h3>WAN health timeline</h3><div class="muted">Green = route + Internet ping + DNS working. Amber = route present but one Internet test failed. Red = no active default route.</div>{_wan_svg(rows)}</div>
+<div class="panel"><div class="pad"><h3>WAN state changes</h3><div class="muted">Only points where the observed WAN fingerprint changed are listed.</div></div><table><thead><tr><th>Time</th><th>Default routes</th><th>DHCP bound</th><th>PPPoE running</th><th>Ping replies</th><th>DNS</th></tr></thead><tbody>{change_rows}</tbody></table></div>
+<div class="panel pad"><h3>Latest WAN detail</h3><pre style="white-space:pre-wrap;max-height:50vh;overflow:auto;user-select:text">{detail}</pre></div>'''
+        return page_func("WAN History", body, user, "reliability")
 
     @app.get("/reliability/{router_id}/quality", response_class=HTMLResponse)
     def quality_history(router_id: int, request: Request):
