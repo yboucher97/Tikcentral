@@ -28,7 +28,14 @@ from app import router_exec
 from app import ui
 
 app = production.app
-migrations.migrate()
+
+
+@app.on_event("startup")
+def _final_startup_migrations():
+    # Deployment runs migrations explicitly before activation. This startup hook
+    # keeps service restarts/fresh installs safe without mutating the DB on import.
+    migrations.migrate()
+
 
 STATIC_DIR = Path(__file__).with_name("static")
 # final.py is the only place that owns static assets.
