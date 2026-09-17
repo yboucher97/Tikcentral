@@ -122,8 +122,13 @@ async def normalize_router(router_id: int, request: Request):
         return RedirectResponse("/audit", status_code=303)
     actor = user["email"] if "email" in user.keys() else "admin"
     try:
-        if not guardian.probe_router(router)["management_ok"]:
-            raise errors.OperationError("GUARDIAN_UNHEALTHY", "Guardian access preflight failed; normalization blocked")
+        preflight = guardian.probe_router(router)
+        if not preflight["management_ok"]:
+            raise errors.OperationError(
+                "GUARDIAN_UNHEALTHY",
+                "Guardian access preflight failed; normalization blocked",
+                guardian.access_issue(preflight),
+            )
         with jobs.operation(
             router_id,
             "audit_normalize",
@@ -140,14 +145,21 @@ async def normalize_router(router_id: int, request: Request):
                 label="Tikcentral rule normalization",
             )
             jobs.verifying(job_id)
-            if not guardian.probe_router(router)["management_ok"]:
-                raise errors.OperationError("ACCESS_VERIFY_FAILED", "Rules normalized but management verification failed", severity="critical")
+            verified = guardian.probe_router(router)
+            if not verified["management_ok"]:
+                raise errors.OperationError(
+                    "ACCESS_VERIFY_FAILED",
+                    "Rules normalized but management verification failed",
+                    guardian.access_issue(verified),
+                    severity="critical",
+                )
         events.record(router_id, "audit", "Tikcentral management rules normalized", output[-800:])
         return RedirectResponse(f"/audit/{router_id}", status_code=303)
     except Exception as exc:
         err = errors.from_exception(exc)
-        events.record(router_id, "audit", "Tikcentral rule normalization failed", f"{err.code}: {err.detail}", err.severity)
-        body = f'''<div class="panel pad"><h2>Normalization not completed</h2><div class="error"><strong>{html.escape(err.code)}</strong><div>{html.escape(err.message)}</div><div class="muted">{html.escape(err.detail)}</div></div><div style="margin-top:12px"><a href="/audit/{router_id}"><button class="primary">Back to audit</button></a></div></div>'''
+        event_detail = f"{err.code}: {err.message}" + (f" — {err.detail}" if err.detail else "")
+        events.record(router_id, "audit", "Tikcentral rule normalization failed", event_detail, err.severity)
+        body = f'''<div class="panel pad"><h2>Normalization not completed</h2><div class="error"><strong>{html.escape(err.code)}</strong><div>{html.escape(err.message)}</div><div class="muted">{html.escape(err.detail)}</div></div><div style="margin-top:12px"><a href="/guardian"><button>Open Access Guardian</button></a> <a href="/audit/{router_id}"><button class="primary">Back to audit</button></a></div></div>'''
         return ui.page("Audit", body, user, "audit")
 
 
