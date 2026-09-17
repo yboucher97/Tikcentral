@@ -1,4 +1,4 @@
-"""Configuration history/diff UI backed by sanitized router snapshots."""
+"""Configuration history, selectable diffs and change attribution."""
 
 import difflib
 import html
@@ -7,6 +7,15 @@ from fastapi import HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app import main as core
+
+
+def _pick_snapshot(snaps, raw_id, fallback):
+    if raw_id and str(raw_id).isdigit():
+        wanted = int(raw_id)
+        found = next((s for s in snaps if int(s["id"]) == wanted), None)
+        if found:
+            return found
+    return fallback
 
 
 def register(app, page_func):
@@ -26,7 +35,7 @@ def register(app, page_func):
             f'''<tr><td><strong>{html.escape(r['site_name'])}</strong><div class="muted">{html.escape(r['model'] or '')}</div></td><td><code>{html.escape(r['vpn_ip'])}</code></td><td>{r['snapshot_count']}</td><td class="muted">{html.escape(r['last_snapshot'] or 'Never')}</td><td><a href="/changes/{r['id']}"><button>View history / diff</button></a></td></tr>'''
             for r in routers
         ) or '<tr><td colspan="5">No routers.</td></tr>'
-        body = f'''<div class="panel pad"><h2>Configuration Changes</h2><div class="muted">Snapshots come from sanitized backups (<code>/export show-sensitive=no</code>). Tikcentral stores hashes so an unchanged configuration does not create duplicate content.</div></div><div class="panel"><table><thead><tr><th>Router</th><th>VPN</th><th>Unique snapshots</th><th>Last snapshot</th><th></th></tr></thead><tbody>{rows}</tbody></table></div>'''
+        body = f'''<div class="panel pad"><h2>Configuration Changes</h2><div class="muted">Snapshots come from RouterOS exports with sensitive values hidden by default. Tikcentral stores hashes so unchanged configuration does not create duplicate content.</div></div><div class="panel"><table><thead><tr><th>Router</th><th>VPN</th><th>Unique snapshots</th><th>Last snapshot</th><th></th></tr></thead><tbody>{rows}</tbody></table></div>'''
         return page_func("Configuration Changes", body, user, "changes")
 
     @app.get("/changes/{router_id}", response_class=HTMLResponse)
@@ -37,26 +46,77 @@ def register(app, page_func):
         with core.db() as conn:
             router = conn.execute("SELECT id,site_name,model,vpn_ip FROM routers WHERE id=?", (router_id,)).fetchone()
             snaps = conn.execute(
-                "SELECT id,captured_at,sha256,content FROM router_snapshots WHERE router_id=? ORDER BY id DESC LIMIT 30",
+                "SELECT id,captured_at,sha256,content FROM router_snapshots WHERE router_id=? ORDER BY id DESC LIMIT 60",
                 (router_id,),
             ).fetchall()
         if not router:
             raise HTTPException(status_code=404, detail="router not found")
-        history = "".join(
-            f'''<tr><td>{html.escape(s['captured_at'])}</td><td><code>{html.escape(s['sha256'][:12])}</code></td><td>{'Current' if i == 0 else ''}</td></tr>'''
-            for i, s in enumerate(snaps)
-        ) or '<tr><td colspan="3">No snapshots yet. Run Backup Now.</td></tr>'
+
+        newest = snaps[0] if snaps else None
+        default_old = snaps[1] if len(snaps) >= 2 else newest
+        new = _pick_snapshot(snaps, request.query_params.get("new"), newest)
+        old = _pick_snapshot(snaps, request.query_params.get("old"), default_old)
+
+        options = "".join(
+            f'<option value="{s["id"]}">#{s["id"]} · {html.escape(s["captured_at"])} · {html.escape(s["sha256"][:10])}</option>'
+            for s in snaps
+        )
+        old_options = options.replace(f'value="{old["id"]}"', f'value="{old["id"]}" selected', 1) if old else options
+        new_options = options.replace(f'value="{new["id"]}"', f'value="{new["id"]}" selected', 1) if new else options
+
         diff_text = "No previous configuration to compare."
-        if len(snaps) >= 2:
-            old = snaps[1]["content"].splitlines()
-            new = snaps[0]["content"].splitlines()
+        attribution = '<div class="muted">No attribution available.</div>'
+        if old and new:
+            old_lines = old["content"].splitlines()
+            new_lines = new["content"].splitlines()
             diff_text = "\n".join(difflib.unified_diff(
-                old, new,
-                fromfile=f"previous-{snaps[1]['captured_at']}",
-                tofile=f"current-{snaps[0]['captured_at']}",
+                old_lines, new_lines,
+                fromfile=f"snapshot-{old['id']}-{old['captured_at']}",
+                tofile=f"snapshot-{new['id']}-{new['captured_at']}",
                 lineterm="",
             )) or "No text differences."
-        body = f'''<div class="panel pad"><h2>{html.escape(router['site_name'])}</h2><div class="muted">{html.escape(router['model'] or '')} · <code>{html.escape(router['vpn_ip'])}</code></div></div>
-<div class="panel pad"><h2>Latest change</h2><pre style="white-space:pre-wrap;background:#0d1528;padding:14px;border-radius:8px;max-height:60vh;overflow:auto">{html.escape(diff_text)}</pre></div>
-<div class="panel"><table><thead><tr><th>Captured</th><th>Hash</th><th></th></tr></thead><tbody>{history}</tbody></table></div>'''
+            lo, hi = sorted([old["captured_at"], new["captured_at"]])
+            with core.db() as conn:
+                jobs = conn.execute(
+                    """SELECT id,kind,status,actor,target,created_at,finished_at,error_code,error_message
+                       FROM router_jobs WHERE router_id=? AND created_at>=? AND created_at<=?
+                       ORDER BY id""",
+                    (router_id, lo, hi),
+                ).fetchall()
+                evs = conn.execute(
+                    """SELECT event_at,severity,category,summary,details
+                       FROM router_events WHERE router_id=? AND event_at>=? AND event_at<=?
+                         AND category<>'telemetry' ORDER BY id""",
+                    (router_id, lo, hi),
+                ).fetchall()
+            pieces = []
+            if jobs:
+                pieces.append('<div class="tc-status warn"><span class="tc-status-dot"></span>Possible Tikcentral-attributed change</div>')
+                pieces.extend(
+                    f'<div style="margin-top:7px"><strong>Job #{j["id"]} · {html.escape(j["kind"])}</strong> · {html.escape(j["status"])} · {html.escape(j["actor"] or "-")}<div class="muted">{html.escape(j["created_at"])} → {html.escape(j["finished_at"] or "")} · target {html.escape(j["target"] or "-")}</div></div>'
+                    for j in jobs
+                )
+            else:
+                pieces.append('<div class="tc-status warn"><span class="tc-status-dot"></span>No matching Tikcentral mutation job</div><div class="muted" style="margin-top:6px">This does not prove the change was manual, but Tikcentral has no recorded mutation job in the selected snapshot interval.</div>')
+            if evs:
+                pieces.append('<h3 style="margin-top:16px">Events in interval</h3>')
+                pieces.extend(
+                    f'<div><code>{html.escape(e["event_at"])}</code> · {html.escape(e["category"])} · <strong>{html.escape(e["summary"])}</strong><div class="muted">{html.escape((e["details"] or "")[-400:])}</div></div>'
+                    for e in evs
+                )
+            attribution = "".join(pieces)
+
+        history = "".join(
+            f'''<tr><td>#{s['id']}</td><td>{html.escape(s['captured_at'])}</td><td><code>{html.escape(s['sha256'][:12])}</code></td><td>{'Latest' if i == 0 else ''}</td></tr>'''
+            for i, s in enumerate(snaps)
+        ) or '<tr><td colspan="4">No snapshots yet. Run a retained backup.</td></tr>'
+
+        selector = (
+            f'''<form method="get" class="inline"><label>From <select name="old">{old_options}</select></label><label>To <select name="new">{new_options}</select></label><button class="primary">Compare</button></form>'''
+            if snaps else '<span class="muted">No snapshots available.</span>'
+        )
+        body = f'''<div class="panel pad"><h2>{html.escape(router['site_name'])}</h2><div class="muted">{html.escape(router['model'] or '')} · <code>{html.escape(router['vpn_ip'])}</code></div><div style="margin-top:12px">{selector}</div></div>
+<div class="panel pad"><h2>Configuration diff</h2><div class="inline" style="margin-bottom:10px"><button type="button" onclick="navigator.clipboard.writeText(document.getElementById('config-diff').innerText)">Copy diff</button><a href="/reliability/{router_id}/support"><button>Download support package</button></a></div><pre id="config-diff" style="white-space:pre-wrap;padding:14px;border:1px solid var(--line);border-radius:8px;max-height:60vh;overflow:auto;user-select:text">{html.escape(diff_text)}</pre></div>
+<div class="panel pad"><h2>Change attribution</h2>{attribution}</div>
+<div class="panel"><table><thead><tr><th>Snapshot</th><th>Captured</th><th>Hash</th><th></th></tr></thead><tbody>{history}</tbody></table></div>'''
         return page_func("Configuration Changes", body, user, "changes")
