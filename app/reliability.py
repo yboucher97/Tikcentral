@@ -214,6 +214,124 @@ def _support_files(router_id: int):
     return files
 
 
+def _quality_summary(rows):
+    rows = list(rows or [])
+    if not rows:
+        return {
+            "samples": 0, "healthy_pct": None, "failed": 0,
+            "consecutive_failed": 0, "avg_winbox": None, "max_winbox": None,
+            "avg_ssh": None, "avg_api": None,
+        }
+    healthy = sum(1 for x in rows if x["management_ok"])
+    consecutive = 0
+    for x in reversed(rows):
+        if x["management_ok"]:
+            break
+        consecutive += 1
+
+    def avg(name):
+        vals = [float(x[name]) for x in rows if x[name] is not None]
+        return round(sum(vals) / len(vals), 1) if vals else None
+
+    win = [float(x["winbox_latency_ms"]) for x in rows if x["winbox_latency_ms"] is not None]
+    return {
+        "samples": len(rows),
+        "healthy_pct": round(healthy * 100 / len(rows), 2),
+        "failed": len(rows) - healthy,
+        "consecutive_failed": consecutive,
+        "avg_winbox": avg("winbox_latency_ms"),
+        "max_winbox": round(max(win), 1) if win else None,
+        "avg_ssh": avg("ssh_latency_ms"),
+        "avg_api": avg("api_latency_ms"),
+    }
+
+
+def _availability_svg(rows):
+    rows = list(rows or [])
+    if not rows:
+        return '<div class="muted">No Guardian history in this window.</div>'
+    width, height, pad = 1000, 150, 24
+    usable = width - pad * 2
+    n = len(rows)
+    step = usable / max(1, n)
+    rects = []
+    for i, row in enumerate(rows):
+        x = pad + i * step
+        cls = "var(--green)" if row["management_ok"] else "var(--danger)"
+        rects.append(
+            f'<rect x="{x:.2f}" y="35" width="{max(1.0, step + .25):.2f}" height="70" rx="1" fill="{cls}" opacity=".9"><title>{html.escape(row["checked_at"])} · {"Healthy" if row["management_ok"] else "Failed"}</title></rect>'
+        )
+    return f'''<svg viewBox="0 0 {width} {height}" role="img" aria-label="Guardian availability history" style="width:100%;height:150px;display:block">
+<line x1="{pad}" y1="105" x2="{width-pad}" y2="105" stroke="var(--line)"/>
+{''.join(rects)}
+<text x="{pad}" y="132" fill="var(--muted)" font-size="12">Oldest</text>
+<text x="{width-pad}" y="132" fill="var(--muted)" font-size="12" text-anchor="end">Newest</text>
+</svg>'''
+
+
+def _latency_svg(rows):
+    rows = list(rows or [])
+    if not rows:
+        return '<div class="muted">No latency history in this window.</div>'
+    series = [
+        ("WinBox", "winbox_latency_ms", "var(--green)"),
+        ("SSH", "ssh_latency_ms", "var(--warn)"),
+        ("API", "api_latency_ms", "var(--danger)"),
+    ]
+    values = [float(r[k]) for r in rows for _, k, _ in series if r[k] is not None]
+    if not values:
+        return '<div class="muted">No successful TCP latency samples in this window.</div>'
+    width, height = 1000, 260
+    left, right, top, bottom = 52, 20, 20, 38
+    usable_w, usable_h = width-left-right, height-top-bottom
+    maximum = max(5.0, max(values) * 1.12)
+
+    def path_for(key):
+        parts = []
+        for i, row in enumerate(rows):
+            value = row[key]
+            if value is None:
+                parts.append(None)
+                continue
+            x = left + (i / max(1, len(rows)-1)) * usable_w
+            y = top + (1 - min(float(value), maximum) / maximum) * usable_h
+            parts.append((x, y))
+        segments, current = [], []
+        for point in parts:
+            if point is None:
+                if current:
+                    segments.append(current)
+                    current = []
+            else:
+                current.append(point)
+        if current:
+            segments.append(current)
+        return " ".join(
+            f'<polyline points="{" ".join(f"{x:.1f},{y:.1f}" for x,y in seg)}" fill="none" stroke="{color}" stroke-width="2" vector-effect="non-scaling-stroke"/>'
+            for label, k, color in series if k == key
+            for seg in segments if len(seg) >= 2
+        )
+
+    grid = []
+    for pct in (0, .25, .5, .75, 1):
+        y = top + (1-pct) * usable_h
+        value = maximum * pct
+        grid.append(f'<line x1="{left}" y1="{y:.1f}" x2="{width-right}" y2="{y:.1f}" stroke="var(--line)" opacity=".7"/><text x="{left-8}" y="{y+4:.1f}" text-anchor="end" fill="var(--muted)" font-size="11">{value:.0f}</text>')
+    legend = " ".join(
+        f'<span style="display:inline-flex;align-items:center;gap:5px;margin-right:14px"><span style="width:16px;height:3px;background:{color};display:inline-block"></span>{label}</span>'
+        for label, _, color in series
+    )
+    paths = "".join(path_for(k) for _, k, _ in series)
+    svg = f'''<svg viewBox="0 0 {width} {height}" role="img" aria-label="Management TCP latency history" style="width:100%;height:260px;display:block">
+{''.join(grid)}
+{paths}
+<text x="{left}" y="{height-10}" fill="var(--muted)" font-size="12">Oldest</text>
+<text x="{width-right}" y="{height-10}" fill="var(--muted)" font-size="12" text-anchor="end">Newest</text>
+<text x="13" y="{top+12}" fill="var(--muted)" font-size="11">ms</text>
+</svg>'''
+    return f'<div class="muted" style="margin-bottom:8px">{legend}</div>{svg}'
+
+
 def register(app, page_func):
     migrations.migrate()
 
@@ -260,7 +378,7 @@ def register(app, page_func):
             router_rows.append(
                 f'''<tr><td><strong>{html.escape(r["site_name"])}</strong><div class="muted">{html.escape(r["model"] or "")} · <code>{html.escape(r["vpn_ip"])}</code></div></td>
 <td><span class="tc-status {tone} live"><span class="tc-status-dot"></span>{state}</span>{maintenance}</td>
-<td>{int(r["failed_24h"] or 0)} failed probes<div class="muted">{f'{float(r["avg_winbox_ms"]):.1f} ms avg WinBox' if r["avg_winbox_ms"] is not None else 'No latency sample'}</div></td>
+<td>{int(r["failed_24h"] or 0)} failed probes<div class="muted">{f'{float(r["avg_winbox_ms"]):.1f} ms avg WinBox' if r["avg_winbox_ms"] is not None else 'No latency sample'}</div><div style="margin-top:7px"><a href="/reliability/{r['id']}/quality">View quality history</a></div></td>
 <td>{maintenance_action}</td>
 <td><a href="/reliability/{r['id']}/breakglass"><button>Encrypted break-glass bundle</button></a> <a href="/reliability/{r['id']}/support"><button>Support package</button></a></td></tr>'''
             )
@@ -292,6 +410,51 @@ def register(app, page_func):
 <div class="panel"><div class="pad"><h3>Correlated incidents</h3><div class="muted">Guardian groups simultaneous multi-router access failures so central outages are easier to distinguish from site failures.</div></div><table><thead><tr><th>ID</th><th>Opened</th><th>Status</th><th>Routers</th><th>Incident</th><th>Resolved</th></tr></thead><tbody>{incident_rows}</tbody></table></div>
 <div class="panel"><div class="pad"><h3>Change transaction transcripts</h3><div class="muted">Preflight, backup, apply and verification steps for access-sensitive changes.</div></div><table><thead><tr><th>TX</th><th>Router</th><th>Change</th><th>Status</th><th>Actor</th><th>Transcript</th></tr></thead><tbody>{''.join(tx_rows) or '<tr><td colspan="6">No transactions.</td></tr>'}</tbody></table></div>'''
         return page_func("Reliability", body, user, "reliability")
+
+    @app.get("/reliability/{router_id}/quality", response_class=HTMLResponse)
+    def quality_history(router_id: int, request: Request):
+        user = core.require_web_admin(request)
+        if not user:
+            return RedirectResponse("/login", status_code=303)
+        router = _router(router_id)
+        if not router:
+            return RedirectResponse("/reliability", status_code=303)
+        window = request.query_params.get("window", "24h")
+        windows = {"6h": 6, "24h": 24, "7d": 24 * 7, "30d": 24 * 30}
+        hours = windows.get(window, 24)
+        window = window if window in windows else "24h"
+        cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
+        with core.db() as conn:
+            rows = conn.execute(
+                """SELECT checked_at,wg_online,ssh_open,winbox_open,api_open,management_ok,
+                          ssh_latency_ms,winbox_latency_ms,api_latency_ms
+                   FROM router_access_history
+                   WHERE router_id=? AND checked_at>=?
+                   ORDER BY id""",
+                (router_id, cutoff),
+            ).fetchall()
+        summary = _quality_summary(rows)
+        window_links = " ".join(
+            f'<a href="/reliability/{router_id}/quality?window={key}"><button class="{"primary" if key == window else ""}">{key}</button></a>'
+            for key in windows
+        )
+        healthy = "—" if summary["healthy_pct"] is None else f'{summary["healthy_pct"]:.2f}%'
+        avg_win = "—" if summary["avg_winbox"] is None else f'{summary["avg_winbox"]:.1f} ms'
+        max_win = "—" if summary["max_winbox"] is None else f'{summary["max_winbox"]:.1f} ms'
+        avg_ssh = "—" if summary["avg_ssh"] is None else f'{summary["avg_ssh"]:.1f} ms'
+        avg_api = "—" if summary["avg_api"] is None else f'{summary["avg_api"]:.1f} ms'
+        body = f'''<div class="panel pad"><h2>Connectivity quality · {html.escape(router["site_name"])}</h2>
+<div class="muted">{html.escape(router["model"] or "")} · <code>{html.escape(router["vpn_ip"])}</code> · Guardian TCP probe history</div>
+<div class="inline" style="margin-top:12px">{window_links}<a href="/reliability"><button>Back</button></a></div></div>
+<div class="tc-health-grid">
+<div class="tc-health-card ok"><div class="big">{healthy}</div><div class="muted">Management healthy · {summary["samples"]} samples</div></div>
+<div class="tc-health-card {"bad" if summary["failed"] else "ok"}"><div class="big">{summary["failed"]}</div><div class="muted">Failed probes · {summary["consecutive_failed"]} consecutive now</div></div>
+<div class="tc-health-card"><div class="big">{avg_win}</div><div class="muted">Avg WinBox latency · max {max_win}</div></div>
+<div class="tc-health-card"><div class="big">{avg_ssh} / {avg_api}</div><div class="muted">Avg SSH / API latency</div></div>
+</div>
+<div class="panel pad"><h3>Management availability</h3><div class="muted">Green = Guardian Healthy. Red = required management condition failed.</div>{_availability_svg(rows)}</div>
+<div class="panel pad"><h3>Management path latency</h3><div class="muted">TCP connect time through the management tunnel. Gaps mean the path was unreachable or not sampled.</div>{_latency_svg(rows)}</div>'''
+        return page_func("Connectivity Quality", body, user, "reliability")
 
     @app.post("/reliability/{router_id}/maintenance/start")
     async def maintenance_start(router_id: int, request: Request):
