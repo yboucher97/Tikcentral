@@ -1,8 +1,8 @@
 """Fleet-wide backup and read-only analysis helpers.
 
-Router-changing operations are owned by app.jobs/app.operations. This module keeps
-only batch backup/reporting behavior and never exposes a generic mass mutation
-path.
+Router-changing operations are owned by app.jobs/app.operations. Batch backup and
+analysis skip routers with an active serialized change so background fleet work
+cannot contend with verification/reboot recovery.
 """
 
 import hashlib
@@ -12,6 +12,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from app import errors
+from app import jobs
 from app import main as core
 from app import migrations
 from app import router_exec
@@ -26,11 +27,13 @@ def ensure_schema():
     migrations.migrate()
 
 
-def enabled_routers():
+def enabled_routers(*, skip_busy: bool = True):
+    busy = jobs.active_change_router_ids() if skip_busy else set()
     with core.db() as conn:
-        return conn.execute(
+        rows = conn.execute(
             "SELECT id,site_name,vpn_ip FROM routers WHERE enabled=1 ORDER BY site_name COLLATE NOCASE,id"
         ).fetchall()
+    return [row for row in rows if int(row["id"]) not in busy]
 
 
 def create_job(job_type: str, command: str = "", created_by: str = "system"):
@@ -66,8 +69,7 @@ def _finish_job(job_id):
 
 
 def _run_read_job(job_type: str, command: str, created_by: str):
-    """Run a declared read-only diagnostic across enabled routers."""
-    routers = enabled_routers()
+    routers = enabled_routers(skip_busy=True)
     job_id = create_job(job_type, command, created_by)
     with core.db() as conn:
         conn.execute(
@@ -154,7 +156,7 @@ def _backup_one(router, stamp, tier="daily"):
 
 def run_backup_job(created_by="scheduler"):
     ensure_schema()
-    routers = enabled_routers()
+    routers = enabled_routers(skip_busy=True)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
     job_id = create_job("backup", "configuration + binary backup", created_by)
     with core.db() as conn:
@@ -184,7 +186,6 @@ def cleanup_backups():
     with core.db() as conn:
         days = int(conn.execute("SELECT backup_retention_days FROM fleet_settings WHERE id=1").fetchone()[0])
     cutoff = datetime.now(timezone.utc).timestamp() - days * 86400
-    # Daily backups rotate; pre-change and commissioning backups are retained.
     for root in (settings.BACKUP_ROOT, settings.BACKUP_FALLBACK_ROOT):
         if not root.exists():
             continue
