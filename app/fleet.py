@@ -1,8 +1,7 @@
-"""Fleet-wide backup and read-only analysis helpers.
+"""Fleet backup and read-only analysis helpers.
 
-Router-changing operations are owned by app.jobs/app.operations. Batch backup and
-analysis skip routers with an active serialized change so background fleet work
-cannot contend with verification/reboot recovery.
+Router-changing operations are owned by app.jobs/app.operations. Fleet backups
+acquire the same per-router mutation slot; read-only analysis skips busy routers.
 """
 
 import hashlib
@@ -156,7 +155,10 @@ def _backup_one(router, stamp, tier="daily"):
 
 def run_backup_job(created_by="scheduler"):
     ensure_schema()
-    routers = enabled_routers(skip_busy=True)
+    # Include every enabled router. The per-router job reservation below is the
+    # authoritative race-free concurrency check; a router that becomes busy is
+    # reported explicitly instead of silently omitted from "backup all".
+    routers = enabled_routers(skip_busy=False)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
     job_id = create_job("backup", "configuration + binary backup", created_by)
     with core.db() as conn:
@@ -168,7 +170,21 @@ def run_backup_job(created_by="scheduler"):
     def one(router):
         started = now_iso()
         try:
-            out = _backup_one(router, stamp, tier="daily")
+            with jobs.operation(
+                int(router["id"]),
+                "backup",
+                created_by,
+                "daily",
+                serialize_router=True,
+                fail_code="BACKUP_FAILED",
+                fail_message="Fleet router backup failed",
+            ):
+                out = _backup_one(router, stamp, tier="daily")
+                with core.db() as conn:
+                    conn.execute(
+                        "INSERT INTO router_backup_records(router_id,created_at,tier,created_by,result) VALUES(?,?,?,?,?)",
+                        (router["id"], now_iso(), "daily", created_by, out),
+                    )
             return router, "success", out, "", started, now_iso()
         except Exception as exc:
             return router, "error", "", errors.short(exc), started, now_iso()
