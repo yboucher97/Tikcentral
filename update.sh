@@ -38,11 +38,12 @@ bootstrap_repository() {
 }
 
 bootstrap_repository
-
 git --git-dir="$REPO" fetch --prune origin '+refs/heads/main:refs/heads/main'
 TARGET_SHA="$(git --git-dir="$REPO" rev-parse refs/heads/main)"
 SHORT_SHA="${TARGET_SHA:0:12}"
 
+# Always execute deployment logic from the target commit, not from the release
+# currently serving production.
 if [[ "${TIKCENTRAL_UPDATE_TARGET:-}" != "$TARGET_SHA" ]]; then
   tmp_updater="$(mktemp /tmp/tikcentral-update.XXXXXX.sh)"
   git --git-dir="$REPO" show "$TARGET_SHA:update.sh" > "$tmp_updater"
@@ -62,6 +63,7 @@ if [[ -f /var/lib/tikcentral/tikcentral.db ]]; then
 fi
 cp -a "$ENV_FILE" "$ENV_BACKUP"
 
+# Shared state survives every code release.
 install -d -o root -g tikcentral -m 0750 "$SSH_DIR"
 if [[ ! -f "$SSH_DIR/tikcentral_ed25519" ]]; then
   ssh-keygen -q -t ed25519 -N '' -C 'tikcentral-vps' -f "$SSH_DIR/tikcentral_ed25519"
@@ -80,25 +82,31 @@ else
   chmod 0600 /var/lib/tikcentral/known_hosts
 fi
 
-grep -q '^TIKCENTRAL_ROUTER_USER=' "$ENV_FILE" || echo 'TIKCENTRAL_ROUTER_USER=tikcentral' >> "$ENV_FILE"
-grep -q '^TIKCENTRAL_SSH_KEY=' "$ENV_FILE" || echo 'TIKCENTRAL_SSH_KEY=/etc/tikcentral/ssh/tikcentral_ed25519' >> "$ENV_FILE"
-grep -q '^TIKCENTRAL_KNOWN_HOSTS=' "$ENV_FILE" || echo 'TIKCENTRAL_KNOWN_HOSTS=/var/lib/tikcentral/known_hosts' >> "$ENV_FILE"
-grep -q '^ROUTER_BACKUP_DIR=' "$ENV_FILE" || echo 'ROUTER_BACKUP_DIR=/var/backups/tikcentral/routers' >> "$ENV_FILE"
-grep -q '^TIKCENTRAL_SSH_TIMEOUT=' "$ENV_FILE" || echo 'TIKCENTRAL_SSH_TIMEOUT=20' >> "$ENV_FILE"
-grep -q '^TIKCENTRAL_FLEET_WORKERS=' "$ENV_FILE" || echo 'TIKCENTRAL_FLEET_WORKERS=8' >> "$ENV_FILE"
-grep -q '^TIKCENTRAL_TIMEZONE=' "$ENV_FILE" || echo 'TIKCENTRAL_TIMEZONE=America/Toronto' >> "$ENV_FILE"
+ensure_env() {
+  local key="$1" value="$2"
+  grep -q "^${key}=" "$ENV_FILE" || printf '%s=%s\n' "$key" "$value" >> "$ENV_FILE"
+}
+ensure_env TIKCENTRAL_ROUTER_USER tikcentral
+ensure_env TIKCENTRAL_SSH_KEY /etc/tikcentral/ssh/tikcentral_ed25519
+ensure_env TIKCENTRAL_KNOWN_HOSTS /var/lib/tikcentral/known_hosts
+ensure_env ROUTER_BACKUP_DIR /var/backups/tikcentral/routers
+ensure_env TIKCENTRAL_SSH_TIMEOUT 20
+ensure_env TIKCENTRAL_FLEET_WORKERS 8
+ensure_env TIKCENTRAL_TIMEZONE America/Toronto
 if ! grep -q '^ROUTER_BACKUP_PASSWORD=' "$ENV_FILE"; then
-  echo "ROUTER_BACKUP_PASSWORD=$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')" >> "$ENV_FILE"
+  printf 'ROUTER_BACKUP_PASSWORD=%s\n' "$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')" >> "$ENV_FILE"
 fi
 if ! grep -q '^TIKCENTRAL_ROUTER_API_PASSWORD=' "$ENV_FILE"; then
-  echo "TIKCENTRAL_ROUTER_API_PASSWORD=$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')" >> "$ENV_FILE"
+  printf 'TIKCENTRAL_ROUTER_API_PASSWORD=%s\n' "$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')" >> "$ENV_FILE"
 fi
 if ! grep -q '^TIKCENTRAL_PROVISIONING_KEY=' "$ENV_FILE"; then
-  echo "TIKCENTRAL_PROVISIONING_KEY=$(python3 -c 'import base64,secrets; print(base64.urlsafe_b64encode(secrets.token_bytes(32)).decode())')" >> "$ENV_FILE"
+  printf 'TIKCENTRAL_PROVISIONING_KEY=%s\n' "$(python3 -c 'import base64,secrets; print(base64.urlsafe_b64encode(secrets.token_bytes(32)).decode())')" >> "$ENV_FILE"
 fi
 chmod 0640 "$ENV_FILE"
 chown root:tikcentral "$ENV_FILE"
 
+# Build an immutable release with its own Python dependency environment. Nothing
+# below this point touches current until validation and migrations have passed.
 if [[ ! -f "$RELEASE/.tikcentral-validated" ]] || [[ "$(cat "$RELEASE/.tikcentral-validated" 2>/dev/null || true)" != "$TARGET_SHA" ]]; then
   rm -rf "$BUILD" "$RELEASE"
   mkdir -p "$BUILD"
@@ -118,6 +126,7 @@ if [[ ! -f "$RELEASE/.tikcentral-validated" ]] || [[ "$(cat "$RELEASE/.tikcentra
   printf '%s\n' "$TARGET_SHA" > "$RELEASE/.tikcentral-validated"
 fi
 
+# Migrations are additive. The SQLite snapshot above is the recovery point.
 sudo -u tikcentral bash -c "set -a; source '$ENV_FILE'; set +a; cd '$RELEASE'; '$RELEASE/.venv/bin/python3' -c 'from app import migrations; migrations.migrate()'"
 
 install_runtime_files() {
@@ -129,12 +138,9 @@ install_runtime_files() {
   chmod 0440 /etc/sudoers.d/tikcentral-wg
   visudo -cf /etc/sudoers.d/tikcentral-wg >/dev/null
 
-  install -o root -g root -m 0644 "$release/deploy/tikcentral.service" /etc/systemd/system/tikcentral.service
-  install -o root -g root -m 0644 "$release/deploy/tikcentral-winbox-proxy.service" /etc/systemd/system/tikcentral-winbox-proxy.service
-  install -o root -g root -m 0644 "$release/deploy/tikcentral-backup.service" /etc/systemd/system/tikcentral-backup.service
-  install -o root -g root -m 0644 "$release/deploy/tikcentral-backup.timer" /etc/systemd/system/tikcentral-backup.timer
-  install -o root -g root -m 0644 "$release/deploy/tikcentral-fleet.service" /etc/systemd/system/tikcentral-fleet.service
-  install -o root -g root -m 0644 "$release/deploy/tikcentral-fleet.timer" /etc/systemd/system/tikcentral-fleet.timer
+  for unit in tikcentral.service tikcentral-winbox-proxy.service tikcentral-backup.service tikcentral-backup.timer tikcentral-fleet.service tikcentral-fleet.timer; do
+    install -o root -g root -m 0644 "$release/deploy/$unit" "/etc/systemd/system/$unit"
+  done
 }
 
 switch_current() {
@@ -210,15 +216,30 @@ source "$ENV_FILE"
 set +a
 DOMAIN="${PUBLIC_HOSTNAME:-${WG_ENDPOINT%:*}}"
 [[ -n "$DOMAIN" ]] || { echo "Could not determine Tikcentral hostname from $ENV_FILE" >&2; exit 1; }
-cat > /etc/caddy/Caddyfile <<EOF
+if [[ -n "${ACME_EMAIL:-}" ]]; then
+  cat > /etc/caddy/Caddyfile <<EOF
+{
+    email $ACME_EMAIL
+}
+
 $DOMAIN {
     encode zstd gzip
     reverse_proxy 127.0.0.1:8080
 }
 EOF
+else
+  cat > /etc/caddy/Caddyfile <<EOF
+$DOMAIN {
+    encode zstd gzip
+    reverse_proxy 127.0.0.1:8080
+}
+EOF
+fi
 caddy fmt --overwrite /etc/caddy/Caddyfile >/dev/null
 caddy validate --config /etc/caddy/Caddyfile
 
+# Pause scheduled jobs only for the release switch. The web app remains on the
+# previous release until this point.
 systemctl stop tikcentral-fleet.timer >/dev/null 2>&1 || true
 systemctl stop tikcentral-fleet.service >/dev/null 2>&1 || true
 ACTIVATION_STARTED=1
@@ -228,9 +249,14 @@ if [[ -d "$CURRENT" && ! -L "$CURRENT" ]]; then
 fi
 switch_current "$RELEASE"
 install_runtime_files "$RELEASE"
+
+# Remove the historical separate enrollment service if this installation ever
+# had it. Enrollment is part of the main app now.
+systemctl disable --now tikcentral-enroll-ui >/dev/null 2>&1 || true
+rm -f /etc/systemd/system/tikcentral-enroll-ui.service
+
 systemctl daemon-reload
 systemctl enable tikcentral tikcentral-winbox-proxy tikcentral-backup.timer tikcentral-fleet.timer >/dev/null
-systemctl disable --now tikcentral-enroll-ui >/dev/null 2>&1 || true
 systemctl restart tikcentral
 systemctl restart tikcentral-winbox-proxy
 systemctl restart caddy
@@ -243,20 +269,27 @@ if ! wait_health 20; then
   exit 1
 fi
 
-for PATH_TO_CHECK in /enroll /routers /guardian /operations /rescue /changes /audit; do
-  CODE="$(curl -sS -o /dev/null -w '%{http_code}' "http://127.0.0.1:8080$PATH_TO_CHECK" || true)"
-  if [[ "$CODE" != "200" && "$CODE" != "303" ]]; then
-    rollback "$PATH_TO_CHECK returned HTTP $CODE" || true
+for path in /enroll /routers /guardian /operations /rescue /changes /audit /automation /ssh; do
+  code="$(curl -sS -o /dev/null -w '%{http_code}' "http://127.0.0.1:8080$path" || true)"
+  if [[ "$code" != "200" && "$code" != "303" ]]; then
+    rollback "$path returned HTTP $code" || true
     exit 1
   fi
 done
-for ASSET_PATH in /static/opticable-icon.png /static/opticable-logo-light.svg /static/opticable-logo-dark.svg; do
-  CODE="$(curl -sS -o /dev/null -w '%{http_code}' "http://127.0.0.1:8080$ASSET_PATH" || true)"
-  if [[ "$CODE" != "200" ]]; then
-    rollback "$ASSET_PATH returned HTTP $CODE" || true
+
+# Check the exact asset manifest used by this release rather than maintaining a
+# second filename list in the deployment script.
+mapfile -t ASSET_PATHS < <(
+  sudo -u tikcentral bash -c "set -a; source '$ENV_FILE'; set +a; cd '$CURRENT'; '$CURRENT/.venv/bin/python3' -c 'from app import settings; [print(v) for v in settings.ASSETS.values()]'"
+)
+for asset_path in "${ASSET_PATHS[@]}"; do
+  code="$(curl -sS -o /dev/null -w '%{http_code}' "http://127.0.0.1:8080$asset_path" || true)"
+  if [[ "$code" != "200" ]]; then
+    rollback "$asset_path returned HTTP $code" || true
     exit 1
   fi
 done
+
 CADDY_CODE="$(curl -ksS --resolve "$DOMAIN:443:127.0.0.1" -o /dev/null -w '%{http_code}' "https://$DOMAIN/operations" || true)"
 if [[ "$CADDY_CODE" != "200" && "$CADDY_CODE" != "303" ]]; then
   rollback "Caddy /operations returned HTTP $CADDY_CODE" || true
@@ -266,6 +299,7 @@ fi
 ACTIVATION_STARTED=0
 trap - ERR
 
+# Keep current + immediate previous + a small immutable release history.
 current_real="$(readlink -f "$CURRENT")"
 kept=0
 while IFS= read -r dir; do
@@ -280,6 +314,24 @@ while IFS= read -r dir; do
   fi
 done < <(find "$RELEASES" -mindepth 1 -maxdepth 1 -type d -printf '%T@ %p\n' | sort -nr | cut -d' ' -f2-)
 
+# Once the immediately previous release is also atomic, the old shared venv and
+# first-transition checkout are no longer valid rollback targets.
+if [[ "$PREVIOUS" != "$RELEASES"/legacy-* ]]; then
+  rm -rf "$ROOT/venv"
+  find "$RELEASES" -mindepth 1 -maxdepth 1 -type d -name 'legacy-*' -exec rm -rf {} + 2>/dev/null || true
+fi
+
+# Bound deployment snapshot growth. Router backups have their own tier policy.
+UPDATE_BACKUP_KEEP="${TIKCENTRAL_UPDATE_BACKUP_KEEP:-20}"
+[[ "$UPDATE_BACKUP_KEEP" =~ ^[0-9]+$ ]] || UPDATE_BACKUP_KEEP=20
+(( UPDATE_BACKUP_KEEP >= 2 )) || UPDATE_BACKUP_KEEP=2
+for pattern in 'pre-update-*.db' 'pre-update-*.env'; do
+  mapfile -t files < <(find /var/backups/tikcentral -maxdepth 1 -type f -name "$pattern" -printf '%T@ %p\n' | sort -nr | cut -d' ' -f2-)
+  if (( ${#files[@]} > UPDATE_BACKUP_KEEP )); then
+    printf '%s\0' "${files[@]:UPDATE_BACKUP_KEEP}" | xargs -0r rm -f
+  fi
+done
+
 jq . /tmp/tikcentral-update-health.json
 rm -f /tmp/tikcentral-update-health.json
 
@@ -288,16 +340,12 @@ echo "Tikcentral updated successfully."
 echo "Active release: $SHORT_SHA"
 echo "Release path: $RELEASE"
 echo "Previous release: ${PREVIOUS:-none}"
-echo "Atomic rollback: enabled for all activation failures"
-echo "Runtime: consolidated Operations + Rescue + UI"
-echo "Read/change scheduler isolation: enabled"
-echo "Structured operational errors: enabled"
-echo "Central runtime settings: enabled"
-echo "Stable updater command: sudo tikcentral-update"
-echo "Per-release Python environment: ready"
+echo "Atomic rollback: enabled for activation failures"
+echo "Release validation: passed"
+echo "Central settings/schema/UI/RouterOS execution: enforced"
+echo "Stable updater: sudo tikcentral-update"
 echo "Access Guardian: enabled"
-echo "Montréal UI time: enabled"
-echo "Operations Caddy check: HTTP $CADDY_CODE"
+echo "Caddy /operations: HTTP $CADDY_CODE"
 echo "Persistent state preserved: users, routers, WireGuard assignments, authorized IPs and router configuration."
 echo "Pre-update database backup: $DB_BACKUP"
 echo "Dashboard: https://$DOMAIN/"
