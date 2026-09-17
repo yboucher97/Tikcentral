@@ -1,8 +1,19 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+CURRENT="/opt/tikcentral/current"
+echo '== Release =='
+if [[ -L "$CURRENT" ]]; then
+  echo "current -> $(readlink -f "$CURRENT")"
+else
+  echo "$CURRENT is not a symlink (legacy deployment)"
+fi
+
+echo
 echo '== Services =='
-systemctl --no-pager --full status wg-quick@wg0 tikcentral tikcentral-winbox-proxy caddy tikcentral-backup.timer || true
+systemctl --no-pager --full status \
+  wg-quick@wg0 tikcentral tikcentral-winbox-proxy caddy \
+  tikcentral-fleet.timer tikcentral-backup.timer || true
 
 echo
 echo '== API =='
@@ -18,4 +29,4 @@ wg show wg0 || true
 
 echo
 echo '== Disk =='
-df -h / /var/lib/tikcentral /var/backups/tikcentral 2>/dev/null || true
+df -h / /var/lib/tikcentral /var/backups/tikcentral /opt/tikcentral 2>/dev/null || true
