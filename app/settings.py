@@ -24,7 +24,6 @@ def _int(name: str, default: int, *, minimum: int = 0, maximum: int | None = Non
     return value
 
 
-# Core application / identity.
 DB_PATH = os.getenv("DB_PATH", "/var/lib/tikcentral/tikcentral.db")
 TIMEZONE = os.getenv("TIKCENTRAL_TIMEZONE", "America/Toronto")
 ADMIN_API_KEY = _required("ADMIN_API_KEY")
@@ -34,7 +33,6 @@ SESSION_DAYS = _int("SESSION_DAYS", 7, minimum=1, maximum=90)
 TOKEN_TTL_HOURS = _int("TOKEN_TTL_HOURS", 24, minimum=1, maximum=168)
 TEMP_ACCESS_DAYS = _int("TEMP_ACCESS_DAYS", 5, minimum=1, maximum=90)
 
-# WireGuard management overlay.
 WG_HELPER = os.getenv("WG_HELPER", "/usr/local/sbin/tikcentral-wg-peer")
 WG_SERVER_PUBLIC_KEY = _required("WG_SERVER_PUBLIC_KEY")
 WG_ENDPOINT = _required("WG_ENDPOINT")
@@ -44,7 +42,6 @@ ONLINE_SECONDS = _int("ONLINE_SECONDS", 180, minimum=30, maximum=3600)
 WG_HELPER_TIMEOUT = _int("TIKCENTRAL_WG_HELPER_TIMEOUT", 10, minimum=2, maximum=120)
 PUBLIC_HOSTNAME = os.getenv("PUBLIC_HOSTNAME", WG_ENDPOINT.rsplit(":", 1)[0])
 
-# Public WinBox relay.
 WINBOX_PUBLIC_PORT_MIN = _int("WINBOX_PUBLIC_PORT_MIN", 20000, minimum=1024, maximum=65535)
 WINBOX_PUBLIC_PORT_MAX = _int("WINBOX_PUBLIC_PORT_MAX", 49999, minimum=1024, maximum=65535)
 if WINBOX_PUBLIC_PORT_MAX < WINBOX_PUBLIC_PORT_MIN:
@@ -54,7 +51,6 @@ WINBOX_TARGET_PORT = _int("WINBOX_TARGET_PORT", 8291, minimum=1, maximum=65535)
 WINBOX_RESCAN_SECONDS = _int("WINBOX_RESCAN_SECONDS", 10, minimum=2, maximum=300)
 WINBOX_CONNECT_TIMEOUT = _int("TIKCENTRAL_WINBOX_CONNECT_TIMEOUT", 8, minimum=1, maximum=60)
 
-# Managed router identity / RouterOS execution.
 SSH_USER = os.getenv("TIKCENTRAL_ROUTER_USER", "tikcentral")
 SSH_KEY = os.getenv("TIKCENTRAL_SSH_KEY", "/etc/tikcentral/ssh/tikcentral_ed25519")
 KNOWN_HOSTS = os.getenv("TIKCENTRAL_KNOWN_HOSTS", "/var/lib/tikcentral/known_hosts")
@@ -65,17 +61,14 @@ MAX_COMMAND_LENGTH = _int("TIKCENTRAL_MAX_COMMAND_LENGTH", 200000, minimum=1000,
 ROUTER_API_PASSWORD = os.getenv("TIKCENTRAL_ROUTER_API_PASSWORD", "")
 PROVISIONING_KEY = os.getenv("TIKCENTRAL_PROVISIONING_KEY", "")
 
-# Fleet concurrency. Read-only work never consumes a router mutation slot.
 MAX_WORKERS = _int("TIKCENTRAL_FLEET_WORKERS", 8, minimum=1, maximum=32)
 TELEMETRY_WORKERS = _int("TIKCENTRAL_TELEMETRY_WORKERS", 6, minimum=1, maximum=16)
 DRIFT_WORKERS = _int("TIKCENTRAL_DRIFT_WORKERS", 3, minimum=1, maximum=8)
 
-# Backups.
 BACKUP_ROOT = Path(os.getenv("ROUTER_BACKUP_DIR", "/var/backups/tikcentral/routers"))
 BACKUP_FALLBACK_ROOT = Path(os.getenv("TIKCENTRAL_BACKUP_FALLBACK", "/var/lib/tikcentral/router-backups"))
 BACKUP_PASSWORD = os.getenv("ROUTER_BACKUP_PASSWORD", "")
 
-# Scheduler / retention.
 TELEMETRY_INTERVAL_SECONDS = _int("TIKCENTRAL_TELEMETRY_INTERVAL", 300, minimum=60)
 DRIFT_INTERVAL_SECONDS = _int("TIKCENTRAL_DRIFT_INTERVAL", 1800, minimum=300)
 TELEMETRY_RETENTION_ROWS = _int("TIKCENTRAL_TELEMETRY_RETENTION_ROWS", 9000, minimum=100)
@@ -84,7 +77,6 @@ EVENT_RETENTION_ROWS = _int("TIKCENTRAL_EVENT_RETENTION_ROWS", 5000, minimum=100
 EVENT_INFO_RETENTION_ROWS = _int("TIKCENTRAL_EVENT_INFO_RETENTION_ROWS", 750, minimum=50)
 EVENT_DEDUP_SECONDS = _int("TIKCENTRAL_EVENT_DEDUP_SECONDS", 300, minimum=30, maximum=86400)
 
-# Probe/change deadlines.
 CORE_TELEMETRY_TIMEOUT = _int("TIKCENTRAL_CORE_TELEMETRY_TIMEOUT", 12, minimum=3, maximum=120)
 ROUTERBOOT_TELEMETRY_TIMEOUT = _int("TIKCENTRAL_ROUTERBOOT_TELEMETRY_TIMEOUT", 8, minimum=3, maximum=120)
 POLICY_PROBE_TIMEOUT = _int("TIKCENTRAL_POLICY_PROBE_TIMEOUT", 8, minimum=3, maximum=120)
@@ -93,18 +85,14 @@ UPDATE_CHECK_TIMEOUT = _int("TIKCENTRAL_UPDATE_CHECK_TIMEOUT", 90, minimum=10, m
 ROUTEROS_RETURN_TIMEOUT = _int("TIKCENTRAL_ROUTEROS_RETURN_TIMEOUT", 1200, minimum=120, maximum=3600)
 ROUTERBOOT_RETURN_TIMEOUT = _int("TIKCENTRAL_ROUTERBOOT_RETURN_TIMEOUT", 900, minimum=120, maximum=3600)
 
-# Read-only Codex analysis. Codex runs as the existing tikcentral service user in
-# an isolated temporary directory and is never given router credentials.
-AI_CODEX_BIN = os.getenv("TIKCENTRAL_CODEX_BIN", "/usr/local/bin/codex")
-AI_CODEX_HOME = os.getenv("TIKCENTRAL_CODEX_HOME", "/var/lib/tikcentral/codex-home")
-AI_TEMP_ROOT = os.getenv("TIKCENTRAL_AI_TEMP_ROOT", "/var/lib/tikcentral/ai-tmp")
+# Read-only Codex analysis. Tikcentral invokes only the privileged wrapper; the
+# wrapper drops to a separate tikcentral-ai user before starting Codex.
+AI_CODEX_HELPER = os.getenv("TIKCENTRAL_CODEX_HELPER", "/usr/local/sbin/tikcentral-codex-analyze")
 AI_TIMEOUT = _int("TIKCENTRAL_AI_TIMEOUT", 300, minimum=30, maximum=1800)
 AI_ROUTER_READ_TIMEOUT = _int("TIKCENTRAL_AI_ROUTER_READ_TIMEOUT", 60, minimum=10, maximum=300)
 AI_MAX_SECTION_CHARS = _int("TIKCENTRAL_AI_MAX_SECTION_CHARS", 60000, minimum=5000, maximum=250000)
 AI_MAX_REPORT_CHARS = _int("TIKCENTRAL_AI_MAX_REPORT_CHARS", 50000, minimum=5000, maximum=200000)
 
-# Static local Rescue profile. Validate the values together here so a typo never
-# reaches a RouterOS mutation command.
 RESCUE_ADDRESS = os.getenv("TIKCENTRAL_RESCUE_ADDRESS", "10.255.255.1/24")
 RESCUE_NETWORK = os.getenv("TIKCENTRAL_RESCUE_NETWORK", "10.255.255.0/24")
 RESCUE_POOL = os.getenv("TIKCENTRAL_RESCUE_POOL", "10.255.255.100-10.255.255.200")
@@ -124,7 +112,6 @@ except (ValueError, TypeError) as exc:
     raise RuntimeError(f"Invalid Tikcentral Rescue network settings: {exc}") from exc
 RESCUE_GATEWAY = str(_rescue_interface.ip)
 
-# One logical asset manifest. Cache version changes once per asset set, not per file.
 ASSET_VERSION = os.getenv("TIKCENTRAL_ASSET_VERSION", "7").strip() or "7"
 ASSET_FILES = {
     "logo_light": "opticable-logo-light.svg",
