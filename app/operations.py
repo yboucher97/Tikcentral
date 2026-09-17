@@ -27,6 +27,7 @@ from app import migrations
 from app import provisioning
 from app import router_exec
 from app import settings
+from app import state_capture
 
 
 def now_iso():
@@ -240,7 +241,8 @@ def _export_hash(router):
 
 def accept_baseline(router_id: int, created_by: str):
     router = _require_router(router_id)
-    digest, _ = _export_hash(router)
+    digest, content = _export_hash(router)
+    state_capture.store_config_snapshot_content(router_id, content, source_kind="baseline", actor=created_by)
     telem = collect_telemetry(router_id)
     profile = telem["profile"]
     now = now_iso()
@@ -263,8 +265,10 @@ def check_drift(router_id: int):
         expected = conn.execute("SELECT baseline_sha256,drifted FROM router_expected_state WHERE router_id=?", (router_id,)).fetchone()
     if not expected or not expected["baseline_sha256"]:
         return None
-    digest, _ = _export_hash(router)
+    digest, content = _export_hash(router)
     drifted = digest != expected["baseline_sha256"]
+    if drifted:
+        state_capture.store_config_snapshot_content(router_id, content, source_kind="drift", actor="scheduler")
     changed = bool(drifted) != bool(expected["drifted"])
     with core.db() as conn:
         conn.execute("UPDATE router_expected_state SET last_drift_check_at=?,drifted=? WHERE router_id=?", (now_iso(), int(drifted), router_id))
