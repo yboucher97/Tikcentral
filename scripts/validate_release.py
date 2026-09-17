@@ -41,6 +41,9 @@ REQUIRED_ROUTES = {
     ("GET", "/reliability/{router_id}/known-good"),
     ("POST", "/reliability/{router_id}/known-good/capture"),
     ("GET", "/reliability/{router_id}/wan"),
+    ("GET", "/system-health"),
+    ("POST", "/system-health/run"),
+    ("POST", "/system-health/verify-backups"),
     ("GET", "/reliability/{router_id}/breakglass"),
     ("POST", "/reliability/{router_id}/breakglass"),
     ("GET", "/reliability/{router_id}/support"),
@@ -199,6 +202,17 @@ def validate_source_boundaries():
     decryptor = ROOT / "scripts/decrypt_breakglass.py"
     if not decryptor.is_file() or "AESGCM" not in decryptor.read_text(encoding="utf-8"):
         fail("Encrypted break-glass decryptor missing")
+    system_health_text = (ROOT / "app/system_health.py").read_text(encoding="utf-8")
+    for marker in ("collect_health", "record_health", "verify_backups", "_verify_database_backup", "_router_backup_status", "systemctl", "PRAGMA quick_check"):
+        if marker not in system_health_text:
+            fail(f"System self-health feature missing: {marker}")
+    guardian_alert_text = (ROOT / "app/guardian.py").read_text(encoding="utf-8")
+    for marker in ("_flap_count", "_update_alert_state", "GUARDIAN_WARN_FAILURES", "GUARDIAN_CRITICAL_MINUTES", "GUARDIAN_FLAP_THRESHOLD", "access_escalation", "access_flap"):
+        if marker not in guardian_alert_text:
+            fail(f"Guardian flap/escalation feature missing: {marker}")
+    scheduler_text = (ROOT / "app/scheduler.py").read_text(encoding="utf-8")
+    if 'system_health.scheduled_tick' not in scheduler_text:
+        fail("System health verification is not scheduled")
     state_capture_text = (ROOT / "app/state_capture.py").read_text(encoding="utf-8")
     for marker in ("MANAGEMENT_STATE_COMMAND", "WAN_STATE_COMMAND", "capture_management_known_good", "compare_management_known_good", "collect_wan_state", "store_config_snapshot_content"):
         if marker not in state_capture_text:
@@ -281,6 +295,7 @@ def validate_persistence_and_jobs():
         "fleet_settings", "fleet_jobs", "fleet_job_results", "router_snapshots", "fleet_findings",
         "router_ai_analyses", "change_transactions", "change_transaction_steps",
         "router_maintenance", "fleet_incidents", "router_management_known_good", "router_wan_history",
+        "router_access_alert_state", "system_health_history", "backup_verifications",
     }
     with sqlite3.connect(settings.DB_PATH) as conn:
         version = conn.execute("SELECT MAX(version) FROM schema_version").fetchone()[0]
@@ -384,6 +399,10 @@ def validate_provisioning_and_updater():
     for unit in ("deploy/tikcentral-ai.service", "deploy/tikcentral-ai.timer"):
         if not (ROOT / unit).is_file():
             fail(f"AI worker unit missing: {unit}")
+    backup_script = (ROOT / "scripts/backup.sh").read_text(encoding="utf-8")
+    for marker in ("chown root:tikcentral", "chmod 0640"):
+        if marker not in backup_script:
+            fail(f"Database backup verification permission missing: {marker}")
     worker_text = (ROOT / "app/ai_worker.py").read_text(encoding="utf-8")
     if "router_ai_analyses" not in worker_text or "ai_analysis.run_codex" not in worker_text:
         fail("Persistent AI worker is not wired to the AI queue")
