@@ -41,7 +41,11 @@ TELEMETRY_INTERVAL_SECONDS = _int("TIKCENTRAL_TELEMETRY_INTERVAL", 300, minimum=
 DRIFT_INTERVAL_SECONDS = _int("TIKCENTRAL_DRIFT_INTERVAL", 1800, minimum=300)
 TELEMETRY_RETENTION_ROWS = _int("TIKCENTRAL_TELEMETRY_RETENTION_ROWS", 9000, minimum=100)
 GUARDIAN_RETENTION_ROWS = _int("TIKCENTRAL_GUARDIAN_RETENTION_ROWS", 45000, minimum=100)
+# Timeline is for meaningful changes, warnings and operator actions. Routine info
+# is intentionally retained for much less time than important events.
 EVENT_RETENTION_ROWS = _int("TIKCENTRAL_EVENT_RETENTION_ROWS", 5000, minimum=100)
+EVENT_INFO_RETENTION_ROWS = _int("TIKCENTRAL_EVENT_INFO_RETENTION_ROWS", 750, minimum=50)
+EVENT_DEDUP_SECONDS = _int("TIKCENTRAL_EVENT_DEDUP_SECONDS", 300, minimum=30, maximum=86400)
 
 CORE_TELEMETRY_TIMEOUT = _int("TIKCENTRAL_CORE_TELEMETRY_TIMEOUT", 12, minimum=3, maximum=120)
 ROUTERBOOT_TELEMETRY_TIMEOUT = _int("TIKCENTRAL_ROUTERBOOT_TELEMETRY_TIMEOUT", 8, minimum=3, maximum=120)
@@ -56,8 +60,16 @@ RESCUE_NETWORK = os.getenv("TIKCENTRAL_RESCUE_NETWORK", "10.255.255.0/24")
 RESCUE_POOL = os.getenv("TIKCENTRAL_RESCUE_POOL", "10.255.255.100-10.255.255.200")
 RESCUE_DNS = os.getenv("TIKCENTRAL_RESCUE_DNS", "1.1.1.1")
 
-ASSETS = {
-    "logo_light": "/static/opticable-logo-light.svg?v=6",
-    "logo_dark": "/static/opticable-logo-dark.svg?v=6",
-    "icon": "/static/opticable-icon.png?v=6",
+# One asset manifest owns filenames and cache versioning. UI code references only
+# logical names so a future SVG/PNG change cannot leave stale hard-coded paths.
+ASSET_VERSION = os.getenv("TIKCENTRAL_ASSET_VERSION", "7")
+ASSET_FILES = {
+    "logo_light": "opticable-logo-light.svg",
+    "logo_dark": "opticable-logo-dark.svg",
+    "icon": "opticable-icon.png",
 }
+ASSETS = {name: f"/static/{filename}?v={ASSET_VERSION}" for name, filename in ASSET_FILES.items()}
+
+# Optional subsystems are deliberately non-critical. Guardian/access remains the
+# only critical scheduler path.
+OPTIONAL_SUBSYSTEMS = ("telemetry", "drift", "fleet_health", "event_maintenance")
