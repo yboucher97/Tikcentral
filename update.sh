@@ -1,55 +1,78 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -Eeuo pipefail
 
 ROOT="/opt/tikcentral"
-APP="$ROOT/current"
+CURRENT="$ROOT/current"
+RELEASES="$ROOT/releases"
+REPO="$ROOT/repository.git"
 ENV_FILE="/etc/tikcentral/tikcentral.env"
 SSH_DIR="/etc/tikcentral/ssh"
 ROUTER_BACKUP_DIR="/var/backups/tikcentral/routers"
+KEEP_RELEASES="${TIKCENTRAL_KEEP_RELEASES:-5}"
 
 [[ "$EUID" -eq 0 ]] || { echo "Run as root (use sudo)." >&2; exit 1; }
 [[ -f "$ENV_FILE" ]] || { echo "Tikcentral is not installed: $ENV_FILE is missing. Run bootstrap.sh once first." >&2; exit 1; }
-[[ -d "$APP/.git" ]] || { echo "Tikcentral app repository is missing at $APP. Run bootstrap.sh once first." >&2; exit 1; }
 
-# Always reload the updater from origin/main once before doing deployment work.
-# This prevents Bash from continuing to execute a stale copy after git reset.
-if [[ "${TIKCENTRAL_UPDATE_REEXEC:-0}" != "1" ]]; then
-  git -C "$APP" fetch --prune origin
-  git -C "$APP" reset --hard origin/main
-  export TIKCENTRAL_UPDATE_REEXEC=1
-  exec bash "$APP/update.sh"
+mkdir -p "$RELEASES" /var/backups/tikcentral
+chmod 0755 "$ROOT" "$RELEASES"
+
+bootstrap_repository() {
+  if [[ -d "$REPO" ]]; then
+    return
+  fi
+  if [[ ! -d "$CURRENT/.git" ]]; then
+    echo "Cannot initialize atomic updater: neither $REPO nor a git checkout at $CURRENT exists." >&2
+    exit 1
+  fi
+  local remote tmp
+  remote="$(git -C "$CURRENT" remote get-url origin)"
+  tmp="$ROOT/.repository.git.$$"
+  rm -rf "$tmp"
+  git clone --mirror "$CURRENT" "$tmp" >/dev/null
+  git --git-dir="$tmp" remote set-url origin "$remote"
+  chmod -R go-rwx "$tmp"
+  mv "$tmp" "$REPO"
+}
+
+bootstrap_repository
+
+git --git-dir="$REPO" fetch --prune origin '+refs/heads/main:refs/heads/main'
+TARGET_SHA="$(git --git-dir="$REPO" rev-parse refs/heads/main)"
+SHORT_SHA="${TARGET_SHA:0:12}"
+
+# Execute the updater from the target commit before touching the live release.
+if [[ "${TIKCENTRAL_UPDATE_TARGET:-}" != "$TARGET_SHA" ]]; then
+  tmp_updater="$(mktemp /tmp/tikcentral-update.XXXXXX.sh)"
+  git --git-dir="$REPO" show "$TARGET_SHA:update.sh" > "$tmp_updater"
+  chmod 0700 "$tmp_updater"
+  export TIKCENTRAL_UPDATE_TARGET="$TARGET_SHA"
+  exec bash "$tmp_updater"
 fi
 
 STAMP="$(date -u +%Y%m%d-%H%M%S)"
-mkdir -p /var/backups/tikcentral
+RELEASE="$RELEASES/$SHORT_SHA"
+BUILD="$RELEASES/.build-$SHORT_SHA-$$"
+DB_BACKUP="/var/backups/tikcentral/pre-update-$STAMP.db"
+ENV_BACKUP="/var/backups/tikcentral/pre-update-$STAMP.env"
+
+# Back up persistent state before target code is imported or migrations run.
 if [[ -f /var/lib/tikcentral/tikcentral.db ]]; then
-  sqlite3 /var/lib/tikcentral/tikcentral.db ".backup '/var/backups/tikcentral/pre-update-$STAMP.db'"
+  sqlite3 /var/lib/tikcentral/tikcentral.db ".backup '$DB_BACKUP'"
 fi
-cp -a "$ENV_FILE" "/var/backups/tikcentral/pre-update-$STAMP.env"
+cp -a "$ENV_FILE" "$ENV_BACKUP"
 
-git -C "$APP" fetch --prune origin
-git -C "$APP" reset --hard origin/main
-DEPLOYED_COMMIT="$(git -C "$APP" rev-parse --short HEAD)"
-
-apt-get update
-apt-get install -y --no-install-recommends openssh-client
-
-chmod +x "$APP/helpers/tikcentral-wg-peer"
-install -o root -g root -m 0755 "$APP/helpers/tikcentral-wg-peer" /usr/local/sbin/tikcentral-wg-peer
-printf 'tikcentral ALL=(root) NOPASSWD: /usr/local/sbin/tikcentral-wg-peer *\n' > /etc/sudoers.d/tikcentral-wg
-chmod 0440 /etc/sudoers.d/tikcentral-wg
-visudo -cf /etc/sudoers.d/tikcentral-wg >/dev/null
-
+# Shared state survives every code release and rollback.
 install -d -o root -g tikcentral -m 0750 "$SSH_DIR"
 if [[ ! -f "$SSH_DIR/tikcentral_ed25519" ]]; then
   ssh-keygen -q -t ed25519 -N '' -C 'tikcentral-vps' -f "$SSH_DIR/tikcentral_ed25519"
 fi
-chown root:tikcentral "$SSH_DIR/tikcentral_ed25519"
+chown root:tikcentral "$SSH_DIR/tikcentral_ed25519" "$SSH_DIR/tikcentral_ed25519.pub"
 chmod 0640 "$SSH_DIR/tikcentral_ed25519"
-chown root:tikcentral "$SSH_DIR/tikcentral_ed25519.pub"
 chmod 0644 "$SSH_DIR/tikcentral_ed25519.pub"
 
 install -d -o tikcentral -g tikcentral -m 0750 "$ROUTER_BACKUP_DIR"
+chown -R tikcentral:tikcentral "$ROUTER_BACKUP_DIR" || true
+install -d -o tikcentral -g tikcentral -m 0750 /var/lib/tikcentral /var/lib/tikcentral/router-backups
 if [[ ! -f /var/lib/tikcentral/known_hosts ]]; then
   install -o tikcentral -g tikcentral -m 0600 /dev/null /var/lib/tikcentral/known_hosts
 else
@@ -63,6 +86,7 @@ grep -q '^TIKCENTRAL_KNOWN_HOSTS=' "$ENV_FILE" || echo 'TIKCENTRAL_KNOWN_HOSTS=/
 grep -q '^ROUTER_BACKUP_DIR=' "$ENV_FILE" || echo 'ROUTER_BACKUP_DIR=/var/backups/tikcentral/routers' >> "$ENV_FILE"
 grep -q '^TIKCENTRAL_SSH_TIMEOUT=' "$ENV_FILE" || echo 'TIKCENTRAL_SSH_TIMEOUT=20' >> "$ENV_FILE"
 grep -q '^TIKCENTRAL_FLEET_WORKERS=' "$ENV_FILE" || echo 'TIKCENTRAL_FLEET_WORKERS=8' >> "$ENV_FILE"
+grep -q '^TIKCENTRAL_TIMEZONE=' "$ENV_FILE" || echo 'TIKCENTRAL_TIMEZONE=America/Toronto' >> "$ENV_FILE"
 if ! grep -q '^ROUTER_BACKUP_PASSWORD=' "$ENV_FILE"; then
   echo "ROUTER_BACKUP_PASSWORD=$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')" >> "$ENV_FILE"
 fi
@@ -75,166 +99,96 @@ fi
 chmod 0640 "$ENV_FILE"
 chown root:tikcentral "$ENV_FILE"
 
-python3 -m venv "$ROOT/venv"
-"$ROOT/venv/bin/pip" install --upgrade pip wheel
-"$ROOT/venv/bin/pip" install -r "$APP/app/requirements.txt"
+# Build one immutable release with its own dependencies.
+if [[ ! -f "$RELEASE/.tikcentral-validated" ]] || [[ "$(cat "$RELEASE/.tikcentral-validated" 2>/dev/null || true)" != "$TARGET_SHA" ]]; then
+  rm -rf "$BUILD" "$RELEASE"
+  mkdir -p "$BUILD"
+  git --git-dir="$REPO" archive "$TARGET_SHA" | tar -x -C "$BUILD"
+  mv "$BUILD" "$RELEASE"
 
-chown -R root:root "$ROOT/venv"
-find "$ROOT/venv" -type d -exec chmod 0755 {} +
-find "$ROOT/venv" -type f -exec chmod a+r {} +
-find "$ROOT/venv/bin" -maxdepth 1 -type f -exec chmod 0755 {} +
-chmod 0755 "$ROOT" "$ROOT/venv" "$ROOT/venv/bin"
+  python3 -m venv "$RELEASE/.venv"
+  "$RELEASE/.venv/bin/pip" install --upgrade pip wheel >/dev/null
+  "$RELEASE/.venv/bin/pip" install -r "$RELEASE/app/requirements.txt"
 
-if ! sudo -u tikcentral "$ROOT/venv/bin/python3" --version >/dev/null 2>&1; then
-  echo "Tikcentral service account cannot execute the Python virtual environment." >&2
-  namei -l "$ROOT/venv/bin/python3" >&2 || true
-  exit 1
+  chown -R root:root "$RELEASE"
+  find "$RELEASE" -type d -exec chmod a+rx {} +
+  find "$RELEASE" -type f -exec chmod a+r {} +
+  find "$RELEASE/.venv/bin" -maxdepth 1 -type f -exec chmod a+rx {} +
+
+  sudo -u tikcentral bash -c "set -a; source '$ENV_FILE'; set +a; cd '$RELEASE'; '$RELEASE/.venv/bin/python3' scripts/validate_release.py"
+  printf '%s\n' "$TARGET_SHA" > "$RELEASE/.tikcentral-validated"
 fi
 
-"$ROOT/venv/bin/python3" -m py_compile \
-  "$APP/app/main.py" \
-  "$APP/app/portal.py" \
-  "$APP/app/entrypoint.py" \
-  "$APP/app/fleet.py" \
-  "$APP/app/fleet_runner.py" \
-  "$APP/app/fleet_web.py" \
-  "$APP/app/guardian.py" \
-  "$APP/app/guardian_events.py" \
-  "$APP/app/changes.py" \
-  "$APP/app/events.py" \
-  "$APP/app/backup_tiers.py" \
-  "$APP/app/provisioning.py" \
-  "$APP/app/performance_profile.py" \
-  "$APP/app/interface_choices.py" \
-  "$APP/app/enrollment_v2.py" \
-  "$APP/app/enrollment_v3.py" \
-  "$APP/app/operations.py" \
-  "$APP/app/operations_safety.py" \
-  "$APP/app/operations_stability.py" \
-  "$APP/app/operations_compat.py" \
-  "$APP/app/operations_safe_routes.py" \
-  "$APP/app/operations_robust.py" \
-  "$APP/app/rescue.py" \
-  "$APP/app/rescue_v2.py" \
-  "$APP/app/rescue_safe_routes.py" \
-  "$APP/app/ui_time.py" \
-  "$APP/app/ui_enhancements.py" \
-  "$APP/app/branding.py" \
-  "$APP/app/production.py" \
-  "$APP/app/final.py" \
-  "$APP/app/winbox_proxy.py"
+# Migrations are additive; the SQLite snapshot above is the recovery point.
+sudo -u tikcentral bash -c "set -a; source '$ENV_FILE'; set +a; cd '$RELEASE'; '$RELEASE/.venv/bin/python3' -c 'from app import migrations; migrations.migrate()'"
 
-for ASSET in \
-  "$APP/app/static/opticable-icon.png" \
-  "$APP/app/static/opticable-logo-light.svg" \
-  "$APP/app/static/opticable-logo-dark.svg"; do
-  [[ -s "$ASSET" ]] || { echo "Required branding asset missing or empty: $ASSET" >&2; exit 1; }
-done
+install_runtime_files() {
+  local release="$1"
+  chmod +x "$release/helpers/tikcentral-wg-peer"
+  install -o root -g root -m 0755 "$release/helpers/tikcentral-wg-peer" /usr/local/sbin/tikcentral-wg-peer
+  printf 'tikcentral ALL=(root) NOPASSWD: /usr/local/sbin/tikcentral-wg-peer *\n' > /etc/sudoers.d/tikcentral-wg
+  chmod 0440 /etc/sudoers.d/tikcentral-wg
+  visudo -cf /etc/sudoers.d/tikcentral-wg >/dev/null
+
+  install -o root -g root -m 0644 "$release/deploy/tikcentral.service" /etc/systemd/system/tikcentral.service
+  install -o root -g root -m 0644 "$release/deploy/tikcentral-winbox-proxy.service" /etc/systemd/system/tikcentral-winbox-proxy.service
+  install -o root -g root -m 0644 "$release/deploy/tikcentral-backup.service" /etc/systemd/system/tikcentral-backup.service
+  install -o root -g root -m 0644 "$release/deploy/tikcentral-backup.timer" /etc/systemd/system/tikcentral-backup.timer
+  install -o root -g root -m 0644 "$release/deploy/tikcentral-fleet.service" /etc/systemd/system/tikcentral-fleet.service
+  install -o root -g root -m 0644 "$release/deploy/tikcentral-fleet.timer" /etc/systemd/system/tikcentral-fleet.timer
+}
+
+switch_current() {
+  local target="$1" link="$ROOT/.current-next-$$"
+  rm -f "$link"
+  ln -s "$target" "$link"
+  if [[ -L "$CURRENT" ]]; then
+    mv -Tf "$link" "$CURRENT"
+  elif [[ ! -e "$CURRENT" ]]; then
+    mv "$link" "$CURRENT"
+  else
+    rm -f "$link"
+    return 1
+  fi
+}
+
+wait_health() {
+  local tries="${1:-20}"
+  for ((i=1; i<=tries; i++)); do
+    if curl -fsS http://127.0.0.1:8080/healthz >/tmp/tikcentral-update-health.json 2>/dev/null; then
+      return 0
+    fi
+    sleep 1
+  done
+  return 1
+}
+
+PREVIOUS=""
+if [[ -L "$CURRENT" ]]; then
+  PREVIOUS="$(readlink -f "$CURRENT")"
+elif [[ -d "$CURRENT" ]]; then
+  PREVIOUS="$RELEASES/legacy-$STAMP"
+fi
+
+# Pause scheduled mutation/read jobs only for the release switch.
+systemctl stop tikcentral-fleet.timer >/dev/null 2>&1 || true
+systemctl stop tikcentral-fleet.service >/dev/null 2>&1 || true
+
+# First atomic update converts the historical git checkout into a rollback target.
+if [[ -d "$CURRENT" && ! -L "$CURRENT" ]]; then
+  mv "$CURRENT" "$PREVIOUS"
+fi
+switch_current "$RELEASE"
+install_runtime_files "$RELEASE"
+systemctl daemon-reload
+systemctl enable tikcentral tikcentral-winbox-proxy tikcentral-backup.timer tikcentral-fleet.timer >/dev/null
+systemctl disable --now tikcentral-enroll-ui >/dev/null 2>&1 || true
 
 set -a
 source "$ENV_FILE"
 set +a
-
-ROUTES="$(cd "$APP" && "$ROOT/venv/bin/python3" -c 'from app.final import app; print("\n".join(sorted({r.path for r in app.routes})))')"
-for REQUIRED_ROUTE in /enroll /enroll/generate /enroll/admin-credentials /routers /settings /automation /automation/command /automation/backup /automation/update/check /automation/update/install /ssh '/ssh/{router_id}' /guardian '/guardian/{router_id}/repair' /operations '/operations/{router_id}' '/operations/{router_id}/commission' '/operations/{router_id}/telemetry' '/operations/{router_id}/profile/{profile}' '/operations/{router_id}/backup/{tier}' '/operations/{router_id}/drift/check' '/operations/{router_id}/baseline' '/operations/{router_id}/update/check' '/operations/{router_id}/upgrade/{mode}' '/operations/{router_id}/routerboot' '/operations/{router_id}/approve-version' /rescue '/rescue/{router_id}/enable' '/rescue/{router_id}/disable' /changes '/changes/{router_id}' /audit '/audit/{router_id}' '/audit/{router_id}/normalize'; do
-  if ! grep -Fxq "$REQUIRED_ROUTE" <<<"$ROUTES"; then
-    echo "Required route $REQUIRED_ROUTE is missing from app.final." >&2
-    echo "$ROUTES" >&2
-    exit 1
-  fi
-done
-
-cd "$APP"
-"$ROOT/venv/bin/python3" - <<'PY'
-from app.final import app
-required = {
-    "/operations/{router_id}/telemetry",
-    "/operations/{router_id}/commission",
-    "/operations/{router_id}/profile/{profile}",
-    "/operations/{router_id}/backup/{tier}",
-    "/operations/{router_id}/drift/check",
-    "/operations/{router_id}/baseline",
-    "/operations/{router_id}/update/check",
-    "/operations/{router_id}/upgrade/{mode}",
-    "/operations/{router_id}/routerboot",
-    "/operations/{router_id}/approve-version",
-}
-for path in required:
-    matches = [r for r in app.routes if getattr(r, "path", None) == path and "POST" in (getattr(r, "methods", set()) or set())]
-    if len(matches) != 1:
-        raise SystemExit(f"Operations route {path} has {len(matches)} POST handlers; expected exactly 1")
-    if matches[0].endpoint.__module__ != "app.operations_safe_routes":
-        raise SystemExit(f"Operations route {path} is not using app.operations_safe_routes")
-PY
-
-RUNNER_PROBE="$("$ROOT/venv/bin/python3" -c 'from app import fleet_runner, operations; print(operations.collect_telemetry.__module__)')"
-if [[ "$RUNNER_PROBE" != "app.operations_stability" ]]; then
-  echo "Fleet runner is not using hardened telemetry: $RUNNER_PROBE" >&2
-  exit 1
-fi
-
-UI_CHECK="$("$ROOT/venv/bin/python3" -c 'from fastapi.responses import HTMLResponse; from app.ui_enhancements import enhance_response; print(enhance_response(HTMLResponse("<html><head></head><body><table><thead><tr><th>A</th></tr></thead><tbody><tr><td>1</td></tr></tbody></table></body></html>")).body.decode())')"
-for UI_TEXT in 'tcGlobalSearch' 'tcTheme' 'tc-table-search' 'tikcentral:columns:' 'Light mode'; do
-  if ! grep -Fq "$UI_TEXT" <<<"$UI_CHECK"; then
-    echo "Tikcentral shared UI enhancement validation failed: missing $UI_TEXT" >&2
-    exit 1
-  fi
-done
-
-BRAND_CHECK="$("$ROOT/venv/bin/python3" -c 'from fastapi.responses import HTMLResponse; from app.branding import enhance_response; print(enhance_response(HTMLResponse("<html><head></head><body><main><header><div class=\"brand\"><h1>Tikcentral</h1><div class=\"sub\">MikroTik remote management</div></div></header></main></body></html>")).body.decode())')"
-for BRAND_TEXT in 'opticable-logo-light.svg?v=5' 'opticable-logo-dark.svg?v=5' 'opticable-icon.png?v=5' 'width:200px' 'height:auto'; do
-  if ! grep -Fq "$BRAND_TEXT" <<<"$BRAND_CHECK"; then
-    echo "Tikcentral Opticable branding validation failed: missing $BRAND_TEXT" >&2
-    exit 1
-  fi
-done
-
-MANAGED_SCRIPT="$("$ROOT/venv/bin/python3" -c 'from app.production import managed_router_script_with_api_password; print(managed_router_script_with_api_password("scope-check", "scope-check-token"))')"
-if ! grep -Fq 'Tikcentral managed service identity' <<<"$MANAGED_SCRIPT"; then
-  echo "Enrollment script is missing the managed Tikcentral identity." >&2
-  exit 1
-fi
-if ! grep -Fq 'password=' <<<"$MANAGED_SCRIPT" || ! grep -Fq 'name="tikcentral"' <<<"$MANAGED_SCRIPT"; then
-  echo "Enrollment script is missing the VM-held RouterOS API credential." >&2
-  exit 1
-fi
-if grep -Fq 'key-owner=' <<<"$MANAGED_SCRIPT"; then
-  echo "Enrollment script contains invalid direct SSH key syntax (key-owner=)." >&2
-  exit 1
-fi
-if ! grep -Fq 'dst-port=22,8291,8728' <<<"$MANAGED_SCRIPT"; then
-  echo "Enrollment script is missing the canonical Tikcentral management firewall rule." >&2
-  exit 1
-fi
-if ! grep -Fxq '{' <<<"$MANAGED_SCRIPT" || ! grep -Fxq '}' <<<"$MANAGED_SCRIPT"; then
-  echo "RouterOS enrollment script is not wrapped in a single local scope." >&2
-  exit 1
-fi
-
-DEFAULT_SCRIPT="$("$ROOT/venv/bin/python3" -c 'from app.performance_profile import performance_ready_default_config_script; from app.enrollment_v2 import _apply_profile; print(_apply_profile(performance_ready_default_config_script("scope-check",12,4,500,500,80,40,"ether2"),"throughput"))')"
-for REQUIRED_TEXT in 'Default WAN DHCP' 'Bell PPPoE - enter credentials onsite' 'Opticable FastTrack' 'Opticable RAW bad source' 'Opticable MSS clamp' 'OPT-QOS-UPLOAD' 'Performance profile active: Maximum throughput'; do
-  if ! grep -Fq "$REQUIRED_TEXT" <<<"$DEFAULT_SCRIPT"; then
-    echo "Opticable default provisioning profile failed validation: missing $REQUIRED_TEXT" >&2
-    exit 1
-  fi
-done
-
-"$ROOT/venv/bin/python3" -c 'from app.fleet import ensure_schema; ensure_schema()'
-"$ROOT/venv/bin/python3" -c 'from app.guardian import ensure_schema; ensure_schema()'
-"$ROOT/venv/bin/python3" -c 'from app.provisioning import ensure_schema; ensure_schema()'
-"$ROOT/venv/bin/python3" -c 'from app.operations import ensure_schema; ensure_schema()'
-"$ROOT/venv/bin/python3" -c 'from app.rescue import ensure_schema; ensure_schema()'
-
-install -o root -g root -m 0644 "$APP/deploy/tikcentral.service" /etc/systemd/system/tikcentral.service
-install -o root -g root -m 0644 "$APP/deploy/tikcentral-winbox-proxy.service" /etc/systemd/system/tikcentral-winbox-proxy.service
-install -o root -g root -m 0644 "$APP/deploy/tikcentral-backup.service" /etc/systemd/system/tikcentral-backup.service
-install -o root -g root -m 0644 "$APP/deploy/tikcentral-backup.timer" /etc/systemd/system/tikcentral-backup.timer
-install -o root -g root -m 0644 "$APP/deploy/tikcentral-fleet.service" /etc/systemd/system/tikcentral-fleet.service
-install -o root -g root -m 0644 "$APP/deploy/tikcentral-fleet.timer" /etc/systemd/system/tikcentral-fleet.timer
-
 DOMAIN="${PUBLIC_HOSTNAME:-${WG_ENDPOINT%:*}}"
 [[ -n "$DOMAIN" ]] || { echo "Could not determine Tikcentral hostname from $ENV_FILE" >&2; exit 1; }
-
 cat > /etc/caddy/Caddyfile <<EOF
 $DOMAIN {
     encode zstd gzip
@@ -244,91 +198,92 @@ EOF
 caddy fmt --overwrite /etc/caddy/Caddyfile >/dev/null
 caddy validate --config /etc/caddy/Caddyfile
 
-systemctl daemon-reload
-systemctl enable tikcentral tikcentral-winbox-proxy tikcentral-backup.timer tikcentral-fleet.timer >/dev/null
-systemctl disable --now tikcentral-enroll-ui >/dev/null 2>&1 || true
-systemctl stop tikcentral-fleet.service >/dev/null 2>&1 || true
 systemctl restart tikcentral
 systemctl restart tikcentral-winbox-proxy
 systemctl restart caddy
 systemctl start tikcentral-backup.timer
 systemctl restart tikcentral-fleet.timer
 
-API_OK=0
-for _ in {1..10}; do
-  if curl -fsS http://127.0.0.1:8080/healthz >/tmp/tikcentral-update-health.json 2>/dev/null; then
-    API_OK=1
-    break
+rollback() {
+  local reason="$1"
+  echo "New release failed health validation: $reason" >&2
+  if [[ -z "$PREVIOUS" || ! -d "$PREVIOUS" ]]; then
+    echo "No previous release is available for automatic rollback." >&2
+    return 1
   fi
-  sleep 1
-done
+  systemctl stop tikcentral-fleet.timer >/dev/null 2>&1 || true
+  systemctl stop tikcentral-fleet.service >/dev/null 2>&1 || true
+  switch_current "$PREVIOUS"
+  [[ -f "$PREVIOUS/deploy/tikcentral.service" ]] && install_runtime_files "$PREVIOUS"
+  systemctl daemon-reload
+  systemctl restart tikcentral || true
+  systemctl restart tikcentral-winbox-proxy || true
+  systemctl restart caddy || true
+  systemctl start tikcentral-backup.timer >/dev/null 2>&1 || true
+  systemctl restart tikcentral-fleet.timer >/dev/null 2>&1 || true
+  if wait_health 15; then
+    echo "Automatic rollback succeeded: $PREVIOUS" >&2
+  else
+    echo "Automatic rollback attempted but previous release health check also failed." >&2
+  fi
+  return 1
+}
 
-if [[ "$API_OK" -ne 1 ]]; then
-  echo "Tikcentral API failed after update. Existing DB/config were preserved and a pre-update backup was created." >&2
-  systemctl --no-pager --full status tikcentral || true
-  journalctl -u tikcentral -n 100 --no-pager || true
+if ! wait_health 20; then
+  journalctl -u tikcentral -n 120 --no-pager >&2 || true
+  rollback "application /healthz did not recover" || true
   exit 1
 fi
 
-for PATH_TO_CHECK in /enroll /routers /automation /ssh /guardian /operations /rescue /changes /audit; do
+for PATH_TO_CHECK in /enroll /routers /guardian /operations /rescue /changes /audit; do
   CODE="$(curl -sS -o /dev/null -w '%{http_code}' "http://127.0.0.1:8080$PATH_TO_CHECK" || true)"
   if [[ "$CODE" != "200" && "$CODE" != "303" ]]; then
-    echo "Tikcentral $PATH_TO_CHECK failed directly on the application (HTTP $CODE)." >&2
-    journalctl -u tikcentral -n 100 --no-pager >&2 || true
+    rollback "$PATH_TO_CHECK returned HTTP $CODE" || true
     exit 1
   fi
 done
-
 for ASSET_PATH in /static/opticable-icon.png /static/opticable-logo-light.svg /static/opticable-logo-dark.svg; do
   CODE="$(curl -sS -o /dev/null -w '%{http_code}' "http://127.0.0.1:8080$ASSET_PATH" || true)"
   if [[ "$CODE" != "200" ]]; then
-    echo "Tikcentral branding asset $ASSET_PATH failed directly on the application (HTTP $CODE)." >&2
+    rollback "$ASSET_PATH returned HTTP $CODE" || true
     exit 1
   fi
 done
-
 CADDY_CODE="$(curl -ksS --resolve "$DOMAIN:443:127.0.0.1" -o /dev/null -w '%{http_code}' "https://$DOMAIN/operations" || true)"
 if [[ "$CADDY_CODE" != "200" && "$CADDY_CODE" != "303" ]]; then
-  echo "Tikcentral /operations failed through Caddy (HTTP $CADDY_CODE)." >&2
-  cat /etc/caddy/Caddyfile >&2 || true
+  rollback "Caddy /operations returned HTTP $CADDY_CODE" || true
   exit 1
 fi
+
+# Keep a small immutable release history. Preserve current and immediate previous.
+current_real="$(readlink -f "$CURRENT")"
+kept=0
+while IFS= read -r dir; do
+  [[ -d "$dir" ]] || continue
+  [[ "$(basename "$dir")" =~ ^[0-9a-f]{12}$ ]] || continue
+  if [[ "$dir" == "$current_real" || "$dir" == "$PREVIOUS" ]]; then
+    continue
+  fi
+  kept=$((kept + 1))
+  if (( kept >= KEEP_RELEASES - 1 )); then
+    rm -rf "$dir"
+  fi
+done < <(find "$RELEASES" -mindepth 1 -maxdepth 1 -type d -printf '%T@ %p\n' | sort -nr | cut -d' ' -f2-)
 
 jq . /tmp/tikcentral-update-health.json
 rm -f /tmp/tikcentral-update-health.json
 
 echo
 echo "Tikcentral updated successfully."
-echo "Deployed commit: $DEPLOYED_COMMIT"
-echo "Opticable SVG light/dark branding: ready"
-echo "Fleet SSH identity: ready"
-echo "Router API credential: ready (secret retained on VPS)"
-echo "Encrypted personal-router credential store: ready"
-echo "Enrollment modes: Tikcentral-only + Opticable default config"
-echo "Access Guardian: enabled (1-minute checks)"
-echo "Operations telemetry: hardened isolated probes (web + fleet runner)"
-echo "Operations actions: router failures handled without HTTP 500 pages"
-echo "Configuration drift: enabled (30-minute checks after baseline)"
-echo "Serialized RouterOS upgrades: ready"
-echo "Approved-version tracking: ready"
-echo "Backup tiers: daily rotating + retained pre-change/commissioning"
-echo "Router event timeline: ready"
-echo "Static local rescue-port management: ready"
-echo "Configuration change history: ready"
-echo "Live router audit/normalization: ready"
-echo "Searchable/sortable tables + saved column visibility: ready"
-echo "Persistent light/dark UI mode: ready"
+echo "Active release: $SHORT_SHA"
+echo "Release path: $RELEASE"
+echo "Previous release: ${PREVIOUS:-none}"
+echo "Atomic rollback: enabled"
+echo "Runtime: consolidated Operations + Rescue + UI"
+echo "Per-release Python environment: ready"
+echo "Access Guardian: enabled"
+echo "Montréal UI time: enabled"
 echo "Operations Caddy check: HTTP $CADDY_CODE"
-echo "Persistent state preserved: users, routers, WireGuard assignments, authorized IPs and existing configuration."
-echo "Pre-update backup: /var/backups/tikcentral/pre-update-$STAMP.db"
+echo "Persistent state preserved: users, routers, WireGuard assignments, authorized IPs and router configuration."
+echo "Pre-update database backup: $DB_BACKUP"
 echo "Dashboard: https://$DOMAIN/"
-echo "Routers: https://$DOMAIN/routers"
-echo "Guardian: https://$DOMAIN/guardian"
-echo "Operations: https://$DOMAIN/operations"
-echo "Rescue: https://$DOMAIN/rescue"
-echo "Changes: https://$DOMAIN/changes"
-echo "Enrollment: https://$DOMAIN/enroll"
-echo "Automation: https://$DOMAIN/automation"
-echo "Web SSH: https://$DOMAIN/ssh"
-echo "Audit: https://$DOMAIN/audit"
-echo "Settings: https://$DOMAIN/settings"
