@@ -418,7 +418,39 @@ def _m8(conn):
             conn.execute(f"ALTER TABLE router_snapshots ADD COLUMN {name} {definition}")
 
 
-MIGRATIONS = [_m1, _m2, _m3, _m4, _m5, _m6, _m7, _m8]
+def _m9(conn):
+    """Access escalation/flap state plus local health and backup verification history."""
+    conn.executescript("""
+    CREATE TABLE IF NOT EXISTS router_access_alert_state (
+        router_id INTEGER PRIMARY KEY,
+        outage_started_at TEXT NOT NULL DEFAULT '',
+        consecutive_failures INTEGER NOT NULL DEFAULT 0,
+        escalation_level INTEGER NOT NULL DEFAULT 0,
+        last_transition_at TEXT NOT NULL DEFAULT '',
+        last_flap_alert_at TEXT NOT NULL DEFAULT '',
+        last_flap_count INTEGER NOT NULL DEFAULT 0,
+        FOREIGN KEY(router_id) REFERENCES routers(id) ON DELETE CASCADE
+    );
+    CREATE TABLE IF NOT EXISTS system_health_history (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        checked_at TEXT NOT NULL,
+        overall_status TEXT NOT NULL,
+        checks_json TEXT NOT NULL DEFAULT '{}'
+    );
+    CREATE INDEX IF NOT EXISTS idx_system_health_time ON system_health_history(id DESC);
+    CREATE TABLE IF NOT EXISTS backup_verifications (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        checked_at TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        path TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL,
+        details TEXT NOT NULL DEFAULT ''
+    );
+    CREATE INDEX IF NOT EXISTS idx_backup_verifications_time ON backup_verifications(id DESC);
+    """)
+
+
+MIGRATIONS = [_m1, _m2, _m3, _m4, _m5, _m6, _m7, _m8, _m9]
 
 
 def migrate() -> int:
