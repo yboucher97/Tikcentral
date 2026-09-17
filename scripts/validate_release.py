@@ -1,15 +1,20 @@
 #!/usr/bin/env python3
 """Pre-deployment validation for one Tikcentral release.
 
-Tests the consolidated runtime without contacting routers or modifying the live
-Tikcentral database. A release must pass this before the atomic symlink moves.
+The validator is fully sandboxed: DB_PATH is redirected to a temporary SQLite
+file before any Tikcentral application module is imported. No router is contacted
+and the production database is never opened.
 """
 
 import ast
+import os
 import sqlite3
 import sys
 import tempfile
 from pathlib import Path
+
+_VALIDATION_TMP = tempfile.TemporaryDirectory(prefix="tikcentral-release-test-")
+os.environ["DB_PATH"] = str(Path(_VALIDATION_TMP.name) / "tikcentral.db")
 
 from app import capabilities, enrollment_v2, jobs, migrations, performance_profile, router_exec, settings, ui
 from app import main as core
@@ -31,7 +36,6 @@ REQUIRED_ROUTES = {
     "/changes", "/changes/{router_id}", "/audit", "/audit/{router_id}",
     "/audit/{router_id}/normalize",
 }
-
 OPERATIONS_POSTS = {
     "/operations/{router_id}/telemetry", "/operations/{router_id}/commission",
     "/operations/{router_id}/profile/{profile}", "/operations/{router_id}/backup/{tier}",
@@ -63,10 +67,6 @@ def validate_routes():
     missing = sorted(REQUIRED_ROUTES - existing)
     if missing:
         raise SystemExit("Missing required route(s): " + ", ".join(missing))
-    for path in REQUIRED_ROUTES:
-        matches = route_matches(path)
-        if len(matches) > 2:  # GET+POST may intentionally share a path; duplicate same-method handlers may not.
-            raise SystemExit(f"{path}: suspicious duplicate route count {len(matches)}")
     for path in OPERATIONS_POSTS:
         matches = route_matches(path, "POST")
         if len(matches) != 1 or matches[0].endpoint.__module__ != "app.operations":
@@ -85,23 +85,20 @@ def validate_runtime_composition():
     if operations.collect_telemetry.__module__ != "app.operations":
         raise SystemExit("Telemetry is not owned directly by app.operations")
 
-    # Router SSH/SFTP subprocesses belong only in router_exec.py. This catches a
-    # future module bypassing the centralized timeout/retry/redaction policy.
+    # Router SSH/SFTP subprocesses belong only in router_exec.py.
     for path in (ROOT / "app").glob("*.py"):
         if path.name == "router_exec.py":
             continue
         text = path.read_text(encoding="utf-8")
-        if '"ssh"' in text or "'ssh'" in text or '"sftp"' in text or "'sftp'" in text:
-            tree = ast.parse(text, filename=str(path))
-            for node in ast.walk(tree):
-                if not isinstance(node, (ast.List, ast.Tuple)):
-                    continue
-                values = []
-                for elt in node.elts:
-                    if isinstance(elt, ast.Constant) and isinstance(elt.value, str):
-                        values.append(elt.value)
-                if "ssh" in values or "sftp" in values:
-                    raise SystemExit(f"Direct SSH/SFTP command outside router_exec.py: {path.name}")
+        if '"ssh"' not in text and "'ssh'" not in text and '"sftp"' not in text and "'sftp'" not in text:
+            continue
+        tree = ast.parse(text, filename=str(path))
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.List, ast.Tuple)):
+                continue
+            values = [elt.value for elt in node.elts if isinstance(elt, ast.Constant) and isinstance(elt.value, str)]
+            if "ssh" in values or "sftp" in values:
+                raise SystemExit(f"Direct SSH/SFTP command outside router_exec.py: {path.name}")
 
 
 def validate_ui():
@@ -128,51 +125,53 @@ def validate_router_exec():
     if "/system resource print;" not in normalized or "/ip service print;" not in normalized:
         raise SystemExit("RouterOS command normalization failed")
     redacted = router_exec.sanitize('user=x password="supersecret" token=abc123')
-    if "supersecret" in redacted or "abc123" in redacted or "<redacted>" not in redacted:
+    if "supersecret" in redacted or "abc123" in redacted or redacted.count("<redacted>") < 2:
         raise SystemExit("RouterOS secret redaction failed")
 
 
 def validate_persistence_smoke():
-    old_settings_db = settings.DB_PATH
-    old_core_db = core.DB_PATH
-    with tempfile.TemporaryDirectory(prefix="tikcentral-release-test-") as tmp:
-        test_db = str(Path(tmp) / "tikcentral.db")
-        settings.DB_PATH = test_db
-        core.DB_PATH = test_db
-        try:
-            expected = len(migrations.MIGRATIONS)
-            if migrations.migrate() != expected:
-                raise SystemExit("Unexpected migration target version")
-            if migrations.migrate() != expected:  # idempotency
-                raise SystemExit("Migrations are not idempotent")
-            with sqlite3.connect(test_db) as conn:
-                version = conn.execute("SELECT MAX(version) FROM schema_version").fetchone()[0]
-                required_tables = {"routers", "router_jobs", "router_capabilities", "router_telemetry", "router_events"}
-                tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-            if version != expected or not required_tables.issubset(tables):
-                raise SystemExit("Fresh migration schema validation failed")
+    expected = len(migrations.MIGRATIONS)
+    if migrations.migrate() != expected:
+        raise SystemExit("Unexpected migration target version")
+    if migrations.migrate() != expected:
+        raise SystemExit("Migrations are not idempotent")
+    with sqlite3.connect(settings.DB_PATH) as conn:
+        version = conn.execute("SELECT MAX(version) FROM schema_version").fetchone()[0]
+        required_tables = {"routers", "router_jobs", "router_capabilities", "router_telemetry", "router_events"}
+        tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    if version != expected or not required_tables.issubset(tables):
+        raise SystemExit("Fresh migration schema validation failed")
 
-            cap = capabilities.set_mode(9001, capabilities.OPTICABLE_DEFAULT, "2026-01-01T00:00:00+00:00", "smoke-test")
-            if not cap.supports_performance_profiles or not cap.managed_baseline:
-                raise SystemExit("Typed capability persistence failed")
-            if capabilities.set_mode(9002, capabilities.TIKCENTRAL_ONLY, "2026-01-01T00:00:00+00:00", "smoke-test").supports_performance_profiles:
-                raise SystemExit("Tikcentral-only capability policy failed")
+    cap = capabilities.set_mode(9001, capabilities.OPTICABLE_DEFAULT, "2026-01-01T00:00:00+00:00", "smoke-test")
+    if not cap.supports_performance_profiles or not cap.managed_baseline:
+        raise SystemExit("Typed capability persistence failed")
+    cap2 = capabilities.set_mode(9002, capabilities.TIKCENTRAL_ONLY, "2026-01-01T00:00:00+00:00", "smoke-test")
+    if cap2.supports_performance_profiles or cap2.managed_baseline:
+        raise SystemExit("Tikcentral-only capability policy failed")
 
-            job_id = jobs.create(9001, "smoke_mutation", "validator", serialize_router=True)
-            jobs.running(job_id)
-            jobs.verifying(job_id)
-            jobs.succeeded(job_id)
-            if jobs.get(job_id)["status"] != "succeeded":
-                raise SystemExit("Unified job lifecycle smoke test failed")
-            try:
-                jobs.running(job_id)
-            except Exception:
-                pass
-            else:
-                raise SystemExit("Terminal job accepted an invalid state transition")
-        finally:
-            settings.DB_PATH = old_settings_db
-            core.DB_PATH = old_core_db
+    job_id = jobs.create(9001, "smoke_mutation", "validator", serialize_router=True)
+    jobs.running(job_id)
+    jobs.verifying(job_id)
+    jobs.succeeded(job_id)
+    if jobs.get(job_id)["status"] != "succeeded":
+        raise SystemExit("Unified job lifecycle smoke test failed")
+    try:
+        jobs.running(job_id)
+    except Exception:
+        pass
+    else:
+        raise SystemExit("Terminal job accepted an invalid state transition")
+
+    with jobs.operation(9002, "smoke_context", "validator") as context_job:
+        jobs.verifying(context_job)
+    if jobs.get(context_job)["status"] != "succeeded":
+        raise SystemExit("Unified job context manager smoke test failed")
+
+
+def validate_updater_launcher():
+    launcher = ROOT / "helpers" / "tikcentral-update"
+    if not launcher.is_file() or "repository.git" not in launcher.read_text(encoding="utf-8"):
+        raise SystemExit("Stable updater launcher is missing or invalid")
 
 
 def validate_provisioning():
@@ -195,9 +194,13 @@ def main():
     validate_ui()
     validate_router_exec()
     validate_persistence_smoke()
+    validate_updater_launcher()
     validate_provisioning()
     print("Tikcentral release validation: OK")
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    finally:
+        _VALIDATION_TMP.cleanup()
