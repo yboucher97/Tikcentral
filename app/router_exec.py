@@ -41,8 +41,12 @@ def ssh_base(ip: str):
 
 def routeros_single_line(command: str) -> str:
     text = (command or "").replace("\r\n", "\n").replace("\r", "\n").strip()
-    if len(text) > 250_000:
-        raise errors.OperationError("COMMAND_TOO_LARGE", "RouterOS command is too large")
+    if len(text) > settings.MAX_COMMAND_LENGTH:
+        raise errors.OperationError(
+            "COMMAND_TOO_LARGE",
+            "RouterOS command is too large",
+            f"limit={settings.MAX_COMMAND_LENGTH} characters",
+        )
     if "\n" not in text:
         return text
     parts = []
@@ -73,7 +77,8 @@ def execute(ip: str, command: str, *, timeout: int | None = None, label: str = "
     _prepare_known_hosts()
     remote = routeros_single_line(command)
     attempts = 1 + (0 if mutating else (settings.READ_RETRIES if retries is None else max(0, retries)))
-    deadline = max(1, int(timeout or settings.SSH_TIMEOUT + 15))
+    default_timeout = settings.MUTATION_TIMEOUT if mutating else settings.SSH_TIMEOUT + 15
+    deadline = max(1, int(timeout or default_timeout))
     last = None
     for attempt in range(attempts):
         try:
