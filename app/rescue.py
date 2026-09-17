@@ -9,6 +9,7 @@ import html
 from fastapi import Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
+from app import change_control
 from app import errors
 from app import events
 from app import guardian
@@ -55,11 +56,12 @@ def enable_rescue(router_id: int, interface: str, created_by: str):
     if interface not in interface_choices.INTERFACE_SET:
         raise errors.OperationError("INVALID_INTERFACE", "Invalid rescue interface")
     router = _require_router(router_id)
-    if not guardian.probe_router(router)["management_ok"]:
-        raise errors.OperationError("GUARDIAN_UNHEALTHY", "Guardian access preflight failed; rescue change blocked")
+    pre_access = change_control.require_management(router, "Enable rescue port")
     job_id = jobs.create(router_id, "rescue_enable", created_by, interface, serialize_router=True)
     jobs.running(job_id)
+    tx_id = change_control.begin(router_id, "rescue_enable", created_by, job_id=job_id, pre_access=pre_access)
     try:
+        change_control.step(tx_id, "preflight", "info", f"Checking that {interface} is unused")
         check = router_exec.read(
             router["vpn_ip"],
             f':put ("TC|addresses|" . [/ip/address print count-only where interface={interface} comment!="Tikcentral rescue address"]); '
@@ -85,7 +87,10 @@ def enable_rescue(router_id: int, interface: str, created_by: str):
         active = [name for name, count in blockers.items() if count > 0]
         if active:
             raise errors.OperationError("INTERFACE_IN_USE", f"{interface} is already in use", ", ".join(active))
+        change_control.step(tx_id, "preflight", "ok", f"{interface} passed rescue safety checks")
+        change_control.step(tx_id, "backup", "info", "Creating retained pre-change backup")
         operations.backup_router(router_id, "pre-change", created_by, track_job=False)
+        change_control.step(tx_id, "backup", "ok", "Pre-change backup completed")
         command = f'''
 /ip/dhcp-server remove [find where name="Tikcentral-Rescue-DHCP"];
 /ip/dhcp-server/network remove [find where comment="Tikcentral rescue network"];
@@ -99,10 +104,11 @@ def enable_rescue(router_id: int, interface: str, created_by: str):
 /ip/dhcp-server add name="Tikcentral-Rescue-DHCP" interface={interface} address-pool="Tikcentral-Rescue-Pool" disabled=no;
 :put "Tikcentral local rescue port enabled on {interface}"
 '''.strip()
+        change_control.step(tx_id, "apply", "info", f"Enabling static rescue network on {interface}")
         output = router_exec.mutate(router["vpn_ip"], command, timeout=60, label="Enable rescue port")
         jobs.verifying(job_id)
-        if not guardian.probe_router(router)["management_ok"]:
-            raise errors.OperationError("ACCESS_VERIFY_FAILED", "Rescue port changed but management verification failed", severity="critical")
+        verified = change_control.verify_management(router, "Enable rescue port")
+        change_control.step(tx_id, "verify", "ok", "Management access verified after rescue change")
         with core.db() as conn:
             conn.execute(
                 """INSERT INTO router_rescue_ports(router_id,enabled,interface,address,updated_at)
@@ -110,6 +116,7 @@ def enable_rescue(router_id: int, interface: str, created_by: str):
                    enabled=1,interface=excluded.interface,address=excluded.address,updated_at=excluded.updated_at""",
                 (router_id, interface, settings.RESCUE_ADDRESS, operations.now_iso()),
             )
+        change_control.finish(tx_id, post_access=verified)
         jobs.succeeded(job_id)
         events.record(
             router_id,
@@ -119,6 +126,10 @@ def enable_rescue(router_id: int, interface: str, created_by: str):
         )
         return output
     except Exception as exc:
+        try:
+            change_control.fail(tx_id, exc, post_access=guardian.probe_router(router))
+        except Exception:
+            pass
         jobs.failed(job_id, exc, code="RESCUE_ENABLE_FAILED", message="Enable rescue port failed")
         raise
 
@@ -126,12 +137,14 @@ def enable_rescue(router_id: int, interface: str, created_by: str):
 def disable_rescue(router_id: int, created_by: str):
     ensure_schema()
     router = _require_router(router_id)
-    if not guardian.probe_router(router)["management_ok"]:
-        raise errors.OperationError("GUARDIAN_UNHEALTHY", "Guardian access preflight failed; rescue change blocked")
+    pre_access = change_control.require_management(router, "Disable rescue port")
     job_id = jobs.create(router_id, "rescue_disable", created_by, serialize_router=True)
     jobs.running(job_id)
+    tx_id = change_control.begin(router_id, "rescue_disable", created_by, job_id=job_id, pre_access=pre_access)
     try:
+        change_control.step(tx_id, "backup", "info", "Creating retained pre-change backup")
         operations.backup_router(router_id, "pre-change", created_by, track_job=False)
+        change_control.step(tx_id, "backup", "ok", "Pre-change backup completed")
         command = r'''
 /ip/dhcp-server remove [find where name="Tikcentral-Rescue-DHCP"];
 /ip/dhcp-server/network remove [find where comment="Tikcentral rescue network"];
@@ -140,20 +153,26 @@ def disable_rescue(router_id: int, created_by: str):
 /interface/list/member remove [find where comment="Tikcentral rescue LAN membership"];
 :put "Tikcentral local rescue port disabled"
 '''.strip()
+        change_control.step(tx_id, "apply", "info", "Disabling static rescue network")
         output = router_exec.mutate(router["vpn_ip"], command, timeout=60, label="Disable rescue port")
         jobs.verifying(job_id)
-        if not guardian.probe_router(router)["management_ok"]:
-            raise errors.OperationError("ACCESS_VERIFY_FAILED", "Rescue port disabled but management verification failed", severity="critical")
+        verified = change_control.verify_management(router, "Disable rescue port")
+        change_control.step(tx_id, "verify", "ok", "Management access verified after rescue disable")
         with core.db() as conn:
             conn.execute(
                 """INSERT INTO router_rescue_ports(router_id,enabled,interface,address,updated_at)
                    VALUES(?,0,'',?,?) ON CONFLICT(router_id) DO UPDATE SET enabled=0,interface='',updated_at=excluded.updated_at""",
                 (router_id, settings.RESCUE_ADDRESS, operations.now_iso()),
             )
+        change_control.finish(tx_id, post_access=verified)
         jobs.succeeded(job_id)
         events.record(router_id, "rescue", "Static local rescue port disabled")
         return output
     except Exception as exc:
+        try:
+            change_control.fail(tx_id, exc, post_access=guardian.probe_router(router))
+        except Exception:
+            pass
         jobs.failed(job_id, exc, code="RESCUE_DISABLE_FAILED", message="Disable rescue port failed")
         raise
 
