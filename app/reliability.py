@@ -278,11 +278,14 @@ def register(app, page_func):
                     (t["id"],),
                 ).fetchall()
             transcript = "".join(
-                f'<div><code>{html.escape(s["step_at"])}</code> <strong>{html.escape(s["phase"])}</strong> · {html.escape(s["status"])} · {html.escape(s["message"])}</div>'
+                f'''<div style="padding:7px 0;border-bottom:1px solid var(--line)">
+<code>{html.escape(s["step_at"])}</code> <strong>{html.escape(s["phase"])}</strong> · <span class="tc-status {"ok" if s["status"]=="ok" else ("bad" if s["status"]=="failed" else "warn")}">{html.escape(s["status"])}</span>
+<div>{html.escape(s["message"])}</div>{f'<div class="muted" style="white-space:pre-wrap">{html.escape(s["details"])}</div>' if s["details"] else ''}
+</div>'''
                 for s in steps
             )
             tx_rows.append(
-                f'''<tr><td>#{t["id"]}</td><td>{html.escape(t["site_name"])}</td><td>{html.escape(t["kind"])}</td><td>{html.escape(t["status"])}</td><td>{html.escape(t["actor"] or "")}</td><td>{transcript or '<span class="muted">No transcript steps.</span>'}</td></tr>'''
+                f'''<tr id="tx-{t["id"]}"><td>#{t["id"]}</td><td>{html.escape(t["site_name"])}</td><td>{html.escape(t["kind"])}</td><td>{html.escape(t["status"])}</td><td>{html.escape(t["actor"] or "")}</td><td>{transcript or '<span class="muted">No transcript steps.</span>'}</td></tr>'''
             )
         body = f'''<div class="panel pad"><h2>Reliability Center</h2><div class="muted">Access-first change safety, maintenance windows, correlated incidents, connectivity quality, recovery bundles and support packages.</div></div>
 <div class="panel"><table><thead><tr><th>Router</th><th>State</th><th>24h quality</th><th>Maintenance</th><th>Recovery / support</th></tr></thead><tbody>{''.join(router_rows) or '<tr><td colspan="5">No routers.</td></tr>'}</tbody></table></div>
