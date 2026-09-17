@@ -400,7 +400,7 @@ def switch_profile(router_id: int, profile: str, created_by: str):
         output = router_exec.mutate(router["vpn_ip"], command, timeout=60, label="Performance profile change")
         jobs.verifying(job_id)
         change_control.step(tx_id, "verify", "info", "Verifying management access and requested profile")
-        post_access = change_control.verify_management(router, "Performance profile change")
+        post_access = change_control.verify_management(router, "Performance profile change", transaction_id=tx_id)
         telem = collect_telemetry(router_id)
         if telem["profile"] != profile:
             raise errors.OperationError("PROFILE_VERIFY_FAILED", "Router did not report the requested performance profile", f"requested={profile} observed={telem['profile']}")
@@ -579,7 +579,7 @@ def _process_upgrade_job():
                 events.record(router["id"], "upgrade", err.message, severity="critical")
             return job["id"]
         try:
-            post_access = change_control.verify_management(router, "Upgrade")
+            post_access = change_control.verify_management(router, "Upgrade", transaction_id=tx_id)
             telem = collect_telemetry(router["id"])
             if kind == "upgrade_routeros":
                 current = _version_number(telem.get("version", ""))
