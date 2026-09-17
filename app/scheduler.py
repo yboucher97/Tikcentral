@@ -1,13 +1,13 @@
 """Tikcentral scheduler orchestration.
 
-Change jobs and read-only probes deliberately use separate lanes. A router with
-an active mutation is skipped by telemetry/drift for that scheduler tick so
-background reads cannot contend with change verification or reboot recovery.
+Change jobs and read-only probes deliberately use separate lanes. Optional
+subsystems are fault-isolated: none can stop Guardian/access from running on the
+next timer tick.
 """
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from app import errors, events, jobs, main as core, operations, settings
+from app import errors, events, fleet_health, jobs, main as core, operations, settings
 
 
 def _eligible_healthy_router_ids() -> list[int]:
@@ -33,47 +33,77 @@ def _run_parallel(ids: list[int], fn, *, workers: int, category: str, failure_su
                 fut.result()
             except Exception as exc:
                 err = errors.from_exception(exc)
-                events.record(router_id, category, failure_summary, errors.short(err), err.severity)
+                try:
+                    events.record(router_id, category, failure_summary, errors.short(err), err.severity)
+                except Exception:
+                    pass
+
+
+def _optional(name: str, fn):
+    try:
+        return fn()
+    except Exception as exc:
+        err = errors.from_exception(exc, "OPTIONAL_SUBSYSTEM_FAILED", f"Optional subsystem {name} failed")
+        try:
+            events.record(None, "system", f"Optional subsystem failed: {name}", errors.short(err), "warning")
+        except Exception:
+            pass
+        return None
+
+
+def _change_lane():
+    # Process at most the currently active serialized upgrade job. Other router
+    # mutations are initiated explicitly through the web/API job engine.
+    return operations._process_upgrade_job()
+
+
+def _telemetry_lane(state, now):
+    if operations._seconds_since(state["last_telemetry_at"]) < int(state["telemetry_interval_seconds"]):
+        return
+    eligible = _eligible_healthy_router_ids()
+    _run_parallel(
+        eligible,
+        lambda rid: operations.collect_telemetry(rid, False),
+        workers=settings.TELEMETRY_WORKERS,
+        category="telemetry",
+        failure_summary="Telemetry collection failed",
+    )
+    with core.db() as conn:
+        conn.execute("UPDATE operations_settings SET last_telemetry_at=? WHERE id=1", (now,))
+
+
+def _drift_lane(state, now):
+    if operations._seconds_since(state["last_drift_at"]) < int(state["drift_interval_seconds"]):
+        return
+    busy = jobs.active_change_router_ids()
+    with core.db() as conn:
+        rows = conn.execute(
+            """SELECT e.router_id FROM router_expected_state e
+               JOIN router_access_state a ON a.router_id=e.router_id
+               JOIN routers r ON r.id=e.router_id
+               WHERE e.baseline_sha256<>'' AND a.management_ok=1 AND r.enabled=1
+               ORDER BY e.router_id"""
+        ).fetchall()
+    drift_ids = [int(r["router_id"]) for r in rows if int(r["router_id"]) not in busy]
+    _run_parallel(
+        drift_ids,
+        operations.check_drift,
+        workers=settings.DRIFT_WORKERS,
+        category="drift",
+        failure_summary="Drift check failed",
+    )
+    with core.db() as conn:
+        conn.execute("UPDATE operations_settings SET last_drift_at=? WHERE id=1", (now,))
 
 
 def scheduled_tick():
     operations.ensure_schema()
-    operations._process_upgrade_job()
-
     with core.db() as conn:
         state = conn.execute("SELECT * FROM operations_settings WHERE id=1").fetchone()
-
     now = operations.now_iso()
-    eligible = _eligible_healthy_router_ids()
 
-    if operations._seconds_since(state["last_telemetry_at"]) >= int(state["telemetry_interval_seconds"]):
-        _run_parallel(
-            eligible,
-            lambda rid: operations.collect_telemetry(rid, False),
-            workers=settings.TELEMETRY_WORKERS,
-            category="telemetry",
-            failure_summary="Telemetry collection failed",
-        )
-        with core.db() as conn:
-            conn.execute("UPDATE operations_settings SET last_telemetry_at=? WHERE id=1", (now,))
-
-    if operations._seconds_since(state["last_drift_at"]) >= int(state["drift_interval_seconds"]):
-        busy = jobs.active_change_router_ids()
-        with core.db() as conn:
-            rows = conn.execute(
-                """SELECT e.router_id FROM router_expected_state e
-                   JOIN router_access_state a ON a.router_id=e.router_id
-                   JOIN routers r ON r.id=e.router_id
-                   WHERE e.baseline_sha256<>'' AND a.management_ok=1 AND r.enabled=1
-                   ORDER BY e.router_id"""
-            ).fetchall()
-        drift_ids = [int(r["router_id"]) for r in rows if int(r["router_id"]) not in busy]
-        _run_parallel(
-            drift_ids,
-            operations.check_drift,
-            workers=settings.DRIFT_WORKERS,
-            category="drift",
-            failure_summary="Drift check failed",
-        )
-        with core.db() as conn:
-            conn.execute("UPDATE operations_settings SET last_drift_at=? WHERE id=1", (now,))
+    _optional("change_jobs", _change_lane)
+    _optional("telemetry", lambda: _telemetry_lane(state, now))
+    _optional("drift", lambda: _drift_lane(state, now))
+    _optional("fleet_health", fleet_health.counts)
+    _optional("event_maintenance", events.maintenance)
