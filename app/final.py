@@ -146,7 +146,7 @@ async def normalize_router(router_id: int, request: Request):
                 label="Tikcentral rule normalization",
             )
             jobs.verifying(job_id)
-            verified = change_control.verify_management(router, "Tikcentral rule normalization")
+            verified = change_control.verify_management(router, "Tikcentral rule normalization", transaction_id=tx_id)
             change_control.step(tx_id, "verify", "ok", "Management access verified after normalization")
             change_control.finish(tx_id, post_access=verified)
         events.record(router_id, "audit", "Tikcentral management rules normalized", output[-800:])
