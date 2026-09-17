@@ -34,6 +34,11 @@ REQUIRED_ROUTES = {
     ("GET", "/automation/jobs/{job_id}"),
     ("GET", "/ssh"), ("GET", "/ssh/{router_id}"), ("POST", "/ssh/{router_id}"),
     ("GET", "/guardian"), ("POST", "/guardian/{router_id}/repair"),
+    ("GET", "/reliability"),
+    ("POST", "/reliability/{router_id}/maintenance/start"),
+    ("POST", "/reliability/{router_id}/maintenance/clear"),
+    ("GET", "/reliability/{router_id}/breakglass"),
+    ("GET", "/reliability/{router_id}/support"),
     ("GET", "/operations"), ("GET", "/operations/{router_id}"),
     ("POST", "/operations/{router_id}/commission"),
     ("POST", "/operations/{router_id}/telemetry"),
@@ -93,6 +98,8 @@ def validate_routes():
     owners_expected = {
         ("POST", "/enroll/generate"): "app.enrollment",
         ("POST", "/guardian/{router_id}/repair"): "app.guardian",
+        ("POST", "/reliability/{router_id}/maintenance/start"): "app.reliability",
+        ("POST", "/reliability/{router_id}/maintenance/clear"): "app.reliability",
         ("POST", "/rescue/{router_id}/enable"): "app.rescue",
         ("POST", "/rescue/{router_id}/disable"): "app.rescue",
         ("POST", "/ssh/{router_id}"): "app.production",
@@ -157,6 +164,14 @@ def validate_source_boundaries():
         fail("Guardian is not using canonical access repair policy")
     if "management_script.firewall_reconcile_command(include_print=True)" not in final_text:
         fail("Audit is not using canonical firewall policy")
+    if "change_control.require_management" not in final_text:
+        fail("Audit normalization bypasses shared access preflight")
+    operations_text = (ROOT / "app/operations.py").read_text(encoding="utf-8")
+    if "change_control.require_management" not in operations_text or "change_control.verify_management" not in operations_text:
+        fail("Access-sensitive operations bypass shared change-control safety")
+    for path in (ROOT / "app").glob("*.py"):
+        if "show-sensitive=no" in path.read_text(encoding="utf-8"):
+            fail(f"Invalid RouterOS show-sensitive=no syntax returned: {path.name}")
 
 
 def validate_ui_and_assets():
@@ -226,7 +241,8 @@ def validate_persistence_and_jobs():
         "routers", "router_jobs", "router_capabilities", "router_telemetry", "router_events",
         "router_access_state", "router_access_history", "router_backup_records",
         "fleet_settings", "fleet_jobs", "fleet_job_results", "router_snapshots", "fleet_findings",
-        "router_ai_analyses",
+        "router_ai_analyses", "change_transactions", "change_transaction_steps",
+        "router_maintenance", "fleet_incidents",
     }
     with sqlite3.connect(settings.DB_PATH) as conn:
         version = conn.execute("SELECT MAX(version) FROM schema_version").fetchone()[0]
