@@ -86,6 +86,6 @@ def settings_page(request: Request):
 <tr><td>Remote WinBox port range</td><td><code>{settings.WINBOX_PUBLIC_PORT_MIN}-{settings.WINBOX_PUBLIC_PORT_MAX}</code></td></tr>
 <tr><td>Enrollment token lifetime</td><td>{settings.TOKEN_TTL_HOURS} hours</td></tr>
 <tr><td>UI timezone</td><td><code>{html.escape(settings.TIMEZONE)}</code></td></tr>
-<tr><td>Codex AI</td><td><code>{html.escape(settings.AI_CODEX_BIN)}</code> · read-only router analysis</td></tr>
+<tr><td>Codex AI</td><td><code>{html.escape(settings.AI_CODEX_HELPER)}</code> · isolated read-only router analysis</td></tr>
 </tbody></table></div>'''
     return ui.page("Settings", body, user, "settings")
