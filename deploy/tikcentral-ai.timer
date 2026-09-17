@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Tikcentral AI analysis worker
+
+[Timer]
+OnBootSec=45s
+OnUnitActiveSec=15s
+AccuracySec=5s
+Persistent=true
+
+[Install]
+WantedBy=timers.target
