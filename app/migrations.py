@@ -321,7 +321,66 @@ def _m6(conn):
     """)
 
 
-MIGRATIONS = [_m1, _m2, _m3, _m4, _m5, _m6]
+def _m7(conn):
+    """Reliability control plane: transactions, maintenance, incidents and probe quality."""
+    conn.executescript("""
+    CREATE TABLE IF NOT EXISTS change_transactions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        router_id INTEGER NOT NULL,
+        job_id INTEGER,
+        kind TEXT NOT NULL,
+        actor TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL DEFAULT 'running',
+        created_at TEXT NOT NULL,
+        finished_at TEXT NOT NULL DEFAULT '',
+        pre_access TEXT NOT NULL DEFAULT '',
+        post_access TEXT NOT NULL DEFAULT '',
+        error_code TEXT NOT NULL DEFAULT '',
+        error_detail TEXT NOT NULL DEFAULT ''
+    );
+    CREATE INDEX IF NOT EXISTS idx_change_transactions_router_time ON change_transactions(router_id,id DESC);
+    CREATE TABLE IF NOT EXISTS change_transaction_steps (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        transaction_id INTEGER NOT NULL,
+        step_at TEXT NOT NULL,
+        phase TEXT NOT NULL,
+        status TEXT NOT NULL,
+        message TEXT NOT NULL,
+        details TEXT NOT NULL DEFAULT '',
+        FOREIGN KEY(transaction_id) REFERENCES change_transactions(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_change_steps_tx ON change_transaction_steps(transaction_id,id);
+    CREATE TABLE IF NOT EXISTS router_maintenance (
+        router_id INTEGER PRIMARY KEY,
+        start_at TEXT NOT NULL,
+        end_at TEXT NOT NULL,
+        reason TEXT NOT NULL DEFAULT '',
+        created_by TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS fleet_incidents (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        opened_at TEXT NOT NULL,
+        resolved_at TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL DEFAULT 'open',
+        kind TEXT NOT NULL DEFAULT 'access',
+        router_count INTEGER NOT NULL DEFAULT 0,
+        router_ids TEXT NOT NULL DEFAULT '[]',
+        summary TEXT NOT NULL,
+        details TEXT NOT NULL DEFAULT ''
+    );
+    CREATE INDEX IF NOT EXISTS idx_fleet_incidents_status_time ON fleet_incidents(status,id DESC);
+    """)
+    for name, definition in {
+        "ssh_latency_ms": "REAL",
+        "winbox_latency_ms": "REAL",
+        "api_latency_ms": "REAL",
+    }.items():
+        if not _has_column(conn, "router_access_history", name):
+            conn.execute(f"ALTER TABLE router_access_history ADD COLUMN {name} {definition}")
+
+
+MIGRATIONS = [_m1, _m2, _m3, _m4, _m5, _m6, _m7]
 
 
 def migrate() -> int:
