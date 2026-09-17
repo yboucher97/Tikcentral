@@ -57,8 +57,6 @@ def collect_snapshot(router_id: int) -> dict:
     if not router or not router["enabled"]:
         raise errors.OperationError("ROUTER_NOT_FOUND", "Enabled router not found")
 
-    # Refresh the lightweight core telemetry first, but analysis is still useful
-    # if an optional telemetry probe fails.
     telemetry_error = ""
     try:
         operations.collect_telemetry(router_id, False)
@@ -70,7 +68,7 @@ def collect_snapshot(router_id: int) -> dict:
         expected = conn.execute("SELECT * FROM router_expected_state WHERE router_id=?", (router_id,)).fetchone()
         update = conn.execute("SELECT * FROM router_update_status WHERE router_id=?", (router_id,)).fetchone()
         telemetry = conn.execute("SELECT * FROM router_telemetry WHERE router_id=? ORDER BY id DESC LIMIT 24", (router_id,)).fetchall()
-        recent_events = conn.execute("SELECT * FROM router_events WHERE router_id=? ORDER BY id DESC LIMIT 100", (router_id,)).fetchall()
+        recent_events = conn.execute("SELECT * FROM router_events WHERE router_id=? AND category<>'ai-analysis' ORDER BY id DESC LIMIT 100", (router_id,)).fetchall()
         recent_jobs = conn.execute("SELECT * FROM router_jobs WHERE router_id=? ORDER BY id DESC LIMIT 30", (router_id,)).fetchall()
 
     def row_dict(row):
@@ -88,7 +86,7 @@ def collect_snapshot(router_id: int) -> dict:
     return {
         "snapshot_version": 1,
         "captured_at": _now(),
-        "router": {k: router[k] for k in router.keys() if k not in {"public_key"}},
+        "router": dict(router),
         "access": row_dict(access),
         "expected_state": row_dict(expected),
         "update_status": row_dict(update),
@@ -104,7 +102,7 @@ def _prompt(snapshot: dict) -> str:
     payload = json.dumps(snapshot, indent=2, ensure_ascii=False)
     return f"""You are analyzing one MikroTik RouterOS site for an experienced network technician.
 Use ONLY the supplied Tikcentral snapshot. Do not use tools, shell commands, network access, or outside assumptions.
-Never suggest that an observed condition exists unless the snapshot supports it. Distinguish confirmed findings from things worth checking.
+Never claim an observed condition unless the snapshot supports it. Clearly separate confirmed findings from things worth checking.
 Do not output RouterOS commands and do not claim to have changed anything.
 
 Return concise Markdown with these headings exactly:
@@ -126,18 +124,15 @@ TIKCENTRAL SNAPSHOT:
 
 def run_analysis(router_id: int, actor: str) -> int:
     snapshot = collect_snapshot(router_id)
-    captured = snapshot["captured_at"]
-    with core.db() as conn:
-        cur = conn.execute(
-            "INSERT INTO router_ai_analyses(router_id,created_at,created_by,status,snapshot_json) VALUES(?,?,?,?,?)",
-            (router_id, captured, actor, "running", json.dumps(snapshot, ensure_ascii=False)),
-        )
-        analysis_id = int(cur.lastrowid)
-
     codex_home = Path(settings.AI_CODEX_HOME)
+    temp_root = Path(settings.AI_TEMP_ROOT)
     codex_home.mkdir(parents=True, exist_ok=True)
+    temp_root.mkdir(parents=True, exist_ok=True)
+    os.chmod(codex_home, 0o700)
+    os.chmod(temp_root, 0o700)
+
     try:
-        with tempfile.TemporaryDirectory(prefix="tikcentral-ai-", dir=settings.AI_TEMP_ROOT) as tmp:
+        with tempfile.TemporaryDirectory(prefix="tikcentral-ai-", dir=str(temp_root)) as tmp:
             tmp_path = Path(tmp)
             os.chmod(tmp_path, 0o700)
             (tmp_path / "snapshot.json").write_text(json.dumps(snapshot, indent=2, ensure_ascii=False), encoding="utf-8")
@@ -164,26 +159,19 @@ def run_analysis(router_id: int, actor: str) -> int:
             raise errors.OperationError("AI_EMPTY_RESULT", "Codex returned an empty analysis")
         report = _sanitize(report)[: settings.AI_MAX_REPORT_CHARS]
         with core.db() as conn:
-            conn.execute(
-                "UPDATE router_ai_analyses SET status='completed',finished_at=?,report_markdown=?,error='' WHERE id=?",
-                (_now(), report, analysis_id),
+            cur = conn.execute(
+                "INSERT INTO router_events(router_id,event_at,severity,category,summary,details) VALUES(?,?,?,?,?,?)",
+                (router_id, _now(), "info", "ai-analysis", f"AI router analysis by {actor}", report),
             )
-        events.record(router_id, "ai", "AI router analysis completed", f"analysis_id={analysis_id}")
+            analysis_id = int(cur.lastrowid)
         return analysis_id
     except Exception as exc:
         err = errors.from_exception(exc, "AI_ANALYSIS_FAILED", "AI router analysis failed")
-        with core.db() as conn:
-            conn.execute(
-                "UPDATE router_ai_analyses SET status='failed',finished_at=?,error=? WHERE id=?",
-                (_now(), f"{err.code}: {err.message} {err.detail}"[:4000], analysis_id),
-            )
         events.record(router_id, "ai", "AI router analysis failed", f"{err.code}: {err.detail}", "warning")
         raise
 
 
 def _render_report(text: str) -> str:
-    # Keep rendering deliberately simple: escape everything, then support only
-    # Markdown headings and bullet prefixes needed by the fixed report format.
     out = []
     for raw in (text or "").splitlines():
         line = html.escape(raw)
@@ -209,18 +197,17 @@ def register(app, page_func):
             return RedirectResponse("/routers", status_code=303)
         csrf = core.csrf_token(request)
         with core.db() as conn:
-            rows = conn.execute("SELECT id,created_at,created_by,status,finished_at,report_markdown,error FROM router_ai_analyses WHERE router_id=? ORDER BY id DESC LIMIT 12", (router_id,)).fetchall()
+            rows = conn.execute("SELECT id,event_at,summary,details FROM router_events WHERE router_id=? AND category='ai-analysis' ORDER BY id DESC LIMIT 12", (router_id,)).fetchall()
         latest = rows[0] if rows else None
-        latest_html = '<div class="muted">No AI analysis has been run for this router.</div>'
-        if latest:
-            if latest["status"] == "completed":
-                latest_html = _render_report(latest["report_markdown"])
-            elif latest["status"] == "failed":
-                latest_html = f'<div class="error">{html.escape(latest["error"] or "Analysis failed")}</div>'
-            else:
-                latest_html = f'<div class="muted">Analysis status: {html.escape(latest["status"])}</div>'
-        history = ''.join(f'<tr><td>{html.escape(r["created_at"])}</td><td>{html.escape(r["created_by"])}</td><td>{html.escape(r["status"])}</td><td>{html.escape(r["finished_at"] or "-")}</td></tr>' for r in rows) or '<tr><td colspan="4">No history.</td></tr>'
-        body = f'''<div class="panel pad"><h2>AI analysis · {html.escape(router['site_name'])}</h2><div class="muted">Read-only. Tikcentral collects and sanitizes router data; Codex never receives SSH credentials and cannot apply RouterOS changes.</div><div class="inline" style="margin-top:12px"><form method="post" action="/ai/{router_id}/analyze"><input type="hidden" name="csrf" value="{csrf}"><button class="primary">Analyze router now</button></form><a href="/operations/{router_id}"><button>Back to router</button></a></div></div><div class="panel pad">{latest_html}</div><div class="panel"><table><thead><tr><th>Started</th><th>By</th><th>Status</th><th>Finished</th></tr></thead><tbody>{history}</tbody></table></div>'''
+        latest_html = _render_report(latest["details"]) if latest else '<div class="muted">No AI analysis has been run for this router.</div>'
+        history = ''.join(f'<tr><td>{html.escape(r["event_at"])}</td><td><a href="/ai/{router_id}?report={r["id"]}">{html.escape(r["summary"])}</a></td></tr>' for r in rows) or '<tr><td colspan="2">No history.</td></tr>'
+        requested = request.query_params.get("report", "")
+        if requested.isdigit():
+            with core.db() as conn:
+                selected = conn.execute("SELECT details FROM router_events WHERE id=? AND router_id=? AND category='ai-analysis'", (int(requested), router_id)).fetchone()
+            if selected:
+                latest_html = _render_report(selected["details"])
+        body = f'''<div class="panel pad"><h2>AI analysis · {html.escape(router['site_name'])}</h2><div class="muted">Read-only. Tikcentral collects and sanitizes router data; Codex never receives SSH credentials and cannot apply RouterOS changes.</div><div class="inline" style="margin-top:12px"><form method="post" action="/ai/{router_id}/analyze"><input type="hidden" name="csrf" value="{csrf}"><button class="primary">Analyze router now</button></form><a href="/operations/{router_id}"><button>Back to router</button></a></div></div><div class="panel pad">{latest_html}</div><div class="panel"><table><thead><tr><th>Time</th><th>Analysis</th></tr></thead><tbody>{history}</tbody></table></div>'''
         return page_func("AI Analysis", body, user, "operations")
 
     @app.post("/ai/{router_id}/analyze", response_class=HTMLResponse)
@@ -232,9 +219,9 @@ def register(app, page_func):
         core.require_csrf(request, data.get("csrf", ""))
         actor = user["email"] if "email" in user.keys() else "admin"
         try:
-            run_analysis(router_id, actor)
+            analysis_id = run_analysis(router_id, actor)
         except Exception as exc:
             err = errors.from_exception(exc)
             body = f'''<div class="panel pad"><h2>AI analysis failed</h2><div class="error"><strong>{html.escape(err.code)}</strong><div>{html.escape(err.message)}</div><div class="muted">{html.escape(err.detail)}</div></div><div style="margin-top:12px"><a href="/ai/{router_id}"><button class="primary">Back</button></a></div></div>'''
             return page_func("AI Analysis", body, user, "operations")
-        return RedirectResponse(f"/ai/{router_id}", status_code=303)
+        return RedirectResponse(f"/ai/{router_id}?report={analysis_id}", status_code=303)
