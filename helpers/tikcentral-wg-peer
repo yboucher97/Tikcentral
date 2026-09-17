@@ -1,8 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+ENV_FILE="/etc/tikcentral/tikcentral.env"
 WG_IF="${WG_INTERFACE:-wg0}"
-ROUTER_CIDR="${WG_ROUTER_POOL:-10.250.1.0/24}"
+CONFIGURED_POOL=""
+if [[ -r "$ENV_FILE" ]]; then
+  CONFIGURED_POOL="$(sed -n 's/^WG_ROUTER_POOL=//p' "$ENV_FILE" | tail -n1)"
+fi
+ROUTER_CIDR="${WG_ROUTER_POOL:-${CONFIGURED_POOL:-10.250.1.0/24}}"
 
 fail() { echo "error" >&2; exit 1; }
 
