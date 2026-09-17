@@ -4,6 +4,8 @@ set -euo pipefail
 AI_USER="tikcentral-ai"
 AI_HOME="/var/lib/tikcentral-ai"
 PATH_SAFE="/usr/local/bin:/usr/bin:/bin"
+ENV_FILE="/etc/tikcentral/tikcentral.env"
+DEFAULT_MODEL="gpt-5.6-luna"
 
 [[ "$EUID" -eq 0 ]] || { echo "error: helper must run through sudo" >&2; exit 1; }
 id "$AI_USER" >/dev/null 2>&1 || { echo "error: $AI_USER is not installed" >&2; exit 1; }
@@ -11,10 +13,22 @@ id "$AI_USER" >/dev/null 2>&1 || { echo "error: $AI_USER is not installed" >&2; 
 CODEX="$(PATH="$PATH_SAFE" command -v codex || true)"
 [[ -n "$CODEX" && -x "$CODEX" ]] || { echo "error: Codex CLI not found in $PATH_SAFE" >&2; exit 1; }
 
+# Read only the model selector from Tikcentral's root-owned environment file.
+# Never source or forward the rest of Tikcentral's environment into Codex.
+AI_MODEL="$DEFAULT_MODEL"
+if [[ -r "$ENV_FILE" ]]; then
+  configured="$(awk -F= '$1 == "TIKCENTRAL_AI_MODEL" {sub(/^[^=]*=/, ""); print; exit}' "$ENV_FILE" | tr -d '\r' || true)"
+  [[ -n "$configured" ]] && AI_MODEL="$configured"
+fi
+case "$AI_MODEL" in
+  gpt-5.6-luna|gpt-5.6-terra|gpt-5.6-sol|gpt-6-astra) ;;
+  *) echo "error: unsupported TIKCENTRAL_AI_MODEL: $AI_MODEL" >&2; exit 2 ;;
+esac
+
 # Prompt is provided only on stdin. Do not pass Tikcentral's environment to the
 # AI process. Authentication/configuration lives only in the dedicated AI home.
 exec runuser -u "$AI_USER" -- env -i \
   HOME="$AI_HOME" \
   PATH="$PATH_SAFE" \
   LANG="C.UTF-8" \
-  "$CODEX" exec --ephemeral --ignore-user-config --skip-git-repo-check --sandbox read-only -
+  "$CODEX" exec --ephemeral --ignore-user-config --skip-git-repo-check --sandbox read-only --model "$AI_MODEL" -
