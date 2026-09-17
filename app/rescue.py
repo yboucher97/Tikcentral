@@ -107,7 +107,7 @@ def enable_rescue(router_id: int, interface: str, created_by: str):
         change_control.step(tx_id, "apply", "info", f"Enabling static rescue network on {interface}")
         output = router_exec.mutate(router["vpn_ip"], command, timeout=60, label="Enable rescue port")
         jobs.verifying(job_id)
-        verified = change_control.verify_management(router, "Enable rescue port")
+        verified = change_control.verify_management(router, "Enable rescue port", transaction_id=tx_id)
         change_control.step(tx_id, "verify", "ok", "Management access verified after rescue change")
         with core.db() as conn:
             conn.execute(
@@ -156,7 +156,7 @@ def disable_rescue(router_id: int, created_by: str):
         change_control.step(tx_id, "apply", "info", "Disabling static rescue network")
         output = router_exec.mutate(router["vpn_ip"], command, timeout=60, label="Disable rescue port")
         jobs.verifying(job_id)
-        verified = change_control.verify_management(router, "Disable rescue port")
+        verified = change_control.verify_management(router, "Disable rescue port", transaction_id=tx_id)
         change_control.step(tx_id, "verify", "ok", "Management access verified after rescue disable")
         with core.db() as conn:
             conn.execute(
