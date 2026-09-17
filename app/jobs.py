@@ -137,6 +137,27 @@ def get(job_id: int):
         return conn.execute("SELECT * FROM router_jobs WHERE id=?", (job_id,)).fetchone()
 
 
+def payload(job_id: int) -> dict:
+    row = get(job_id)
+    if not row:
+        return {}
+    try:
+        return json.loads(row["payload"] or "{}")
+    except Exception:
+        return {}
+
+
+def update_payload(job_id: int, values: dict):
+    data = payload(job_id)
+    data.update(values or {})
+    with core.db() as conn:
+        conn.execute(
+            "UPDATE router_jobs SET payload=?,updated_at=? WHERE id=?",
+            (json.dumps(data, sort_keys=True), now_iso(), job_id),
+        )
+    return data
+
+
 def latest(router_id: int, limit: int = 20):
     ensure_schema()
     with core.db() as conn:
