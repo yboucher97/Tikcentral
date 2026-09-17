@@ -16,6 +16,7 @@ from app import main as core
 from app import migrations
 from app import router_exec
 from app import settings
+from app import state_capture
 
 
 def now_iso():
@@ -145,11 +146,12 @@ def _backup_one(router, stamp, tier="daily"):
             binary_note = f"; binary backup retrieval failed: {errors.short(exc)}"
 
     digest = hashlib.sha256(export.encode()).hexdigest()
-    with core.db() as conn:
-        conn.execute(
-            "INSERT OR IGNORE INTO router_snapshots(router_id,captured_at,sha256,content) VALUES(?,?,?,?)",
-            (router["id"], now_iso(), digest, export),
-        )
+    state_capture.store_config_snapshot_content(
+        int(router["id"]),
+        export,
+        source_kind=f"backup:{tier}",
+        actor="backup",
+    )
     return f"Saved {export_path}{binary_note}"
 
 
