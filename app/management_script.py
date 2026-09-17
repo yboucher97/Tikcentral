@@ -1,7 +1,7 @@
-"""Canonical RouterOS management enrollment script generator.
+"""Canonical RouterOS management enrollment and access-policy commands.
 
-This is the only place that builds Tikcentral's router-side management objects.
-It is intentionally access-first and only reconciles Tikcentral-owned objects.
+Enrollment, Guardian repair and Audit normalization all consume the same policy
+so management firewall/service behavior cannot drift between features.
 """
 
 from pathlib import Path
@@ -21,10 +21,33 @@ def _ssh_public_key() -> str:
     return " ".join(parts[:2]) if len(parts) >= 2 else ""
 
 
+def firewall_reconcile_command(*, include_print: bool = False) -> str:
+    lines = r'''
+:foreach c in={"Tikcentral relay WinBox";"Tikcentral management SSH API";"Tikcentral management TCP";"Tikcentral admin TCP";"Tikcentral admin ICMP"} do={
+    :if ([:len [/ip/firewall/filter find where comment=$c]] > 0) do={ /ip/firewall/filter remove [find where comment=$c] }
+}
+/ip/firewall/filter add chain=input action=accept in-interface="opticable-wg" src-address=10.250.0.1/32 protocol=tcp dst-port=22,8291,8728 place-before=0 comment="Tikcentral management TCP"
+/ip/firewall/filter add chain=input action=accept in-interface="opticable-wg" src-address=10.250.254.0/24 protocol=tcp dst-port=22,8291 place-before=0 comment="Tikcentral admin TCP"
+/ip/firewall/filter add chain=input action=accept in-interface="opticable-wg" src-address=10.250.254.0/24 protocol=icmp place-before=0 comment="Tikcentral admin ICMP"
+'''.strip()
+    if include_print:
+        lines += '\n/ip/firewall/filter print detail where comment~"^Tikcentral "'
+    return lines
+
+
+def access_repair_command() -> str:
+    return (
+        r''':if ([:len [/interface/wireguard find where name="opticable-wg"]] = 0) do={ :error "opticable-wg missing" }
+:do { /ip/service set [find where name="api"] disabled=no address=10.250.0.1/32 } on-error={ :put "Tikcentral warning: API service repair failed" }
+:do { /ip/service set [find where name="winbox"] disabled=no } on-error={ :put "Tikcentral warning: WinBox service repair failed" }
+:do { /ip/service set [find where name="ssh"] disabled=no } on-error={ :put "Tikcentral warning: SSH service repair failed" }
+''' + firewall_reconcile_command() + '\n:put "Tikcentral management access repaired"'
+    )
+
+
 def build_routeros_script(site_name: str, token: str) -> str:
     """Build one paste-safe, idempotent RouterOS 7 enrollment block."""
     domain = settings.WG_ENDPOINT.rsplit(":", 1)[0]
-    site = _ros(site_name)
     enrollment_token = _ros(token)
     api_password = _ros(settings.ROUTER_API_PASSWORD)
     ssh_key = _ros(_ssh_public_key())
@@ -36,9 +59,8 @@ def build_routeros_script(site_name: str, token: str) -> str:
 /user ssh-keys add user="tikcentral" key="{ssh_key}"
 '''.strip()
 
-    password_set = ""
-    if api_password:
-        password_set = f' password="{api_password}"'
+    password_set = f' password="{api_password}"' if api_password else ""
+    access_policy = firewall_reconcile_command()
 
     return f'''# Tikcentral enrollment for: {site_name}
 # Paste this entire block into a RouterOS 7 terminal.
@@ -47,7 +69,6 @@ def build_routeros_script(site_name: str, token: str) -> str:
 :local apiUrl "https://{_ros(domain)}/api/enroll"
 :local wgName "opticable-wg"
 
-# Reuse the management interface if this script is run again.
 :if ([:len [/interface/wireguard find where name=$wgName]] = 0) do={{
     /interface/wireguard add name=$wgName comment="Tikcentral management"
 }}
@@ -68,7 +89,6 @@ def build_routeros_script(site_name: str, token: str) -> str:
 :local endpointHost [:pick $endpoint 0 [:find $endpoint ":"]]
 :local endpointPort [:pick $endpoint ([:find $endpoint ":"] + 1) [:len $endpoint]]
 
-# Reconcile Tikcentral address, peer and route without touching customer objects.
 :if ([:len [/ip/address find where interface=$wgName and comment="Tikcentral management"]] > 0) do={{
     /ip/address set [find where interface=$wgName and comment="Tikcentral management"] address=($vpnIP . "/32")
 }} else={{
@@ -85,7 +105,6 @@ def build_routeros_script(site_name: str, token: str) -> str:
     /ip/route add dst-address=$allowedNet gateway=$wgName comment="Tikcentral management"
 }}
 
-# Managed service identity. Its source is restricted to the Tikcentral hub.
 :if ([:len [/user find where name="tikcentral"]] = 0) do={{
     /user add name="tikcentral" group=full address=10.250.0.1/32 disabled=no comment="Tikcentral managed service"{password_set}
 }} else={{
@@ -96,14 +115,7 @@ def build_routeros_script(site_name: str, token: str) -> str:
 :do {{ /ip/service set [find where name="winbox"] disabled=no }} on-error={{ :put "Tikcentral warning: could not enable WinBox" }}
 :do {{ /ip/service set [find where name="ssh"] disabled=no }} on-error={{ :put "Tikcentral warning: could not enable SSH" }}
 
-# Remove only historical/canonical Tikcentral-owned firewall rules, then recreate
-# exactly one management rule set. Existing customer LAN access is preserved.
-:foreach c in={{"Tikcentral relay WinBox";"Tikcentral management SSH API";"Tikcentral management TCP";"Tikcentral admin TCP";"Tikcentral admin ICMP"}} do={{
-    :if ([:len [/ip/firewall/filter find where comment=$c]] > 0) do={{ /ip/firewall/filter remove [find where comment=$c] }}
-}}
-/ip/firewall/filter add chain=input action=accept in-interface="opticable-wg" src-address=10.250.0.1/32 protocol=tcp dst-port=22,8291,8728 place-before=0 comment="Tikcentral management TCP"
-/ip/firewall/filter add chain=input action=accept in-interface="opticable-wg" src-address=10.250.254.0/24 protocol=tcp dst-port=22,8291 place-before=0 comment="Tikcentral admin TCP"
-/ip/firewall/filter add chain=input action=accept in-interface="opticable-wg" src-address=10.250.254.0/24 protocol=icmp place-before=0 comment="Tikcentral admin ICMP"
+{access_policy}
 
 :put ("Tikcentral enrolled: " . $vpnIP)
 :put ("Remote WinBox: " . ($cfg->"remote_winbox"))
