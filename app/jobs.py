@@ -25,8 +25,15 @@ def ensure_schema():
 
 
 def create(router_id: int | None, kind: str, actor: str = "system", target: str = "", payload=None, *, serialize_router: bool = False, serialize_global_kind: str = "") -> int:
+    """Reserve a mutation job atomically.
+
+    BEGIN IMMEDIATE makes the active-job check and INSERT one short SQLite write
+    transaction. Without it, two simultaneous web requests could both observe
+    "no active job" before either INSERT committed.
+    """
     ensure_schema()
     with core.db() as conn:
+        conn.execute("BEGIN IMMEDIATE")
         if serialize_router and router_id is not None:
             active = conn.execute(
                 "SELECT id,kind FROM router_jobs WHERE router_id=? AND status IN ('queued','running','verifying') ORDER BY id LIMIT 1",
