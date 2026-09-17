@@ -7,7 +7,7 @@ next timer tick.
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from app import errors, events, fleet_health, jobs, main as core, operations, settings
+from app import errors, events, fleet_health, jobs, main as core, operations, settings, state_capture
 
 
 def _eligible_healthy_router_ids() -> list[int]:
@@ -57,13 +57,36 @@ def _change_lane():
     return operations._process_upgrade_job()
 
 
+def _collect_router_observability(router_id: int):
+    """Collect optional router state without allowing one probe family to hide another."""
+    result = {"telemetry": None, "wan": None, "known_good": None, "errors": []}
+    for key, fn in (
+        ("telemetry", lambda: operations.collect_telemetry(router_id, False)),
+        ("wan", lambda: state_capture.collect_wan_state(router_id)),
+        ("known_good", lambda: state_capture.refresh_known_good_if_due(router_id)),
+    ):
+        try:
+            result[key] = fn()
+        except Exception as exc:
+            result["errors"].append(f"{key}: {errors.short(exc)}")
+    if result["errors"]:
+        events.record(
+            router_id,
+            "observability",
+            "Optional router observability partially failed",
+            "; ".join(result["errors"]),
+            "warning",
+        )
+    return result
+
+
 def _telemetry_lane(state, now):
     if operations._seconds_since(state["last_telemetry_at"]) < int(state["telemetry_interval_seconds"]):
         return
     eligible = _eligible_healthy_router_ids()
     _run_parallel(
         eligible,
-        lambda rid: operations.collect_telemetry(rid, False),
+        _collect_router_observability,
         workers=settings.TELEMETRY_WORKERS,
         category="telemetry",
         failure_summary="Telemetry collection failed",
