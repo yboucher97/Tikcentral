@@ -140,7 +140,8 @@ install_runtime_files() {
   visudo -cf /etc/sudoers.d/tikcentral-wg >/dev/null
   visudo -cf /etc/sudoers.d/tikcentral-ai >/dev/null
 
-  for unit in tikcentral.service tikcentral-winbox-proxy.service tikcentral-backup.service tikcentral-backup.timer tikcentral-fleet.service tikcentral-fleet.timer; do
+  for unit in tikcentral.service tikcentral-winbox-proxy.service tikcentral-backup.service tikcentral-backup.timer tikcentral-fleet.service tikcentral-fleet.timer tikcentral-ai.service tikcentral-ai.timer; do
+    [[ -f "$release/deploy/$unit" ]] || continue
     install -o root -g root -m 0644 "$release/deploy/$unit" "/etc/systemd/system/$unit"
   done
 }
@@ -168,6 +169,7 @@ rollback() {
   trap - ERR
   echo "New release failed activation: $reason" >&2
   if [[ -z "$PREVIOUS" || ! -d "$PREVIOUS" ]]; then echo "No previous release is available for automatic rollback." >&2; return 1; fi
+  systemctl stop tikcentral-ai.timer tikcentral-ai.service >/dev/null 2>&1 || true
   systemctl stop tikcentral-fleet.timer >/dev/null 2>&1 || true
   systemctl stop tikcentral-fleet.service >/dev/null 2>&1 || true
   switch_current "$PREVIOUS" || true
@@ -178,6 +180,12 @@ rollback() {
   systemctl restart caddy || true
   systemctl start tikcentral-backup.timer >/dev/null 2>&1 || true
   systemctl restart tikcentral-fleet.timer >/dev/null 2>&1 || true
+  if [[ -f "$PREVIOUS/deploy/tikcentral-ai.timer" ]]; then
+    systemctl enable tikcentral-ai.timer >/dev/null 2>&1 || true
+    systemctl restart tikcentral-ai.timer >/dev/null 2>&1 || true
+  else
+    systemctl disable --now tikcentral-ai.timer >/dev/null 2>&1 || true
+  fi
   if wait_health 15; then echo "Automatic rollback succeeded: $PREVIOUS" >&2; else echo "Automatic rollback attempted but previous release health check also failed." >&2; fi
   return 1
 }
@@ -217,6 +225,7 @@ fi
 caddy fmt --overwrite /etc/caddy/Caddyfile >/dev/null
 caddy validate --config /etc/caddy/Caddyfile
 
+systemctl stop tikcentral-ai.timer tikcentral-ai.service >/dev/null 2>&1 || true
 systemctl stop tikcentral-fleet.timer >/dev/null 2>&1 || true
 systemctl stop tikcentral-fleet.service >/dev/null 2>&1 || true
 ACTIVATION_STARTED=1
@@ -229,12 +238,13 @@ systemctl disable --now tikcentral-enroll-ui >/dev/null 2>&1 || true
 rm -f /etc/systemd/system/tikcentral-enroll-ui.service
 
 systemctl daemon-reload
-systemctl enable tikcentral tikcentral-winbox-proxy tikcentral-backup.timer tikcentral-fleet.timer >/dev/null
+systemctl enable tikcentral tikcentral-winbox-proxy tikcentral-backup.timer tikcentral-fleet.timer tikcentral-ai.timer >/dev/null
 systemctl restart tikcentral
 systemctl restart tikcentral-winbox-proxy
 systemctl restart caddy
 systemctl start tikcentral-backup.timer
 systemctl restart tikcentral-fleet.timer
+systemctl restart tikcentral-ai.timer
 
 if ! wait_health 20; then
   journalctl -u tikcentral -n 120 --no-pager >&2 || true
@@ -295,7 +305,7 @@ echo "Release validation: passed"
 echo "Central settings/schema/UI/RouterOS execution: enforced"
 echo "Stable updater: sudo tikcentral-update"
 echo "Access Guardian: enabled"
-echo "Codex AI helper: /usr/local/sbin/tikcentral-codex-analyze (authenticate tikcentral-ai separately)"
+echo "Codex AI worker: enabled (authenticate the isolated tikcentral-ai account once before use)"
 echo "Caddy /operations: HTTP $CADDY_CODE"
 echo "Persistent state preserved: users, routers, WireGuard assignments, authorized IPs and router configuration."
 echo "Pre-update database backup: $DB_BACKUP"
