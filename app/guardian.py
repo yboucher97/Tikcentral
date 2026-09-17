@@ -219,13 +219,19 @@ def register(app, page_func):
                    FROM routers r LEFT JOIN router_access_state s ON s.router_id=r.id
                    ORDER BY r.site_name COLLATE NOCASE,r.id"""
             ).fetchall()
+            access_events = conn.execute(
+                """SELECT e.event_at,e.severity,e.category,e.summary,e.details,r.site_name
+                   FROM router_events e LEFT JOIN routers r ON r.id=e.router_id
+                   WHERE e.category='access'
+                   ORDER BY e.id DESC LIMIT 40"""
+            ).fetchall()
 
         notice_kind = request.query_params.get("repair", "")
         notice_text = request.query_params.get("detail", "")[:1000]
         if notice_kind == "ok":
-            notice = f'<div class="panel pad"><strong>Repair completed and verified.</strong><div class="muted">{html.escape(notice_text)}</div></div>'
+            notice = f'<div class="panel pad tc-toast"><strong>✓ Repair completed and verified.</strong><div class="muted">{html.escape(notice_text)}</div></div>'
         elif notice_kind == "failed":
-            notice = f'<div class="panel pad"><div class="error"><strong>Repair not completed.</strong><div>{html.escape(notice_text)}</div></div></div>'
+            notice = f'<div class="panel pad tc-toast bad"><div class="error"><strong>✕ Repair not completed.</strong><div>{html.escape(notice_text)}</div></div></div>'
         else:
             notice = ""
 
@@ -234,7 +240,9 @@ def register(app, page_func):
             state = _state_for(r)
 
             def badge(ok, label):
-                return f'<span class="badge">{"●" if ok else "○"} {label}</span>'
+                tone = "ok" if ok else "bad"
+                state_text = "reachable" if ok else "unreachable"
+                return f'<span class="tc-path {tone}" title="{html.escape(label)} is {state_text}"><span class="tc-status-dot"></span>{html.escape(label)}</span>'
 
             details = " ".join([
                 badge(r["wg_online"], "WG"),
@@ -261,9 +269,10 @@ def register(app, page_func):
             else:
                 repair = f'''<form method="post" action="/guardian/{r['id']}/repair" style="display:inline"><input type="hidden" name="csrf" value="{csrf}"><button class="danger" onclick="return confirm('Repair only Tikcentral-owned management access on this router?')">Repair access</button></form>'''
 
+            state_tone = "ok" if state == "Healthy" else ("warn" if state in {"Degraded", "Unknown"} else "bad")
             body_rows.append(
                 f'''<tr><td><strong>{html.escape(r['site_name'])}</strong><div class="muted">{html.escape(r['model'] or '')}</div></td>
-<td><code>{html.escape(r['vpn_ip'])}</code></td><td><strong>{html.escape(state)}</strong></td><td>{details}</td>
+<td><code>{html.escape(r['vpn_ip'])}</code></td><td><span class="tc-status {state_tone} live"><span class="tc-status-dot"></span>{html.escape(state)}</span></td><td><div class="tc-paths">{details}</div></td>
 <td>{html.escape(r['last_good_at'] or 'Never')}</td><td>{html.escape(r['last_error'] or '')}</td>
 <td><div>{repair}</div><div class="muted" style="margin-top:6px">Last repair: {html.escape(repair_detail)}</div></td></tr>'''
             )
@@ -276,7 +285,26 @@ def register(app, page_func):
 <div class="card"><strong>Disabled</strong><div class="muted">The router is disabled in Tikcentral and is not considered available for management.</div></div>
 </div><div class="muted" style="margin-top:10px">Path indicators: ● reachable, ○ unreachable. Repair uses SSH to execute the router-side recovery command; if SSH itself is down, Tikcentral will show that repair cannot be started rather than silently failing.</div></div>'''
 
-        body = f'''<div class="panel pad"><h2>Access Guardian</h2><div class="muted">Guardian probes the management tunnel and services. A state is only Healthy when the complete management requirement is met.</div></div>{notice}{legend}<div class="panel"><table><thead><tr><th>Router</th><th>VPN IP</th><th>Access</th><th>Paths</th><th>Last known good</th><th>Issue</th><th>Recovery / last repair</th></tr></thead><tbody>{''.join(body_rows) or '<tr><td colspan="7">No routers.</td></tr>'}</tbody></table></div>'''
+        counts = {"Healthy": 0, "Degraded": 0, "Offline": 0, "Unknown": 0, "Disabled": 0}
+        for r in rows:
+            counts[_state_for(r)] = counts.get(_state_for(r), 0) + 1
+        summary = f'''<div class="tc-health-grid">
+<div class="tc-health-card ok"><div class="big">{counts["Healthy"]} Healthy</div><div class="muted">Full management access verified</div></div>
+<div class="tc-health-card warn"><div class="big">{counts["Degraded"]} Degraded</div><div class="muted">Tunnel online, one or more required paths failing</div></div>
+<div class="tc-health-card bad"><div class="big">{counts["Offline"]} Offline</div><div class="muted">WireGuard management tunnel unavailable</div></div>
+<div class="tc-health-card"><div class="big">{counts["Unknown"] + counts["Disabled"]} Other</div><div class="muted">{counts["Unknown"]} unknown · {counts["Disabled"]} disabled</div></div>
+</div>'''
+
+        log_rows = []
+        for e in access_events:
+            sev = e["severity"] if e["severity"] in {"info", "warning", "critical"} else "info"
+            detail = e["details"] or ""
+            log_rows.append(
+                f'''<div class="tc-log {sev}"><div>{html.escape(e["event_at"] or "")}</div><div class="sev">{html.escape(sev)}</div><div>{html.escape(e["site_name"] or "System")}</div><div><strong>{html.escape(e["summary"] or "")}</strong>{f'<div class="muted">{html.escape(detail)}</div>' if detail else ''}</div></div>'''
+            )
+        logs = ''.join(log_rows) or '<div class="pad muted">No Guardian access events yet.</div>'
+
+        body = f'''<div class="panel pad"><h2>Access Guardian</h2><div class="muted">Guardian probes the management tunnel and services. A state is only Healthy when the complete management requirement is met.</div></div>{notice}<div class="panel pad"><h3>Fleet access status</h3>{summary}</div>{legend}<div class="panel"><table><thead><tr><th>Router</th><th>VPN IP</th><th>Access</th><th>Paths</th><th>Last known good</th><th>Issue</th><th>Recovery / last repair</th></tr></thead><tbody>{''.join(body_rows) or '<tr><td colspan="7">No routers.</td></tr>'}</tbody></table></div><div class="panel"><div class="pad"><h3>Guardian activity log</h3><div class="muted">Recent access transitions, repair attempts, failures and recoveries.</div></div>{logs}</div>'''
         return page_func("Access Guardian", body, user, "guardian")
 
     @app.post("/guardian/{router_id}/repair")
