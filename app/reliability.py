@@ -4,8 +4,13 @@ import difflib
 import html
 import io
 import json
+import os
 import zipfile
 from datetime import datetime, timedelta, timezone
+
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
 from fastapi import Request
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
@@ -35,16 +40,52 @@ def _json(value) -> str:
     return json.dumps(value, indent=2, ensure_ascii=False, default=str)
 
 
-def _zip_response(filename: str, files: dict[str, str]):
+def _zip_bytes(files: dict[str, str]) -> bytes:
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
         for name, content in files.items():
             zf.writestr(name, content)
-    buf.seek(0)
+    return buf.getvalue()
+
+
+def _zip_response(filename: str, files: dict[str, str]):
     return StreamingResponse(
-        buf,
+        io.BytesIO(_zip_bytes(files)),
         media_type="application/zip",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+_BREAKGLASS_MAGIC = b"TIKCENTRAL-BREAKGLASS-V1\\n"
+_BREAKGLASS_ITERATIONS = 600_000
+
+
+def _encrypt_breakglass(files: dict[str, str], passphrase: str) -> bytes:
+    """Encrypt a ZIP recovery payload with AES-256-GCM and a derived key."""
+    if len(passphrase) < 12:
+        raise ValueError("Break-glass passphrase must be at least 12 characters")
+    salt = os.urandom(16)
+    nonce = os.urandom(12)
+    kdf = PBKDF2HMAC(
+        algorithm=hashes.SHA256(),
+        length=32,
+        salt=salt,
+        iterations=_BREAKGLASS_ITERATIONS,
+    )
+    key = kdf.derive(passphrase.encode("utf-8"))
+    ciphertext = AESGCM(key).encrypt(nonce, _zip_bytes(files), _BREAKGLASS_MAGIC)
+    return _BREAKGLASS_MAGIC + salt + nonce + ciphertext
+
+
+def _encrypted_response(filename: str, payload: bytes):
+    return StreamingResponse(
+        io.BytesIO(payload),
+        media_type="application/octet-stream",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Cache-Control": "no-store",
+            "X-Content-Type-Options": "nosniff",
+        },
     )
 
 
@@ -221,7 +262,7 @@ def register(app, page_func):
 <td><span class="tc-status {tone} live"><span class="tc-status-dot"></span>{state}</span>{maintenance}</td>
 <td>{int(r["failed_24h"] or 0)} failed probes<div class="muted">{f'{float(r["avg_winbox_ms"]):.1f} ms avg WinBox' if r["avg_winbox_ms"] is not None else 'No latency sample'}</div></td>
 <td>{maintenance_action}</td>
-<td><a href="/reliability/{r['id']}/breakglass"><button>Break-glass bundle</button></a> <a href="/reliability/{r['id']}/support"><button>Support package</button></a></td></tr>'''
+<td><a href="/reliability/{r['id']}/breakglass"><button>Encrypted break-glass bundle</button></a> <a href="/reliability/{r['id']}/support"><button>Support package</button></a></td></tr>'''
             )
 
         incident_rows = "".join(
@@ -287,15 +328,45 @@ def register(app, page_func):
         events.record(router_id, "maintenance", "Maintenance window ended")
         return RedirectResponse("/reliability", status_code=303)
 
-    @app.get("/reliability/{router_id}/breakglass")
-    def breakglass(router_id: int, request: Request):
-        if not core.require_web_admin(request):
+    @app.get("/reliability/{router_id}/breakglass", response_class=HTMLResponse)
+    def breakglass_form(router_id: int, request: Request):
+        user = core.require_web_admin(request)
+        if not user:
             return RedirectResponse("/login", status_code=303)
         router = _router(router_id)
         if not router:
             return RedirectResponse("/reliability", status_code=303)
+        csrf = core.csrf_token(request)
+        body = f'''<div class="panel pad"><h2>Encrypted break-glass bundle · {html.escape(router["site_name"])}</h2>
+<div class="muted">The recovery ZIP is encrypted before it leaves Tikcentral using AES-256-GCM. The passphrase is used only for this request and is not stored. Use a unique passphrase of at least 12 characters and keep it somewhere independent of the VPS.</div>
+<form method="post" action="/reliability/{router_id}/breakglass" style="margin-top:16px;max-width:620px">
+<input type="hidden" name="csrf" value="{csrf}">
+<div style="margin-bottom:10px"><label>Passphrase<br><input type="password" name="passphrase" minlength="12" required autocomplete="new-password" style="width:100%"></label></div>
+<div style="margin-bottom:14px"><label>Confirm passphrase<br><input type="password" name="confirm" minlength="12" required autocomplete="new-password" style="width:100%"></label></div>
+<button class="primary">Generate encrypted bundle</button> <a href="/reliability"><button type="button">Cancel</button></a>
+</form>
+<div class="muted" style="margin-top:14px">Decrypt later with <code>python3 scripts/decrypt_breakglass.py bundle.tcbundle</code>. The script prompts for the passphrase and writes the recovered ZIP.</div></div>'''
+        return page_func("Break-glass Recovery", body, user, "reliability")
+
+    @app.post("/reliability/{router_id}/breakglass")
+    async def breakglass_download(router_id: int, request: Request):
+        user = core.require_web_admin(request)
+        if not user:
+            return RedirectResponse("/login", status_code=303)
+        data = await core.form_data(request)
+        core.require_csrf(request, data.get("csrf", ""))
+        router = _router(router_id)
+        if not router:
+            return RedirectResponse("/reliability", status_code=303)
+        passphrase = str(data.get("passphrase", ""))
+        confirm = str(data.get("confirm", ""))
+        if passphrase != confirm or len(passphrase) < 12:
+            body = '''<div class="panel pad"><h2>Break-glass bundle not generated</h2><div class="error">Passphrases must match and be at least 12 characters.</div><div style="margin-top:12px"><button onclick="history.back()">Back</button></div></div>'''
+            return page_func("Break-glass Recovery", body, user, "reliability")
         safe = "".join(ch if ch.isalnum() or ch in "-_" else "-" for ch in router["site_name"])[:60]
-        return _zip_response(f"tikcentral-breakglass-{safe}.zip", _recovery_files(router_id))
+        payload = _encrypt_breakglass(_recovery_files(router_id), passphrase)
+        events.record(router_id, "recovery", "Encrypted break-glass recovery bundle generated", "AES-256-GCM; passphrase not stored")
+        return _encrypted_response(f"tikcentral-breakglass-{safe}.tcbundle", payload)
 
     @app.get("/reliability/{router_id}/support")
     def support(router_id: int, request: Request):
