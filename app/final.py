@@ -26,6 +26,7 @@ from app import operations
 from app import portal  # noqa: F401
 from app import production  # noqa: F401
 from app import rescue
+from app import reliability
 from app import router_exec
 from app import ui
 
@@ -167,6 +168,7 @@ async def normalize_router(router_id: int, request: Request):
 guardian.register(app, ui.page)
 operations.register(app, ui.page)
 rescue.register(app, ui.page)
+reliability.register(app, ui.page)
 changes.register(app, ui.page)
 enrollment.register(app, ui.page)
 ai_analysis.register(app, ui.page)
