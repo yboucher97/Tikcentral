@@ -260,6 +260,54 @@ def repair_router(router_id: int, actor: str = "guardian"):
     return output
 
 
+def _diagnosis(row, history):
+    """Explain current management-path health in operator terms."""
+    if not row["enabled"]:
+        return "Router is disabled in Tikcentral."
+    if not row["checked_at"]:
+        return "Guardian has not completed a probe yet."
+    if not row["wg_online"]:
+        return "Management WireGuard is offline. Tikcentral cannot run router-side repair until the tunnel returns."
+    if not row["winbox_open"] and (row["ssh_open"] or row["api_open"]):
+        return "WinBox is the failing required path. Command access still exists, so Repair access can reconcile Tikcentral-owned management rules."
+    if row["winbox_open"] and not row["ssh_open"] and row["api_open"]:
+        return "SSH is unavailable, but WinBox and API are reachable. Guardian remains Healthy because API is a valid command path; automated repair cannot run without SSH."
+    if row["winbox_open"] and row["ssh_open"] and not row["api_open"]:
+        return "API is unavailable, but WinBox and SSH are reachable. Guardian remains Healthy because SSH is a valid command path."
+    if row["winbox_open"] and not row["ssh_open"] and not row["api_open"]:
+        return "WinBox is reachable but both command paths are unavailable. Tikcentral can see WinBox, but cannot safely execute normal router changes."
+    if row["management_ok"]:
+        return "All required management conditions are satisfied."
+    return row["last_error"] or "Management access is degraded."
+
+
+def _quality_metrics(history):
+    rows = list(history or [])
+    if not rows:
+        return {"samples": 0, "success_pct": None, "consecutive_failures": 0, "failure_since": "", "avg_ms": None, "max_ms": None}
+    success = sum(1 for x in rows if x["management_ok"])
+    consecutive = 0
+    failure_since = ""
+    for x in rows:
+        if x["management_ok"]:
+            break
+        consecutive += 1
+        failure_since = x["checked_at"] or failure_since
+    latency = [
+        float(x["winbox_latency_ms"])
+        for x in rows
+        if x["winbox_latency_ms"] is not None
+    ]
+    return {
+        "samples": len(rows),
+        "success_pct": round((success / len(rows)) * 100, 1),
+        "consecutive_failures": consecutive,
+        "failure_since": failure_since,
+        "avg_ms": round(sum(latency) / len(latency), 1) if latency else None,
+        "max_ms": round(max(latency), 1) if latency else None,
+    }
+
+
 def _state_for(row):
     if not row["enabled"]:
         return "Disabled"
@@ -293,7 +341,8 @@ def register(app, page_func):
                           (SELECT j.status FROM router_jobs j WHERE j.router_id=r.id AND j.kind='guardian_repair' ORDER BY j.id DESC LIMIT 1) AS repair_status,
                           (SELECT j.updated_at FROM router_jobs j WHERE j.router_id=r.id AND j.kind='guardian_repair' ORDER BY j.id DESC LIMIT 1) AS repair_at,
                           (SELECT j.error_code FROM router_jobs j WHERE j.router_id=r.id AND j.kind='guardian_repair' ORDER BY j.id DESC LIMIT 1) AS repair_error_code,
-                          (SELECT j.error_message FROM router_jobs j WHERE j.router_id=r.id AND j.kind='guardian_repair' ORDER BY j.id DESC LIMIT 1) AS repair_error_message
+                          (SELECT j.error_message FROM router_jobs j WHERE j.router_id=r.id AND j.kind='guardian_repair' ORDER BY j.id DESC LIMIT 1) AS repair_error_message,
+                          (SELECT t.id FROM change_transactions t WHERE t.router_id=r.id AND t.kind='guardian_repair' ORDER BY t.id DESC LIMIT 1) AS repair_tx_id
                    FROM routers r LEFT JOIN router_access_state s ON s.router_id=r.id
                    LEFT JOIN router_maintenance m ON m.router_id=r.id
                    ORDER BY r.site_name COLLATE NOCASE,r.id"""
@@ -301,7 +350,7 @@ def register(app, page_func):
             histories = {
                 int(r["id"]): conn.execute(
                     """SELECT checked_at,management_ok,ssh_latency_ms,winbox_latency_ms,api_latency_ms
-                       FROM router_access_history WHERE router_id=? ORDER BY id DESC LIMIT 60""",
+                       FROM router_access_history WHERE router_id=? ORDER BY id DESC LIMIT 240""",
                     (r["id"],),
                 ).fetchall()
                 for r in rows
@@ -357,19 +406,28 @@ def register(app, page_func):
                 repair = f'''<form method="post" action="/guardian/{r['id']}/repair" style="display:inline"><input type="hidden" name="csrf" value="{csrf}"><button class="danger" onclick="return confirm('Repair only Tikcentral-owned management access on this router?')">Repair access</button></form>'''
 
             state_tone = "ok" if state == "Healthy" else ("warn" if state in {"Degraded", "Unknown", "Maintenance"} else "bad")
-            probes = list(reversed(histories.get(int(r["id"]), [])))
+            newest_first = histories.get(int(r["id"]), [])
+            probes = list(reversed(newest_first[-60:]))
             strip = ''.join(
-                f'<span title="{html.escape(p["checked_at"] or "")}" style="display:inline-block;width:5px;height:18px;border-radius:2px;background:{("var(--green)" if p["management_ok"] else "var(--danger)")};opacity:.85"></span>'
+                f'<span title="{html.escape(p["checked_at"] or "")}" style="display:inline-block;width:4px;height:18px;border-radius:2px;background:{("var(--green)" if p["management_ok"] else "var(--danger)")};opacity:.85"></span>'
                 for p in probes
             ) or '<span class="muted">No history</span>'
-            latency_values = [p["winbox_latency_ms"] for p in probes if p["winbox_latency_ms"] is not None]
-            latency = f'{sum(latency_values)/len(latency_values):.1f} ms avg WinBox' if latency_values else 'No latency sample'
+            quality = _quality_metrics(newest_first)
+            quality_text = (
+                f'{quality["success_pct"]}% healthy · {quality["avg_ms"]} ms avg / {quality["max_ms"]} ms max WinBox'
+                if quality["success_pct"] is not None and quality["avg_ms"] is not None
+                else (f'{quality["success_pct"]}% healthy · no latency sample' if quality["success_pct"] is not None else 'No quality history')
+            )
+            if quality["consecutive_failures"]:
+                quality_text += f' · {quality["consecutive_failures"]} consecutive failed probes'
+            diagnosis = _diagnosis(r, newest_first)
             maintenance_note = f'<div class="muted">Maintenance until {html.escape(r["maintenance_end"])} · {html.escape(r["maintenance_reason"] or "")}</div>' if state == "Maintenance" else ''
+            tx_link = f'<div style="margin-top:6px"><a href="/reliability#tx-{r["repair_tx_id"]}">View repair transcript #{r["repair_tx_id"]}</a></div>' if r["repair_tx_id"] else ''
             body_rows.append(
                 f'''<tr><td><strong>{html.escape(r['site_name'])}</strong><div class="muted">{html.escape(r['model'] or '')}</div></td>
 <td><code>{html.escape(r['vpn_ip'])}</code></td><td><span class="tc-status {state_tone} live"><span class="tc-status-dot"></span>{html.escape(state)}</span></td><td><div class="tc-paths">{details}</div></td>
-<td>{html.escape(r['last_good_at'] or 'Never')}<div style="display:flex;gap:2px;margin-top:7px;align-items:end">{strip}</div><div class="muted">{html.escape(latency)}</div></td><td>{html.escape(r['last_error'] or '')}{maintenance_note}</td>
-<td><div>{repair}</div><div class="muted" style="margin-top:6px">Last repair: {html.escape(repair_detail)}</div></td></tr>'''
+<td>{html.escape(r['last_good_at'] or 'Never')}<div style="display:flex;gap:2px;margin-top:7px;align-items:end;max-width:280px;overflow:hidden">{strip}</div><div class="muted">{html.escape(quality_text)}</div></td><td><strong>{html.escape(diagnosis)}</strong>{f'<div class="muted">Failure run since {html.escape(quality["failure_since"])}</div>' if quality["failure_since"] else ''}{maintenance_note}</td>
+<td><div>{repair}</div><div class="muted" style="margin-top:6px">Last repair: {html.escape(repair_detail)}</div>{tx_link}</td></tr>'''
             )
 
         legend = '''<div class="panel pad"><h3>Access status legend</h3><div class="cards">
