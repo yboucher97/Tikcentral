@@ -12,6 +12,9 @@ KEEP_RELEASES="${TIKCENTRAL_KEEP_RELEASES:-5}"
 
 [[ "$EUID" -eq 0 ]] || { echo "Run as root (use sudo)." >&2; exit 1; }
 [[ -f "$ENV_FILE" ]] || { echo "Tikcentral is not installed: $ENV_FILE is missing. Run bootstrap.sh once first." >&2; exit 1; }
+for cmd in git tar python3 sqlite3 curl jq caddy sudo visudo ssh-keygen systemctl; do
+  command -v "$cmd" >/dev/null 2>&1 || { echo "Required command is missing: $cmd" >&2; exit 1; }
+done
 
 mkdir -p "$RELEASES" /var/backups/tikcentral
 chmod 0755 "$ROOT" "$RELEASES"
@@ -170,20 +173,43 @@ elif [[ -d "$CURRENT" ]]; then
   PREVIOUS="$RELEASES/legacy-$STAMP"
 fi
 
-# Pause scheduled mutation/read jobs only for the release switch.
-systemctl stop tikcentral-fleet.timer >/dev/null 2>&1 || true
-systemctl stop tikcentral-fleet.service >/dev/null 2>&1 || true
+rollback() {
+  local reason="$1"
+  trap - ERR
+  echo "New release failed activation: $reason" >&2
+  if [[ -z "$PREVIOUS" || ! -d "$PREVIOUS" ]]; then
+    echo "No previous release is available for automatic rollback." >&2
+    return 1
+  fi
+  systemctl stop tikcentral-fleet.timer >/dev/null 2>&1 || true
+  systemctl stop tikcentral-fleet.service >/dev/null 2>&1 || true
+  switch_current "$PREVIOUS" || true
+  [[ -f "$PREVIOUS/deploy/tikcentral.service" ]] && install_runtime_files "$PREVIOUS"
+  systemctl daemon-reload || true
+  systemctl restart tikcentral || true
+  systemctl restart tikcentral-winbox-proxy || true
+  systemctl restart caddy || true
+  systemctl start tikcentral-backup.timer >/dev/null 2>&1 || true
+  systemctl restart tikcentral-fleet.timer >/dev/null 2>&1 || true
+  if wait_health 15; then
+    echo "Automatic rollback succeeded: $PREVIOUS" >&2
+  else
+    echo "Automatic rollback attempted but previous release health check also failed." >&2
+  fi
+  return 1
+}
 
-# First atomic update converts the historical git checkout into a rollback target.
-if [[ -d "$CURRENT" && ! -L "$CURRENT" ]]; then
-  mv "$CURRENT" "$PREVIOUS"
-fi
-switch_current "$RELEASE"
-install_runtime_files "$RELEASE"
-systemctl daemon-reload
-systemctl enable tikcentral tikcentral-winbox-proxy tikcentral-backup.timer tikcentral-fleet.timer >/dev/null
-systemctl disable --now tikcentral-enroll-ui >/dev/null 2>&1 || true
+ACTIVATION_STARTED=0
+activation_error() {
+  local rc=$?
+  if [[ "$ACTIVATION_STARTED" == "1" ]]; then
+    rollback "unexpected activation command failure (exit $rc)" || true
+  fi
+  exit "$rc"
+}
+trap activation_error ERR
 
+# Build/validate Caddy configuration before changing the live release.
 set -a
 source "$ENV_FILE"
 set +a
@@ -198,36 +224,25 @@ EOF
 caddy fmt --overwrite /etc/caddy/Caddyfile >/dev/null
 caddy validate --config /etc/caddy/Caddyfile
 
+# Pause scheduled jobs only for the release switch. Web stays on old code until now.
+systemctl stop tikcentral-fleet.timer >/dev/null 2>&1 || true
+systemctl stop tikcentral-fleet.service >/dev/null 2>&1 || true
+ACTIVATION_STARTED=1
+
+# First atomic update converts the historical git checkout into a rollback target.
+if [[ -d "$CURRENT" && ! -L "$CURRENT" ]]; then
+  mv "$CURRENT" "$PREVIOUS"
+fi
+switch_current "$RELEASE"
+install_runtime_files "$RELEASE"
+systemctl daemon-reload
+systemctl enable tikcentral tikcentral-winbox-proxy tikcentral-backup.timer tikcentral-fleet.timer >/dev/null
+systemctl disable --now tikcentral-enroll-ui >/dev/null 2>&1 || true
 systemctl restart tikcentral
 systemctl restart tikcentral-winbox-proxy
 systemctl restart caddy
 systemctl start tikcentral-backup.timer
 systemctl restart tikcentral-fleet.timer
-
-rollback() {
-  local reason="$1"
-  echo "New release failed health validation: $reason" >&2
-  if [[ -z "$PREVIOUS" || ! -d "$PREVIOUS" ]]; then
-    echo "No previous release is available for automatic rollback." >&2
-    return 1
-  fi
-  systemctl stop tikcentral-fleet.timer >/dev/null 2>&1 || true
-  systemctl stop tikcentral-fleet.service >/dev/null 2>&1 || true
-  switch_current "$PREVIOUS"
-  [[ -f "$PREVIOUS/deploy/tikcentral.service" ]] && install_runtime_files "$PREVIOUS"
-  systemctl daemon-reload
-  systemctl restart tikcentral || true
-  systemctl restart tikcentral-winbox-proxy || true
-  systemctl restart caddy || true
-  systemctl start tikcentral-backup.timer >/dev/null 2>&1 || true
-  systemctl restart tikcentral-fleet.timer >/dev/null 2>&1 || true
-  if wait_health 15; then
-    echo "Automatic rollback succeeded: $PREVIOUS" >&2
-  else
-    echo "Automatic rollback attempted but previous release health check also failed." >&2
-  fi
-  return 1
-}
 
 if ! wait_health 20; then
   journalctl -u tikcentral -n 120 --no-pager >&2 || true
@@ -255,6 +270,9 @@ if [[ "$CADDY_CODE" != "200" && "$CADDY_CODE" != "303" ]]; then
   exit 1
 fi
 
+ACTIVATION_STARTED=0
+trap - ERR
+
 # Keep a small immutable release history. Preserve current and immediate previous.
 current_real="$(readlink -f "$CURRENT")"
 kept=0
@@ -278,7 +296,7 @@ echo "Tikcentral updated successfully."
 echo "Active release: $SHORT_SHA"
 echo "Release path: $RELEASE"
 echo "Previous release: ${PREVIOUS:-none}"
-echo "Atomic rollback: enabled"
+echo "Atomic rollback: enabled for all activation failures"
 echo "Runtime: consolidated Operations + Rescue + UI"
 echo "Per-release Python environment: ready"
 echo "Access Guardian: enabled"
