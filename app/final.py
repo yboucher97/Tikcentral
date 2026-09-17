@@ -12,6 +12,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 # Import route modules once; their decorators register directly on core.app.
+from app import ai_analysis
 from app import changes
 from app import enrollment
 from app import errors
@@ -133,3 +134,4 @@ operations.register(app, ui.page)
 rescue.register(app, ui.page)
 changes.register(app, ui.page)
 enrollment.register(app, ui.page)
+ai_analysis.register(app, ui.page)
