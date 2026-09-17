@@ -85,7 +85,9 @@ def collect_snapshot(router_id: int) -> dict:
         "recent_events": [dict(r) for r in recent_events],
         "recent_jobs": [dict(r) for r in recent_jobs],
         "live": {
-            "configuration": _safe_read(router["vpn_ip"], "/export show-sensitive=no", "AI configuration export"),
+            # `/export` redacts sensitive values by default. `show-sensitive` is
+            # an enabling flag on RouterOS, not a boolean `=no` option.
+            "configuration": _safe_read(router["vpn_ip"], "/export", "AI configuration export"),
             "logs": _safe_read(router["vpn_ip"], "/log print without-paging", "AI log collection"),
             "interfaces": _safe_read(router["vpn_ip"], "/interface print stats-detail without-paging", "AI interface collection"),
             "routes": _safe_read(router["vpn_ip"], "/ip route print detail without-paging", "AI route collection"),
