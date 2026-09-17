@@ -9,8 +9,10 @@ import html
 from fastapi import HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
+from app import change_control
 from app import errors
 from app import jobs
+from app import operations
 from app import main as core
 from app import router_exec
 from app import ui
@@ -46,7 +48,7 @@ def ssh_console(router_id: int, request: Request):
         return RedirectResponse("/login", status_code=303)
     with core.db() as conn:
         router = conn.execute(
-            "SELECT id,site_name,identity,model,vpn_ip,enabled FROM routers WHERE id=?",
+            "SELECT id,site_name,identity,model,vpn_ip,public_key,enabled FROM routers WHERE id=?",
             (router_id,),
         ).fetchone()
     if not router or not router["enabled"]:
@@ -75,7 +77,9 @@ async def ssh_console_run(router_id: int, request: Request):
         raise HTTPException(status_code=404, detail="enabled router not found")
 
     actor = user["email"] if "email" in user.keys() else "admin"
+    tx_id = None
     try:
+        pre_access = change_control.require_management(router, "Web SSH command")
         with jobs.operation(
             router_id,
             "web_ssh",
@@ -84,10 +88,23 @@ async def ssh_console_run(router_id: int, request: Request):
             serialize_router=True,
             fail_code="WEB_SSH_FAILED",
             fail_message="Web SSH command failed",
-        ):
+        ) as job_id:
+            tx_id = change_control.begin(router_id, "web_ssh", actor, job_id=job_id, pre_access=pre_access)
+            change_control.step(tx_id, "backup", "info", "Creating retained pre-command backup")
+            operations.backup_router(router_id, "pre-change", actor, track_job=False)
+            change_control.step(tx_id, "backup", "ok", "Pre-command backup completed")
+            change_control.step(tx_id, "apply", "info", "Executing manual RouterOS command")
             output = router_exec.mutate(router["vpn_ip"], command, timeout=90, label="Web SSH command")
+            jobs.verifying(job_id)
+            verified = change_control.verify_management(router, "Web SSH command", transaction_id=tx_id)
+            change_control.finish(tx_id, post_access=verified)
         status = "Success"
     except Exception as exc:
+        if tx_id is not None:
+            try:
+                change_control.fail(tx_id, exc)
+            except Exception:
+                pass
         output = errors.short(exc)
         status = "Error"
 
