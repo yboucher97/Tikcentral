@@ -1,0 +1,16 @@
+[Unit]
+Description=Tikcentral read-only Codex analysis worker
+After=network-online.target tikcentral.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=tikcentral
+Group=tikcentral
+WorkingDirectory=/opt/tikcentral/current
+EnvironmentFile=/etc/tikcentral/tikcentral.env
+ExecStart=/opt/tikcentral/current/.venv/bin/python3 -m app.ai_worker
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/tikcentral
