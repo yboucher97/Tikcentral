@@ -19,6 +19,7 @@ NAV = [
     ("ssh", "/ssh", "SSH"),
     ("changes", "/changes", "Changes"),
     ("audit", "/audit", "Audit"),
+    ("system-health", "/system-health", "System"),
     ("users", "/admin/users", "Users"),
     ("settings", "/settings", "Settings"),
 ]
