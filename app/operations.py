@@ -16,6 +16,7 @@ from fastapi import Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app import capabilities
+from app import change_control
 from app import errors
 from app import events
 from app import fleet
@@ -372,12 +373,14 @@ def switch_profile(router_id: int, profile: str, created_by: str):
     router = _require_router(router_id)
     if not capabilities.supports_profiles(router_id):
         raise errors.OperationError("CAPABILITY_UNSUPPORTED", "This router was not provisioned with the Opticable performance baseline")
-    if not _access_ok(router):
-        raise errors.OperationError("GUARDIAN_UNHEALTHY", "Guardian access preflight failed; profile change blocked")
+    pre_access = change_control.require_management(router, "Performance profile change")
     job_id = jobs.create(router_id, "profile", created_by, profile, serialize_router=True)
     jobs.running(job_id)
+    tx_id = change_control.begin(router_id, "profile", created_by, job_id=job_id, pre_access=pre_access)
     try:
+        change_control.step(tx_id, "backup", "info", "Creating retained pre-change backup")
         _backup_impl(router_id, "pre-change", created_by)
+        change_control.step(tx_id, "backup", "ok", "Pre-change backup completed")
         if profile == "fairness":
             command = r'''
 /ip/firewall/filter set [find where comment="Opticable FastTrack"] disabled=yes;
@@ -396,8 +399,8 @@ def switch_profile(router_id: int, profile: str, created_by: str):
 '''.strip()
         output = router_exec.mutate(router["vpn_ip"], command, timeout=60, label="Performance profile change")
         jobs.verifying(job_id)
-        if not _access_ok(router):
-            raise errors.OperationError("ACCESS_VERIFY_FAILED", "Profile changed but Guardian verification failed", severity="critical")
+        change_control.step(tx_id, "verify", "info", "Verifying management access and requested profile")
+        post_access = change_control.verify_management(router, "Performance profile change")
         telem = collect_telemetry(router_id)
         if telem["profile"] != profile:
             raise errors.OperationError("PROFILE_VERIFY_FAILED", "Router did not report the requested performance profile", f"requested={profile} observed={telem['profile']}")
@@ -405,9 +408,14 @@ def switch_profile(router_id: int, profile: str, created_by: str):
             conn.execute("""INSERT INTO router_expected_state(router_id,expected_profile) VALUES(?,?)
                           ON CONFLICT(router_id) DO UPDATE SET expected_profile=excluded.expected_profile""", (router_id, profile))
         events.record(router_id, "profile", f"Performance profile changed to {profile}", json.dumps({"cpu": telem["cpu_load"], "profile": profile}))
+        change_control.finish(tx_id, post_access=post_access)
         jobs.succeeded(job_id)
         return output
     except Exception as exc:
+        try:
+            change_control.fail(tx_id, exc, post_access=guardian.probe_router(router))
+        except Exception:
+            pass
         jobs.failed(job_id, exc, code="PROFILE_CHANGE_FAILED", message="Performance profile change failed")
         events.record(router_id, "profile", "Performance profile change failed", errors.short(exc), "critical" if isinstance(exc, errors.OperationError) and exc.severity == "critical" else "warning")
         raise
@@ -415,6 +423,39 @@ def switch_profile(router_id: int, profile: str, created_by: str):
 
 # ---- RouterOS / RouterBOOT upgrades --------------------------------------------
 UPDATE_CHECK_COMMAND = '/system/package/update check-for-updates once; :delay 5s; /system/package/update print'
+
+
+def _size_bytes(value: str):
+    match = re.match(r"(?i)^\s*([0-9.]+)\s*(B|KiB|MiB|GiB|KB|MB|GB)?", value or "")
+    if not match:
+        return None
+    number = float(match.group(1))
+    unit = (match.group(2) or "B").lower()
+    scale = {"b": 1, "kib": 1024, "kb": 1000, "mib": 1024**2, "mb": 1000**2, "gib": 1024**3, "gb": 1000**3}[unit]
+    return int(number * scale)
+
+
+def _upgrade_preflight(router):
+    access = change_control.require_management(router, "Router upgrade")
+    resource = router_exec.read(router["vpn_ip"], "/system resource print without-paging", timeout=20, label="Upgrade preflight")
+    free_hdd = _field(resource, "free-hdd-space")
+    architecture = _field(resource, "architecture-name")
+    version = _version_number(_field(resource, "version") or router["routeros_version"])
+    free_bytes = _size_bytes(free_hdd)
+    warnings = []
+    if free_bytes is not None and free_bytes < 16 * 1024 * 1024:
+        warnings.append(f"Low free storage reported: {free_hdd}")
+    if not version:
+        raise errors.OperationError("UPGRADE_PREFLIGHT_FAILED", "RouterOS version could not be verified before upgrade")
+    if not router["model"]:
+        warnings.append("Router model is not recorded")
+    return {
+        "access": access,
+        "version": version,
+        "architecture": architecture,
+        "free_hdd_space": free_hdd,
+        "warnings": warnings,
+    }
 
 
 def check_update(router_id: int):
@@ -457,8 +498,7 @@ def approve_current_version(router_id: int, created_by: str):
 
 def queue_upgrade(router_id: int, canary: bool, created_by: str):
     router = _require_router(router_id)
-    if not _access_ok(router):
-        raise errors.OperationError("GUARDIAN_UNHEALTHY", "Guardian access preflight failed; upgrade blocked")
+    change_control.require_management(router, "RouterOS upgrade")
     with core.db() as conn:
         status = conn.execute("SELECT * FROM router_update_status WHERE router_id=?", (router_id,)).fetchone()
         approved = conn.execute("SELECT version FROM approved_versions WHERE model=?", (router["model"],)).fetchone()
@@ -475,6 +515,7 @@ def queue_upgrade(router_id: int, canary: bool, created_by: str):
 
 def queue_routerboot(router_id: int, created_by: str):
     router = _require_router(router_id)
+    change_control.require_management(router, "RouterBOOT upgrade")
     telem = collect_telemetry(router_id)
     target = telem.get("routerboot_upgrade") or ""
     if not target or target == telem.get("routerboot_current"):
@@ -503,16 +544,28 @@ def _process_upgrade_job():
     if job["status"] == "queued":
         if not _access_ok(router):
             return job["id"]
+        tx_id = None
         try:
             jobs.running(job["id"])
+            preflight = _upgrade_preflight(router)
+            tx_id = change_control.begin(router["id"], kind, job["actor"] or "upgrade", job_id=job["id"], pre_access=preflight["access"])
+            change_control.step(tx_id, "preflight", "warning" if preflight["warnings"] else "ok", "Upgrade preflight completed", json.dumps(preflight, default=str))
+            pre_hash, _ = _export_hash(router)
+            jobs.update_payload(job["id"], {"pre_hash": pre_hash, "healthy_checks": 0, "transaction_id": tx_id, "preflight": preflight})
+            change_control.step(tx_id, "backup", "info", "Creating pre-upgrade backup")
             _backup_impl(router["id"], "pre-change", "upgrade")
+            change_control.step(tx_id, "backup", "ok", "Pre-upgrade backup completed", pre_hash)
             if kind == "upgrade_routeros":
                 detail = router_exec.dispatch_reboot(router["vpn_ip"], "/system/package/update install", timeout=900, label="RouterOS upgrade")
             else:
                 detail = router_exec.dispatch_reboot(router["vpn_ip"], "/system/routerboard upgrade; :delay 3s; /system/reboot", timeout=90, label="RouterBOOT upgrade")
+            change_control.step(tx_id, "apply", "ok", "Upgrade/reboot dispatched", detail)
             jobs.verifying(job["id"])
             events.record(router["id"], "upgrade", f"{kind.replace('_',' ')} dispatched to {job['target']}", detail)
         except Exception as exc:
+            if tx_id is not None:
+                try: change_control.fail(tx_id, exc)
+                except Exception: pass
             jobs.failed(job["id"], exc, code="UPGRADE_DISPATCH_FAILED", message="Upgrade dispatch failed")
             events.record(router["id"], "upgrade", "Upgrade dispatch failed", errors.short(exc), "critical")
         return job["id"]
@@ -526,21 +579,36 @@ def _process_upgrade_job():
                 events.record(router["id"], "upgrade", err.message, severity="critical")
             return job["id"]
         try:
+            post_access = change_control.verify_management(router, "Upgrade")
             telem = collect_telemetry(router["id"])
             if kind == "upgrade_routeros":
                 current = _version_number(telem.get("version", ""))
-                ok = current == _version_number(job["target"])
-                if not ok:
+                if current != _version_number(job["target"]):
                     raise errors.OperationError("UPGRADE_VERIFY_FAILED", "RouterOS version verification failed", f"expected={job['target']} observed={current}")
-                jobs.succeeded(job["id"])
-                events.record(router["id"], "upgrade", f"RouterOS upgrade verified: {current}", f"RouterBOOT {telem.get('routerboot_current','')}/{telem.get('routerboot_upgrade','')}")
             else:
-                ok = telem.get("routerboot_current") and telem.get("routerboot_current") == telem.get("routerboot_upgrade")
-                if not ok:
+                if not (telem.get("routerboot_current") and telem.get("routerboot_current") == telem.get("routerboot_upgrade")):
                     raise errors.OperationError("ROUTERBOOT_VERIFY_FAILED", "RouterBOOT versions still differ", f"current={telem.get('routerboot_current')} available={telem.get('routerboot_upgrade')}")
-                jobs.succeeded(job["id"])
-                events.record(router["id"], "upgrade", "RouterBOOT upgrade verified")
+
+            payload = jobs.payload(job["id"])
+            healthy_checks = int(payload.get("healthy_checks", 0)) + 1
+            jobs.update_payload(job["id"], {"healthy_checks": healthy_checks, "last_verified_at": now_iso()})
+            tx_id = int(payload.get("transaction_id") or 0)
+            if tx_id:
+                change_control.step(tx_id, "verify", "ok", f"Post-upgrade health sample {healthy_checks}/2", json.dumps({"access": post_access, "version": telem.get("version", "")}, default=str))
+            if healthy_checks < 2:
+                events.record(router["id"], "upgrade", f"Post-upgrade health sample {healthy_checks}/2 passed", "Waiting for a second healthy Guardian sample before committing upgrade")
+                return job["id"]
+
+            jobs.succeeded(job["id"])
+            if tx_id:
+                change_control.finish(tx_id, post_access=post_access)
+            events.record(router["id"], "upgrade", f"{'RouterOS ' + _version_number(telem.get('version','')) if kind == 'upgrade_routeros' else 'RouterBOOT'} upgrade verified", "Two consecutive healthy management checks passed")
         except Exception as exc:
+            payload = jobs.payload(job["id"])
+            tx_id = int(payload.get("transaction_id") or 0)
+            if tx_id:
+                try: change_control.fail(tx_id, exc, post_access=guardian.probe_router(router))
+                except Exception: pass
             jobs.failed(job["id"], exc, code="UPGRADE_VERIFY_FAILED", message="Upgrade verification failed")
             events.record(router["id"], "upgrade", "Upgrade verification failed", errors.short(exc), "critical")
         return job["id"]
