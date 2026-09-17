@@ -4,6 +4,7 @@ from app import fleet
 from app import guardian
 from app import migrations
 from app import operations
+from app import scheduler
 
 
 def main():
@@ -16,7 +17,7 @@ def main():
     operations.ensure_schema()
     if args.action == "scheduled":
         access = guardian.guardian_tick()
-        operations.scheduled_tick()
+        scheduler.scheduled_tick()
         job = fleet.scheduled_tick()
         print(f"guardian checked: {len(access)} router(s)")
         print("operations tick: completed")
@@ -26,7 +27,7 @@ def main():
     elif args.action == "analysis":
         print(f"analysis job: {fleet.run_analysis_job('cli')}")
     elif args.action == "operations":
-        operations.scheduled_tick()
+        scheduler.scheduled_tick()
         print("operations tick: completed")
     else:
         print(f"guardian checked: {len(guardian.guardian_tick())} router(s)")
