@@ -1,16 +1,16 @@
-"""User-facing time formatting for Tikcentral.
+"""User-facing time formatting.
 
-Persistent timestamps remain UTC in SQLite. UI timestamps are rendered in
-Montreal local time using the IANA America/Toronto zone so DST is automatic.
+Persistent timestamps remain UTC in SQLite; UI timestamps use the centrally
+configured IANA timezone.
 """
 
 import re
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
-MONTREAL_TZ = ZoneInfo("America/Toronto")
+from app import settings
 
-# ISO timestamps emitted by Tikcentral's UTC persistence layer.
+LOCAL_TZ = ZoneInfo(settings.TIMEZONE)
 _ISO_RE = re.compile(
     r"(?<![\w])"
     r"(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2}))"
@@ -18,7 +18,7 @@ _ISO_RE = re.compile(
 
 
 def format_montreal(value: str, *, seconds: bool = False) -> str:
-    """Convert an ISO timestamp to Montreal time for display."""
+    """Compatibility name: format an ISO timestamp in the configured UI zone."""
     if not value:
         return ""
     try:
@@ -26,7 +26,7 @@ def format_montreal(value: str, *, seconds: bool = False) -> str:
         dt = datetime.fromisoformat(normalized)
         if dt.tzinfo is None:
             dt = dt.replace(tzinfo=timezone.utc)
-        local = dt.astimezone(MONTREAL_TZ)
+        local = dt.astimezone(LOCAL_TZ)
         fmt = "%Y-%m-%d %H:%M:%S %Z" if seconds else "%Y-%m-%d %H:%M %Z"
         return local.strftime(fmt)
     except Exception:
@@ -34,5 +34,4 @@ def format_montreal(value: str, *, seconds: bool = False) -> str:
 
 
 def localize_html_iso_timestamps(text: str) -> str:
-    """Convert Tikcentral ISO timestamps embedded in rendered HTML."""
-    return _ISO_RE.sub(lambda m: format_montreal(m.group(1)), text or "")
+    return _ISO_RE.sub(lambda match: format_montreal(match.group(1)), text or "")
