@@ -1,17 +1,13 @@
 import asyncio
 import ipaddress
-import os
 import sqlite3
 from datetime import datetime, timezone
 
-DB_PATH = os.getenv("DB_PATH", "/var/lib/tikcentral/tikcentral.db")
-BIND_HOST = os.getenv("WINBOX_BIND_HOST", "0.0.0.0")
-TARGET_PORT = int(os.getenv("WINBOX_TARGET_PORT", "8291"))
-RESCAN_SECONDS = int(os.getenv("WINBOX_RESCAN_SECONDS", "10"))
+from app import settings
 
 
 def db_connect():
-    conn = sqlite3.connect(DB_PATH, timeout=5)
+    conn = sqlite3.connect(settings.DB_PATH, timeout=5)
     conn.row_factory = sqlite3.Row
     return conn
 
@@ -23,15 +19,12 @@ def authorized(source_ip: str) -> bool:
         return False
     if ip.version != 4:
         return False
-
     now = datetime.now(timezone.utc).isoformat()
     with db_connect() as conn:
         row = conn.execute(
-            """
-            SELECT 1 FROM authorized_ips
-            WHERE ip_address=? AND (always_allow=1 OR (expires_at IS NOT NULL AND expires_at>?))
-            LIMIT 1
-            """,
+            """SELECT 1 FROM authorized_ips
+               WHERE ip_address=? AND (always_allow=1 OR (expires_at IS NOT NULL AND expires_at>?))
+               LIMIT 1""",
             (str(ip), now),
         ).fetchone()
     return bool(row)
@@ -44,10 +37,10 @@ async def relay(reader: asyncio.StreamReader, writer: asyncio.StreamWriter, vpn_
         writer.close()
         await writer.wait_closed()
         return
-
     try:
         target_reader, target_writer = await asyncio.wait_for(
-            asyncio.open_connection(vpn_ip, TARGET_PORT), timeout=8
+            asyncio.open_connection(vpn_ip, settings.WINBOX_TARGET_PORT),
+            timeout=settings.WINBOX_CONNECT_TIMEOUT,
         )
     except Exception:
         writer.close()
@@ -85,28 +78,27 @@ async def main():
     servers: dict[int, tuple[str, asyncio.AbstractServer]] = {}
     while True:
         wanted = desired_ports()
-
         for port, (vpn_ip, server) in list(servers.items()):
             if port not in wanted or wanted[port] != vpn_ip:
                 server.close()
                 await server.wait_closed()
                 del servers[port]
                 print(f"Closed WinBox proxy {port}", flush=True)
-
         for port, vpn_ip in wanted.items():
             if port in servers:
                 continue
             try:
                 server = await asyncio.start_server(
-                    lambda r, w, target=vpn_ip: relay(r, w, target), BIND_HOST, port
+                    lambda r, w, target=vpn_ip: relay(r, w, target),
+                    settings.WINBOX_BIND_HOST,
+                    port,
                 )
             except OSError as exc:
                 print(f"Could not bind WinBox proxy {port}: {exc}", flush=True)
                 continue
             servers[port] = (vpn_ip, server)
-            print(f"WinBox proxy {port} -> {vpn_ip}:{TARGET_PORT}", flush=True)
-
-        await asyncio.sleep(RESCAN_SECONDS)
+            print(f"WinBox proxy {port} -> {vpn_ip}:{settings.WINBOX_TARGET_PORT}", flush=True)
+        await asyncio.sleep(settings.WINBOX_RESCAN_SECONDS)
 
 
 if __name__ == "__main__":
