@@ -380,7 +380,45 @@ def _m7(conn):
             conn.execute(f"ALTER TABLE router_access_history ADD COLUMN {name} {definition}")
 
 
-MIGRATIONS = [_m1, _m2, _m3, _m4, _m5, _m6, _m7]
+def _m8(conn):
+    """Known-good management state, attributed config snapshots and WAN history."""
+    conn.executescript("""
+    CREATE TABLE IF NOT EXISTS router_management_known_good (
+        router_id INTEGER PRIMARY KEY,
+        captured_at TEXT NOT NULL,
+        sha256 TEXT NOT NULL,
+        content TEXT NOT NULL,
+        source_kind TEXT NOT NULL DEFAULT '',
+        source_id INTEGER,
+        source_actor TEXT NOT NULL DEFAULT '',
+        FOREIGN KEY(router_id) REFERENCES routers(id) ON DELETE CASCADE
+    );
+    CREATE TABLE IF NOT EXISTS router_wan_history (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        router_id INTEGER NOT NULL,
+        captured_at TEXT NOT NULL,
+        active_default_routes INTEGER NOT NULL DEFAULT 0,
+        dhcp_bound INTEGER NOT NULL DEFAULT 0,
+        pppoe_running INTEGER NOT NULL DEFAULT 0,
+        internet_ping INTEGER,
+        dns_ok INTEGER,
+        summary TEXT NOT NULL DEFAULT '',
+        fingerprint TEXT NOT NULL DEFAULT '',
+        FOREIGN KEY(router_id) REFERENCES routers(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_router_wan_history_router_time
+      ON router_wan_history(router_id,captured_at DESC);
+    """)
+    for name, definition in {
+        "source_kind": "TEXT NOT NULL DEFAULT ''",
+        "source_id": "INTEGER",
+        "source_actor": "TEXT NOT NULL DEFAULT ''",
+    }.items():
+        if not _has_column(conn, "router_snapshots", name):
+            conn.execute(f"ALTER TABLE router_snapshots ADD COLUMN {name} {definition}")
+
+
+MIGRATIONS = [_m1, _m2, _m3, _m4, _m5, _m6, _m7, _m8]
 
 
 def migrate() -> int:
