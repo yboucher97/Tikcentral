@@ -54,7 +54,13 @@ def ssh_console(router_id: int, request: Request):
     if not router or not router["enabled"]:
         raise HTTPException(status_code=404, detail="enabled router not found")
     csrf = core.csrf_token(request)
-    body = f'''<div class="panel pad"><h2>SSH — {html.escape(router['site_name'])}</h2><div class="muted">{html.escape(router['identity'] or '')} · {html.escape(router['model'] or '')} · <code>{html.escape(router['vpn_ip'])}</code></div><form method="post" action="/ssh/{router_id}" style="margin-top:16px"><input type="hidden" name="csrf" value="{csrf}"><textarea name="command" style="width:100%;min-height:100px" placeholder="/system resource print" required></textarea><div class="inline" style="margin-top:10px"><button class="primary">Run command</button><a href="/ssh">Back to routers</a></div></form></div>'''
+    body = f'''<div class="panel pad"><h2>SSH — {html.escape(router['site_name'])}</h2><div class="muted">{html.escape(router['identity'] or '')} · {html.escape(router['model'] or '')} · <code>{html.escape(router['vpn_ip'])}</code></div><form method="post" action="/ssh/{router_id}" style="margin-top:16px"><input type="hidden" name="csrf" value="{csrf}"><textarea name="command" style="width:100%;min-height:100px" placeholder="/system resource print" required></textarea>
+<div class="panel pad" style="margin-top:12px;background:var(--panel2)">
+<label><input type="checkbox" name="override_degraded" value="1"> Allow this command while Guardian is degraded</label>
+<div class="muted" style="margin-top:5px">Use only when necessary. WireGuard and SSH must still be reachable, and the override is logged as critical.</div>
+<input name="override_reason" maxlength="240" placeholder="Required reason when overriding degraded-access protection" style="width:100%;margin-top:8px">
+</div>
+<div class="inline" style="margin-top:10px"><button class="primary">Run command</button><a href="/ssh">Back to routers</a></div></form></div>'''
     return ui.page("SSH Console", body, user, "ssh")
 
 
@@ -77,9 +83,17 @@ async def ssh_console_run(router_id: int, request: Request):
         raise HTTPException(status_code=404, detail="enabled router not found")
 
     actor = user["email"] if "email" in user.keys() else "admin"
+    override_degraded = str(data.get("override_degraded", "")) == "1"
+    override_reason = str(data.get("override_reason", ""))[:240]
     tx_id = None
     try:
-        pre_access = change_control.require_management(router, "Web SSH command")
+        pre_access = change_control.authorize_mutation(
+            router,
+            "Web SSH command",
+            actor=actor,
+            override_degraded=override_degraded,
+            override_reason=override_reason,
+        )
         with jobs.operation(
             router_id,
             "web_ssh",
@@ -90,6 +104,8 @@ async def ssh_console_run(router_id: int, request: Request):
             fail_message="Web SSH command failed",
         ) as job_id:
             tx_id = change_control.begin(router_id, "web_ssh", actor, job_id=job_id, pre_access=pre_access)
+            if override_degraded:
+                change_control.step(tx_id, "preflight", "warning", "Degraded-access protection explicitly overridden", override_reason)
             change_control.step(tx_id, "backup", "info", "Creating retained pre-command backup")
             operations.backup_router(router_id, "pre-change", actor, track_job=False)
             change_control.step(tx_id, "backup", "ok", "Pre-command backup completed")
@@ -109,5 +125,10 @@ async def ssh_console_run(router_id: int, request: Request):
         status = "Error"
 
     csrf = core.csrf_token(request)
-    body = f'''<div class="panel pad"><h2>SSH — {html.escape(router['site_name'])}</h2><div class="muted">{html.escape(router['identity'] or '')} · <code>{html.escape(router['vpn_ip'])}</code></div><div style="margin-top:14px"><strong>{status}</strong></div><pre style="white-space:pre-wrap;padding:14px;border-radius:8px;max-height:520px;overflow:auto">{html.escape(output or '(no output)')}</pre><form method="post" action="/ssh/{router_id}"><input type="hidden" name="csrf" value="{csrf}"><textarea name="command" style="width:100%;min-height:100px" placeholder="Next RouterOS command" required></textarea><div class="inline" style="margin-top:10px"><button class="primary">Run command</button><a href="/ssh">Back to routers</a></div></form></div>'''
+    body = f'''<div class="panel pad"><h2>SSH — {html.escape(router['site_name'])}</h2><div class="muted">{html.escape(router['identity'] or '')} · <code>{html.escape(router['vpn_ip'])}</code></div><div style="margin-top:14px"><strong>{status}</strong></div><pre style="white-space:pre-wrap;padding:14px;border-radius:8px;max-height:520px;overflow:auto">{html.escape(output or '(no output)')}</pre><form method="post" action="/ssh/{router_id}"><input type="hidden" name="csrf" value="{csrf}"><textarea name="command" style="width:100%;min-height:100px" placeholder="Next RouterOS command" required></textarea>
+<div class="panel pad" style="margin-top:12px;background:var(--panel2)">
+<label><input type="checkbox" name="override_degraded" value="1"> Allow this command while Guardian is degraded</label>
+<input name="override_reason" maxlength="240" placeholder="Required reason when overriding degraded-access protection" style="width:100%;margin-top:8px">
+</div>
+<div class="inline" style="margin-top:10px"><button class="primary">Run command</button><a href="/ssh">Back to routers</a></div></form></div>'''
     return ui.page("SSH Console", body, user, "ssh")
