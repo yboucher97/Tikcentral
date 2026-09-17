@@ -1,43 +1,21 @@
-"""Tikcentral enrollment/provisioning UI.
+"""Opticable fresh-router provisioning and encrypted admin credentials.
 
-Replaces the basic enrollment form with two modes:
-- Tikcentral only: safe for an existing configured router.
-- Tikcentral + Opticable default config: fresh-router E50 baseline + enrollment.
-
-A personal router administrator credential can be saved once. The password is
-stored encrypted in SQLite with a VPS-only Fernet key from the environment.
+Web routes live in app.enrollment. Database schema lives in app.migrations.
 """
-
-import html
-import os
-import secrets
-from datetime import timedelta
 
 from cryptography.fernet import Fernet, InvalidToken
-from fastapi import HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app import main as core
-from app import portal
-
-
-SCHEMA = """
-CREATE TABLE IF NOT EXISTS provisioning_settings (
-    id INTEGER PRIMARY KEY CHECK(id=1),
-    admin_username TEXT NOT NULL DEFAULT '',
-    admin_password_enc TEXT NOT NULL DEFAULT ''
-);
-INSERT OR IGNORE INTO provisioning_settings(id) VALUES(1);
-"""
+from app import migrations
+from app import settings
 
 
 def ensure_schema():
-    with core.db() as conn:
-        conn.executescript(SCHEMA)
+    migrations.migrate()
 
 
 def _fernet():
-    key = os.getenv("TIKCENTRAL_PROVISIONING_KEY", "").encode()
+    key = settings.PROVISIONING_KEY.encode()
     if not key:
         raise RuntimeError("TIKCENTRAL_PROVISIONING_KEY is not configured")
     return Fernet(key)
@@ -56,7 +34,7 @@ def _decrypt(value: str) -> str:
         return ""
 
 
-def get_admin_credentials():
+def get_admin_credentials() -> tuple[str, str]:
     ensure_schema()
     with core.db() as conn:
         row = conn.execute(
@@ -65,22 +43,34 @@ def get_admin_credentials():
     return (row["admin_username"] or "", _decrypt(row["admin_password_enc"] or ""))
 
 
+def set_admin_credentials(username: str, password: str):
+    if not username or len(username) > 64:
+        raise ValueError("invalid personal username")
+    if not password or len(password) > 256:
+        raise ValueError("invalid personal password")
+    ensure_schema()
+    with core.db() as conn:
+        conn.execute(
+            "UPDATE provisioning_settings SET admin_username=?,admin_password_enc=? WHERE id=1",
+            (username, _encrypt(password)),
+        )
+
+
 def _ros(value: str) -> str:
-    """Escape text for a RouterOS double-quoted string."""
     return value.replace("\\", "\\\\").replace('"', '\\"').replace("$", "\\$")
 
 
 def personal_admin_block(username: str, password: str) -> str:
     if not username or not password:
         return ""
-    u = _ros(username)
-    p = _ros(password)
+    user = _ros(username)
+    secret = _ros(password)
     return f'''
 # Personal Opticable administrator - reconcile, do not duplicate
-:if ([:len [/user find where name="{u}"]] = 0) do={{
-    /user add name="{u}" password="{p}" group=full disabled=no comment="Opticable personal admin"
+:if ([:len [/user find where name="{user}"]] = 0) do={{
+    /user add name="{user}" password="{secret}" group=full disabled=no comment="Opticable personal admin"
 }} else={{
-    /user set [find where name="{u}"] password="{p}" group=full disabled=no comment="Opticable personal admin"
+    /user set [find where name="{user}"] password="{secret}" group=full disabled=no comment="Opticable personal admin"
 }}
 '''.strip()
 
@@ -88,11 +78,10 @@ def personal_admin_block(username: str, password: str) -> str:
 def default_config_script(site_name: str, vlan_count: int, lan_count: int,
                           wan_down: int, wan_up: int, tenant_down: int,
                           tenant_up: int, vlan_parent: str) -> str:
-    """Generate the Opticable E50 fresh-router baseline.
+    """Generate the Opticable fresh-router baseline.
 
-    DHCP is active on ether1. Bell VLAN35 and a disabled dummy PPPoE profile are
-    always prepared for onsite credentials. Heavy CAKE/mangle is intentionally
-    not the default E50 profile; FastTrack is used for the balanced profile.
+    Intended only after RouterOS/RouterBOOT update and a no-defaults reset.
+    DHCP on ether1 remains the fallback; Bell VLAN35 + disabled PPPoE are staged.
     """
     site = _ros(site_name)
     parent = _ros(vlan_parent)
@@ -154,7 +143,7 @@ def default_config_script(site_name: str, vlan_count: int, lan_count: int,
     :if ([:len [/ip/dhcp-server/network find where address=$net]] = 0) do={{ /ip/dhcp-server/network add address=$net gateway=$gw dns-server=1.1.1.1 }}
 }}
 
-# Physical LANs: ether2..ether{lan_count + 1}, each with its own 10.x.0.0/24 DHCP network
+# Physical LANs: ether2..ether{lan_count + 1}
 :for n from=2 to={lan_count + 1} do={{
     :local ifname ("ether" . $n)
     :local gw ("10." . $n . ".0.1")
@@ -171,13 +160,13 @@ def default_config_script(site_name: str, vlan_count: int, lan_count: int,
 /ip/dns set allow-remote-requests=no servers=1.1.1.1
 :if ([:len [/ip/firewall/nat find where comment="Opticable WAN NAT"]] = 0) do={{ /ip/firewall/nat add chain=srcnat action=masquerade out-interface-list=WAN comment="Opticable WAN NAT" }}
 
-# Balanced E50 forwarding profile. Guardian/performance monitoring determines if heavier QoS is justified.
+# Balanced forwarding profile
 :if ([:len [/ip/firewall/filter find where comment="Opticable FastTrack"]] = 0) do={{ /ip/firewall/filter add chain=forward action=fasttrack-connection connection-state=established,related hw-offload=yes comment="Opticable FastTrack" }}
 :if ([:len [/ip/firewall/filter find where comment="Opticable forward established"]] = 0) do={{ /ip/firewall/filter add chain=forward action=accept connection-state=established,related,untracked comment="Opticable forward established" }}
 :if ([:len [/ip/firewall/filter find where comment="Opticable forward invalid"]] = 0) do={{ /ip/firewall/filter add chain=forward action=drop connection-state=invalid comment="Opticable forward invalid" }}
 :if ([:len [/ip/firewall/filter find where comment="Opticable WAN forward drop"]] = 0) do={{ /ip/firewall/filter add chain=forward action=drop connection-state=new connection-nat-state=!dstnat in-interface-list=WAN comment="Opticable WAN forward drop" }}
 
-# Router input baseline - management exceptions are added by Tikcentral enrollment at the top.
+# Router input baseline - Tikcentral enrollment prepends management exceptions.
 :if ([:len [/ip/firewall/filter find where comment="Opticable input established"]] = 0) do={{ /ip/firewall/filter add chain=input action=accept connection-state=established,related,untracked comment="Opticable input established" }}
 :if ([:len [/ip/firewall/filter find where comment="Opticable input invalid"]] = 0) do={{ /ip/firewall/filter add chain=input action=drop connection-state=invalid comment="Opticable input invalid" }}
 :if ([:len [/ip/firewall/filter find where comment="Opticable LAN ICMP"]] = 0) do={{ /ip/firewall/filter add chain=input action=accept in-interface-list=LAN protocol=icmp comment="Opticable LAN ICMP" }}
@@ -200,122 +189,3 @@ def default_config_script(site_name: str, vlan_count: int, lan_count: int,
 :put "Opticable default configuration complete; continuing with Tikcentral enrollment"
 }}
 '''
-
-
-def _page(page_func, user, csrf, message=""):
-    username, password = get_admin_credentials()
-    configured = bool(username and password)
-    note = f'<div class="panel pad" style="border-color:#355"><strong>{html.escape(message)}</strong></div>' if message else ""
-    body = f'''{note}
-<div class="panel pad"><h2>Enroll / Provision MikroTik</h2>
-<div class="muted">Choose whether this script only adds Tikcentral management to an existing router, or also builds the Opticable fresh-router baseline.</div>
-<form method="post" action="/enroll/generate" style="margin-top:18px">
-<input type="hidden" name="csrf" value="{csrf}">
-<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px">
-<label>Mode<br><select name="mode" style="width:100%"><option value="enroll">Tikcentral only (existing router)</option><option value="default">Tikcentral + Opticable default config (fresh router)</option></select></label>
-<label>Site identity<br><input name="site_name" maxlength="120" style="width:100%" placeholder="977-973 St-Faustin Mont-Blanc" required></label>
-<label>Tenant VLAN count<br><input type="number" name="vlan_count" min="1" max="20" value="12" style="width:100%"></label>
-<label>Active physical LANs<br><select name="lan_count" style="width:100%"><option>1</option><option>2</option><option>3</option><option selected>4</option></select></label>
-<label>VLAN parent<br><select name="vlan_parent" style="width:100%"><option selected>ether2</option><option>ether3</option><option>ether4</option><option>ether5</option></select></label>
-<label>WAN download Mbps<br><input type="number" name="wan_down" min="10" max="1000" value="500" style="width:100%"></label>
-<label>WAN upload Mbps<br><input type="number" name="wan_up" min="10" max="1000" value="500" style="width:100%"></label>
-<label>Tenant cap download Mbps<br><input type="number" name="tenant_down" min="0" max="1000" value="80" style="width:100%"></label>
-<label>Tenant cap upload Mbps<br><input type="number" name="tenant_up" min="0" max="1000" value="40" style="width:100%"></label>
-</div>
-<div class="muted" style="margin-top:12px">Default config always creates active DHCP on ether1 plus Bell VLAN35 and a disabled dummy PPPoE profile (CHANGE@bellnet.ca / CHANGE_ME, PPPoE distance 1, DHCP distance 2). Set tenant caps to 0 to omit them.</div>
-<div style="margin-top:16px"><button class="primary">Generate script</button></div>
-</form></div>
-
-<div class="panel pad"><h2>Personal router administrator</h2>
-<div class="muted">Saved once and reconciled on every generated enrollment script. Password is encrypted at rest on this VPS. Current status: <strong>{'Configured' if configured else 'Not configured'}</strong>.</div>
-<form method="post" action="/enroll/admin-credentials" style="margin-top:14px">
-<input type="hidden" name="csrf" value="{csrf}">
-<div class="inline"><input name="username" value="{html.escape(username)}" placeholder="Personal username" autocomplete="off" required><input type="password" name="password" placeholder="{'Leave blank to keep current password' if configured else 'Password'}" autocomplete="new-password" {'required' if not configured else ''}><button>Save personal admin</button></div>
-</form></div>'''
-    return page_func("Enrollment", body, user, "enroll")
-
-
-def register(app, page_func):
-    ensure_schema()
-
-    # Replace the original portal enrollment routes while preserving every
-    # other route. Starlette evaluates routes in registration order, so remove
-    # old copies before adding the enhanced endpoints.
-    app.router.routes[:] = [
-        r for r in app.router.routes
-        if getattr(r, "path", None) not in {"/enroll", "/enroll/generate"}
-    ]
-
-    @app.get("/enroll", response_class=HTMLResponse)
-    def enroll_page(request: Request):
-        user = core.require_web_admin(request)
-        if not user:
-            return RedirectResponse("/login", status_code=303)
-        return _page(page_func, user, core.csrf_token(request))
-
-    @app.post("/enroll/admin-credentials", response_class=HTMLResponse)
-    async def save_admin_credentials(request: Request):
-        user = core.require_web_admin(request)
-        if not user:
-            return RedirectResponse("/login", status_code=303)
-        data = await core.form_data(request)
-        core.require_csrf(request, data.get("csrf", ""))
-        username = data.get("username", "").strip()
-        password = data.get("password", "")
-        if not username or len(username) > 64:
-            raise HTTPException(status_code=400, detail="invalid personal username")
-        old_user, old_password = get_admin_credentials()
-        if not password:
-            password = old_password
-        if not password or len(password) > 256:
-            raise HTTPException(status_code=400, detail="invalid personal password")
-        with core.db() as conn:
-            conn.execute(
-                "UPDATE provisioning_settings SET admin_username=?,admin_password_enc=? WHERE id=1",
-                (username, _encrypt(password)),
-            )
-        return _page(page_func, user, core.csrf_token(request), "Personal router administrator saved.")
-
-    @app.post("/enroll/generate", response_class=HTMLResponse)
-    async def generate(request: Request):
-        user = core.require_web_admin(request)
-        if not user:
-            return RedirectResponse("/login", status_code=303)
-        data = await core.form_data(request)
-        core.require_csrf(request, data.get("csrf", ""))
-        site_name = data.get("site_name", "").strip()
-        mode = data.get("mode", "enroll")
-        if not site_name or len(site_name) > 120 or mode not in {"enroll", "default"}:
-            raise HTTPException(status_code=400, detail="invalid enrollment request")
-        try:
-            vlan_count = int(data.get("vlan_count", "12")); lan_count = int(data.get("lan_count", "4"))
-            wan_down = int(data.get("wan_down", "500")); wan_up = int(data.get("wan_up", "500"))
-            tenant_down = int(data.get("tenant_down", "80")); tenant_up = int(data.get("tenant_up", "40"))
-        except ValueError:
-            raise HTTPException(status_code=400, detail="invalid numeric provisioning value")
-        vlan_parent = data.get("vlan_parent", "ether2")
-        if not (1 <= vlan_count <= 20 and 1 <= lan_count <= 4 and 10 <= wan_down <= 1000 and 10 <= wan_up <= 1000 and 0 <= tenant_down <= 1000 and 0 <= tenant_up <= 1000 and vlan_parent in {"ether2","ether3","ether4","ether5"}):
-            raise HTTPException(status_code=400, detail="provisioning value out of range")
-
-        token = secrets.token_urlsafe(24)
-        now = core.utcnow(); expires = now + timedelta(hours=core.TOKEN_TTL_HOURS)
-        with core.db() as conn:
-            conn.execute(
-                "INSERT INTO enrollment_tokens(token_hash,site_name,created_at,expires_at) VALUES(?,?,?,?)",
-                (core.hash_token(token), site_name, core.iso(now), core.iso(expires)),
-            )
-
-        parts = []
-        if mode == "default":
-            parts.append(default_config_script(site_name, vlan_count, lan_count, wan_down, wan_up, tenant_down, tenant_up, vlan_parent))
-        parts.append(portal.build_routeros_script(site_name, token))
-        admin_user, admin_password = get_admin_credentials()
-        if admin_user and admin_password:
-            parts.append(personal_admin_block(admin_user, admin_password))
-        script = "\n\n".join(x for x in parts if x)
-
-        summary = "Tikcentral only" if mode == "enroll" else f"Opticable default config + Tikcentral · {vlan_count} VLANs · {lan_count} LANs · {wan_down}/{wan_up} Mbps"
-        warning = "" if mode == "enroll" else '<div class="error"><strong>Fresh-router provisioning:</strong> use this mode on a new/default router. For an active configured router, use Tikcentral only.</div>'
-        admin_note = f"Personal admin <code>{html.escape(admin_user)}</code> will be reconciled." if admin_user and admin_password else "No personal admin credential is configured yet."
-        body = f'''{warning}<div class="panel pad"><h2>{html.escape(site_name)}</h2><div>{html.escape(summary)}</div><div class="muted">One-time token expires {html.escape(expires.strftime("%Y-%m-%d %H:%M UTC"))}. {admin_note}</div><div class="inline" style="margin-top:14px"><button type="button" class="primary" onclick="copyScript()">Copy script</button><a href="/enroll"><button type="button">Back</button></a></div></div><div class="panel pad"><textarea class="script" id="script" readonly>{html.escape(script)}</textarea></div><script>async function copyScript(){{const el=document.getElementById('script');try{{await navigator.clipboard.writeText(el.value);}}catch(e){{el.select();document.execCommand('copy');}}}}</script>'''
-        return page_func("Enrollment Script", body, user, "enroll")
