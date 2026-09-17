@@ -95,7 +95,7 @@ def enable_rescue(router_id: int, interface: str, created_by: str):
 :if ([:len [/interface/list/member find where interface={interface} list=LAN]] = 0) do={{ /interface/list/member add interface={interface} list=LAN comment="Tikcentral rescue LAN membership" }};
 /ip/address add address={settings.RESCUE_ADDRESS} interface={interface} comment="Tikcentral rescue address";
 /ip/pool add name="Tikcentral-Rescue-Pool" ranges={settings.RESCUE_POOL};
-/ip/dhcp-server/network add address=10.255.255.0/24 gateway=10.255.255.1 dns-server=1.1.1.1 comment="Tikcentral rescue network";
+/ip/dhcp-server/network add address={settings.RESCUE_NETWORK} gateway={settings.RESCUE_GATEWAY} dns-server={settings.RESCUE_DNS} comment="Tikcentral rescue network";
 /ip/dhcp-server add name="Tikcentral-Rescue-DHCP" interface={interface} address-pool="Tikcentral-Rescue-Pool" disabled=no;
 :put "Tikcentral local rescue port enabled on {interface}"
 '''.strip()
@@ -111,7 +111,12 @@ def enable_rescue(router_id: int, interface: str, created_by: str):
                 (router_id, interface, settings.RESCUE_ADDRESS, operations.now_iso()),
             )
         jobs.succeeded(job_id)
-        events.record(router_id, "rescue", f"Static local rescue port enabled on {interface}", f"{settings.RESCUE_ADDRESS} DHCP {settings.RESCUE_POOL}")
+        events.record(
+            router_id,
+            "rescue",
+            f"Static local rescue port enabled on {interface}",
+            f"{settings.RESCUE_ADDRESS} · network {settings.RESCUE_NETWORK} · DHCP {settings.RESCUE_POOL} · DNS {settings.RESCUE_DNS}",
+        )
         return output
     except Exception as exc:
         jobs.failed(job_id, exc, code="RESCUE_ENABLE_FAILED", message="Enable rescue port failed")
@@ -194,23 +199,31 @@ def register(app, page_func):
             disable = f'''<form method="post" action="/rescue/{r['id']}/disable" style="display:inline"><input type="hidden" name="csrf" value="{csrf}"><button class="danger" onclick="return confirm('Disable the static rescue port?')">Disable</button></form>'''
             status = f"Enabled · {r['rescue_interface']} · {r['rescue_address'] or settings.RESCUE_ADDRESS}" if r["rescue_enabled"] else "Disabled"
             body_rows.append(f'''<tr><td><strong>{html.escape(r['site_name'])}</strong><div class="muted">{html.escape(r['model'] or '')} · {html.escape(r['vpn_ip'])}</div></td><td>{'Healthy' if r['management_ok'] else 'Degraded'}</td><td>{html.escape(status)}</td><td>{enable} {disable if r['rescue_enabled'] else ''}</td></tr>''')
-        body = f'''<div class="panel pad"><h2>Local Rescue Ports</h2><div class="muted">Choices: ether1–ether10 and sfp-sfpplus1–sfp-sfpplus24. Tikcentral refuses interfaces already used by IP, DHCP, PPPoE, VLANs, bridge membership or WAN membership. Rescue uses {settings.RESCUE_ADDRESS} with DHCP {settings.RESCUE_POOL}. No RouterOS script/Netwatch is installed.</div></div><div class="panel"><table><thead><tr><th>Router</th><th>Access</th><th>Rescue</th><th>Action</th></tr></thead><tbody>{''.join(body_rows) or '<tr><td colspan="4">No routers.</td></tr>'}</tbody></table></div>'''
+        body = f'''<div class="panel pad"><h2>Local Rescue Ports</h2><div class="muted">Choices: ether1–ether10 and sfp-sfpplus1–sfp-sfpplus24. Tikcentral refuses interfaces already used by IP, DHCP, PPPoE, VLANs, bridge membership or WAN membership. Rescue uses {settings.RESCUE_ADDRESS}, network {settings.RESCUE_NETWORK}, DHCP {settings.RESCUE_POOL}, DNS {settings.RESCUE_DNS}. No RouterOS script/Netwatch is installed.</div></div><div class="panel"><table><thead><tr><th>Router</th><th>Access</th><th>Rescue</th><th>Action</th></tr></thead><tbody>{''.join(body_rows) or '<tr><td colspan="4">No routers.</td></tr>'}</tbody></table></div>'''
         return page_func("Rescue Ports", body, user, "rescue")
 
     @app.post("/rescue/{router_id}/enable", response_class=HTMLResponse)
     async def rescue_enable(router_id: int, request: Request):
         user = core.require_web_admin(request)
-        if not user: return RedirectResponse("/login", status_code=303)
-        data = await core.form_data(request); core.require_csrf(request, data.get("csrf", ""))
-        try: enable_rescue(router_id, data.get("interface", "ether5"), _actor(user))
-        except Exception as exc: return _error_page(page_func,user,router_id,"Enable rescue port",exc)
+        if not user:
+            return RedirectResponse("/login", status_code=303)
+        data = await core.form_data(request)
+        core.require_csrf(request, data.get("csrf", ""))
+        try:
+            enable_rescue(router_id, data.get("interface", "ether5"), _actor(user))
+        except Exception as exc:
+            return _error_page(page_func, user, router_id, "Enable rescue port", exc)
         return RedirectResponse("/rescue", status_code=303)
 
     @app.post("/rescue/{router_id}/disable", response_class=HTMLResponse)
     async def rescue_disable(router_id: int, request: Request):
         user = core.require_web_admin(request)
-        if not user: return RedirectResponse("/login", status_code=303)
-        data = await core.form_data(request); core.require_csrf(request, data.get("csrf", ""))
-        try: disable_rescue(router_id,_actor(user))
-        except Exception as exc: return _error_page(page_func,user,router_id,"Disable rescue port",exc)
+        if not user:
+            return RedirectResponse("/login", status_code=303)
+        data = await core.form_data(request)
+        core.require_csrf(request, data.get("csrf", ""))
+        try:
+            disable_rescue(router_id, _actor(user))
+        except Exception as exc:
+            return _error_page(page_func, user, router_id, "Disable rescue port", exc)
         return RedirectResponse("/rescue", status_code=303)
