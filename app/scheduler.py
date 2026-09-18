@@ -7,7 +7,7 @@ next timer tick.
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from app import automation_inventory, certificate_monitor, compliance, errors, events, fleet_health, interface_monitor, ip_enrichment, jobs, lte_monitor, main as core, operations, outage_classifier, security_audit, settings, state_capture, system_health, traffic_monitor, upgrade_campaigns
+from app import automation_inventory, capacity_forecast, certificate_monitor, compliance, errors, events, fleet_health, interface_monitor, ip_enrichment, jobs, lte_monitor, main as core, operations, outage_classifier, security_audit, settings, state_capture, system_health, traffic_monitor, upgrade_campaigns
 
 
 def _eligible_healthy_router_ids() -> list[int]:
@@ -76,6 +76,10 @@ def _collect_router_observability(router_id: int):
             result[key] = fn()
         except Exception as exc:
             result["errors"].append(f"{key}: {errors.short(exc)}")
+    try:
+        result["capacity"] = capacity_forecast.assess(router_id)
+    except Exception as exc:
+        result["errors"].append(f"capacity: {errors.short(exc)}")
     if result["errors"]:
         events.record(
             router_id,
