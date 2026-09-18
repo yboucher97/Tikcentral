@@ -7,7 +7,7 @@ next timer tick.
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from app import compliance, errors, events, fleet_health, ip_enrichment, jobs, lte_monitor, main as core, operations, settings, state_capture, system_health
+from app import compliance, errors, events, fleet_health, interface_monitor, ip_enrichment, jobs, lte_monitor, main as core, operations, outage_classifier, settings, state_capture, system_health
 
 
 def _eligible_healthy_router_ids() -> list[int]:
@@ -59,13 +59,14 @@ def _change_lane():
 
 def _collect_router_observability(router_id: int):
     """Collect optional router state without allowing one probe family to hide another."""
-    result = {"telemetry": None, "wan": None, "known_good": None, "compliance": None, "lte": None, "errors": []}
+    result = {"telemetry": None, "wan": None, "known_good": None, "compliance": None, "lte": None, "interfaces": None, "errors": []}
     for key, fn in (
         ("telemetry", lambda: operations.collect_telemetry(router_id, False)),
         ("wan", lambda: state_capture.collect_wan_state(router_id)),
         ("known_good", lambda: state_capture.refresh_known_good_if_due(router_id)),
         ("compliance", lambda: compliance.evaluate(router_id)),
         ("lte", lambda: lte_monitor.collect(router_id)),
+        ("interfaces", lambda: interface_monitor.collect(router_id)),
     ):
         try:
             result[key] = fn()
@@ -131,6 +132,7 @@ def scheduled_tick():
     _optional("telemetry", lambda: _telemetry_lane(state, now))
     _optional("drift", lambda: _drift_lane(state, now))
     _optional("public_ip_enrichment", ip_enrichment.refresh_all)
+    _optional("outage_classification", outage_classifier.assess_all)
     _optional("fleet_health", fleet_health.counts)
     _optional("system_health", system_health.scheduled_tick)
     _optional("event_maintenance", events.maintenance)
