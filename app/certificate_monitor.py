@@ -46,21 +46,35 @@ def collect(router_id:int):
     if not r or not r["enabled"] or (r["lifecycle_state"] or "production")=="retired": return []
     raw=router_exec.read(r["vpn_ip"],COMMAND,timeout=40,label="Certificate inventory")
     rows=_parse_rows(raw); captured=_now().isoformat()
+    transitions=[]
     with core.db() as conn:
         for x in rows:
+            name=x.get("name","")
             expires=x.get("invalid-after") or x.get("expires-after") or ""
             dt=_parse_dt(expires)
             days=int((dt-_now()).total_seconds()//86400) if dt else None
             status="unknown" if days is None else ("expired" if days<0 else ("critical" if days<=7 else ("warning" if days<=30 else "ok")))
+            previous=conn.execute(
+                "SELECT status,days_remaining FROM router_certificates WHERE router_id=? AND name=? ORDER BY id DESC LIMIT 1",
+                (router_id,name),
+            ).fetchone()
             conn.execute(
                 """INSERT INTO router_certificates(router_id,captured_at,name,common_name,issuer,fingerprint,key_usage,trusted,expires_at,days_remaining,status)
                    VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
-                (router_id,captured,x.get("name",""),x.get("common-name",""),x.get("issuer",""),x.get("fingerprint",""),
+                (router_id,captured,name,x.get("common-name",""),x.get("issuer",""),x.get("fingerprint",""),
                  x.get("key-usage",""),1 if str(x.get("trusted","")).lower() in {"yes","true"} else 0,expires,days,status),
             )
+            if previous and previous["status"] != status:
+                transitions.append((name,previous["status"],status,days))
         conn.execute(
             """DELETE FROM router_certificates WHERE router_id=? AND id NOT IN
                (SELECT id FROM router_certificates WHERE router_id=? ORDER BY id DESC LIMIT 5000)""",(router_id,router_id))
+    for name,old_status,new_status,days in transitions:
+        severity="critical" if new_status in {"critical","expired"} else ("warning" if new_status=="warning" else "info")
+        events.record(
+            router_id,"certificate",f"Certificate {name or '-'}: {old_status} → {new_status}",
+            f"days_remaining={days}",severity,
+        )
     return rows
 
 
