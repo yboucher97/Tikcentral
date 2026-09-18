@@ -8,7 +8,7 @@ from urllib.parse import parse_qs
 from fastapi import Request
 from fastapi.responses import HTMLResponse
 
-from app import main as core, migrations
+from app import main as core, migrations, object_protection
 
 # Only router-side mutations are intercepted. Read-only refresh/check actions and
 # database-only acknowledgement actions intentionally bypass this preview.
@@ -53,11 +53,16 @@ def _snapshot(router_id: int):
             "SELECT id,kind,status,actor FROM router_jobs WHERE router_id=? AND status IN ('queued','running','verifying') ORDER BY id LIMIT 1",
             (router_id,),
         ).fetchone()
-    return router, access, backup, active
+    with core.db() as conn:
+        protected_count = conn.execute(
+            "SELECT COUNT(*) c FROM router_object_protection WHERE router_id=? AND protected=1",
+            (router_id,),
+        ).fetchone()["c"]
+    return router, access, backup, active, protected_count
 
 
 def _preview_page(request: Request, router_id: int, title: str, touch: str, fields: dict[str, str]):
-    router, access, backup, active = _snapshot(router_id)
+    router, access, backup, active, protected_count = _snapshot(router_id)
     if not router:
         return HTMLResponse("<h1>404</h1><p>Router not found.</p>", status_code=404)
     access_state = "Healthy" if access and access["management_ok"] else "Degraded / unknown"
@@ -72,6 +77,11 @@ def _preview_page(request: Request, router_id: int, title: str, touch: str, fiel
         if backup else "No retained backup recorded yet"
     )
     busy = f'Active change #{active["id"]}: {active["kind"]} ({active["status"]})' if active else "No active change job"
+    manual_command = fields.get("command","")
+    protected_hits = object_protection.protected_matches(router_id, manual_command) if manual_command else []
+    protection_text = f"{protected_count} protected object rule(s) configured"
+    if protected_hits:
+        protection_text += " · BLOCKED: " + ", ".join(f'{x["object_type"]}:{x["selector"]}' for x in protected_hits[:8])
     hidden = "".join(
         f'<input type="hidden" name="{html.escape(k)}" value="{html.escape(v)}">'
         for k, v in fields.items() if k != "preview_ack"
@@ -93,13 +103,13 @@ a{{color:#58cf8a}}code{{background:#1b2520;padding:2px 5px;border-radius:4px}}
 <div class="card"><strong>Planned touch</strong><div>{html.escape(touch)}</div></div>
 <div class="card"><strong>Guardian</strong><div>{html.escape(access_state)}</div><div class="muted">{html.escape(paths)}</div></div>
 <div class="card"><strong>Backup state</strong><div>{html.escape(backup_text)}</div></div>
-<div class="card"><strong>Change lane</strong><div>{html.escape(busy)}</div></div>
+<div class="card"><strong>Change lane</strong><div>{html.escape(busy)}</div></div>\n<div class="card"><strong>Protected objects</strong><div>{html.escape(protection_text)}</div></div>
 </div>
 <div class="card warn"><strong>Recovery path</strong>
 <div>For managed changes Tikcentral creates/uses a retained pre-change backup where supported, records the transaction, verifies management access afterward, and records failure/recovery evidence in Reliability. Guardian repair remains limited to Tikcentral-owned management access.</div>
 </div>
-<div class="card"><form method="post" action="{html.escape(request.url.path)}">{hidden}
-<button type="submit">Confirm and continue</button> <a href="{html.escape(request.headers.get("referer") or "/")}">Cancel</a>
+<div class="card">{('<div class="warn"><strong>Blocked by protected object policy.</strong></div>' if protected_hits else '')}<form method="post" action="{html.escape(request.url.path)}">{hidden}
+<button type="submit" {'disabled' if protected_hits else ''}>Confirm and continue</button> <a href="{html.escape(request.headers.get("referer") or "/")}">Cancel</a>
 </form></div></div></body></html>"""
     return HTMLResponse(body, status_code=200, headers={"Cache-Control": "no-store"})
 
