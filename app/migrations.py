@@ -1268,7 +1268,15 @@ def _m28(conn):
         conn.execute("ALTER TABLE retention_settings ADD COLUMN public_ip_sighting_days INTEGER NOT NULL DEFAULT 365")
 
 
-MIGRATIONS = [_m1, _m2, _m3, _m4, _m5, _m6, _m7, _m8, _m9, _m10, _m11, _m12, _m13, _m14, _m15, _m16, _m17, _m18, _m19, _m20, _m21, _m22, _m23, _m24, _m25, _m26, _m27, _m28]
+def _m29(conn):
+    """Add link-capacity context to local utilization estimates."""
+    if not _has_column(conn,"router_local_utilization","estimated_capacity_bps"):
+        conn.execute("ALTER TABLE router_local_utilization ADD COLUMN estimated_capacity_bps REAL")
+    if not _has_column(conn,"router_local_utilization","utilization_percent"):
+        conn.execute("ALTER TABLE router_local_utilization ADD COLUMN utilization_percent REAL")
+
+
+MIGRATIONS = [_m1, _m2, _m3, _m4, _m5, _m6, _m7, _m8, _m9, _m10, _m11, _m12, _m13, _m14, _m15, _m16, _m17, _m18, _m19, _m20, _m21, _m22, _m23, _m24, _m25, _m26, _m27, _m28, _m29]
 
 
 def migrate() -> int:
