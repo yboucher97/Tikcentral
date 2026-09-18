@@ -557,7 +557,68 @@ def _m13(conn):
     """)
 
 
-MIGRATIONS = [_m1, _m2, _m3, _m4, _m5, _m6, _m7, _m8, _m9, _m10, _m11, _m12, _m13]
+def _m14(conn):
+    """Interface health, outage classification and site/customer metadata."""
+    conn.executescript("""
+    CREATE TABLE IF NOT EXISTS router_interface_history (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        router_id INTEGER NOT NULL,
+        captured_at TEXT NOT NULL,
+        name TEXT NOT NULL,
+        interface_type TEXT NOT NULL DEFAULT '',
+        running INTEGER,
+        disabled INTEGER,
+        rx_bytes INTEGER,
+        tx_bytes INTEGER,
+        rx_packets INTEGER,
+        tx_packets INTEGER,
+        rx_errors INTEGER,
+        tx_errors INTEGER,
+        rx_drops INTEGER,
+        tx_drops INTEGER,
+        link_downs INTEGER,
+        rate TEXT NOT NULL DEFAULT '',
+        full_duplex INTEGER,
+        auto_negotiation TEXT NOT NULL DEFAULT '',
+        poe_out TEXT NOT NULL DEFAULT '',
+        FOREIGN KEY(router_id) REFERENCES routers(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_router_interface_router_time
+      ON router_interface_history(router_id,captured_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_router_interface_name_time
+      ON router_interface_history(router_id,name,captured_at DESC);
+
+    CREATE TABLE IF NOT EXISTS router_outage_assessment (
+        router_id INTEGER PRIMARY KEY,
+        assessed_at TEXT NOT NULL,
+        classification TEXT NOT NULL DEFAULT 'unknown',
+        confidence TEXT NOT NULL DEFAULT 'low',
+        summary TEXT NOT NULL DEFAULT '',
+        evidence TEXT NOT NULL DEFAULT '',
+        FOREIGN KEY(router_id) REFERENCES routers(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS router_site_metadata (
+        router_id INTEGER PRIMARY KEY,
+        customer_name TEXT NOT NULL DEFAULT '',
+        site_code TEXT NOT NULL DEFAULT '',
+        address TEXT NOT NULL DEFAULT '',
+        contact_name TEXT NOT NULL DEFAULT '',
+        contact_phone TEXT NOT NULL DEFAULT '',
+        contact_email TEXT NOT NULL DEFAULT '',
+        circuit_type TEXT NOT NULL DEFAULT '',
+        circuit_reference TEXT NOT NULL DEFAULT '',
+        install_date TEXT NOT NULL DEFAULT '',
+        ticket_reference TEXT NOT NULL DEFAULT '',
+        support_notes TEXT NOT NULL DEFAULT '',
+        updated_by TEXT NOT NULL DEFAULT '',
+        updated_at TEXT NOT NULL DEFAULT '',
+        FOREIGN KEY(router_id) REFERENCES routers(id) ON DELETE CASCADE
+    );
+    """)
+
+
+MIGRATIONS = [_m1, _m2, _m3, _m4, _m5, _m6, _m7, _m8, _m9, _m10, _m11, _m12, _m13, _m14]
 
 
 def migrate() -> int:
