@@ -34,7 +34,7 @@ def collect(router_id:int,force=False):
     except Exception:cpu_count=None
     mem=resource_monitor._memory_bytes(_field(resource,"total-memory"))
     storage=resource_monitor._memory_bytes(_field(resource,"total-hdd-space") or _field(resource,"total-storage"))
-    ethernet=_count(lines,lambda s:"type=ether" in s or "name=ether" in s)
+    ethernet=_count(lines,lambda s:("type=ether" in s or "name=ether" in s) and "sfp" not in s)
     sfp=_count(lines,lambda s:"sfp" in s)
     lte=_count(lines,lambda s:"type=lte" in s or "name=lte" in s)
     wifi=_count(lines,lambda s:any(k in s for k in ("type=wifi","type=wlan","name=wlan","name=wifi")))
