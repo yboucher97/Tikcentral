@@ -7,7 +7,7 @@ next timer tick.
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from app import alert_queue, automation_inventory, capacity_forecast, certificate_monitor, commissioning_checklist, compliance, database_health, desired_state, errors, events, fleet_health, interface_monitor, ip_enrichment, jobs, lte_monitor, main as core, maintenance_automation, mtu_diagnostics, operations, outage_classifier, retention_policy, security_audit, settings, state_capture, system_health, time_health, topology, traffic_monitor, upgrade_campaigns, wan_probe
+from app import alert_queue, automation_inventory, capacity_forecast, certificate_monitor, commissioning_checklist, compliance, database_health, desired_state, errors, events, fleet_health, identity_collision, interface_monitor, ip_enrichment, jobs, local_utilization, log_patterns, lte_monitor, main as core, maintenance_automation, model_capabilities, mtu_diagnostics, operations, outage_classifier, public_ip_analysis, retention_policy, security_audit, settings, state_capture, system_health, time_health, topology, traffic_monitor, upgrade_campaigns, wan_probe
 
 
 def _eligible_healthy_router_ids() -> list[int]:
@@ -59,7 +59,7 @@ def _change_lane():
 
 def _collect_router_observability(router_id: int):
     """Collect optional router state without allowing one probe family to hide another."""
-    result = {"telemetry": None, "wan": None, "known_good": None, "compliance": None, "lte": None, "interfaces": None, "certificates": None, "security": None, "automation": None, "traffic": None, "topology": None, "wan_probe": None, "desired_state": None, "time_health": None, "mtu": None, "errors": []}
+    result = {"telemetry": None, "wan": None, "known_good": None, "compliance": None, "lte": None, "interfaces": None, "certificates": None, "security": None, "automation": None, "traffic": None, "topology": None, "wan_probe": None, "desired_state": None, "time_health": None, "mtu": None, "local_utilization": None, "model_capabilities": None, "log_patterns": None, "errors": []}
     for key, fn in (
         ("telemetry", lambda: operations.collect_telemetry(router_id, False)),
         ("wan", lambda: state_capture.collect_wan_state(router_id)),
@@ -76,6 +76,9 @@ def _collect_router_observability(router_id: int):
         ("desired_state", lambda: desired_state.check(router_id)),
         ("time_health", lambda: time_health.collect(router_id)),
         ("mtu", lambda: mtu_diagnostics.collect(router_id)),
+        ("local_utilization", lambda: local_utilization.collect(router_id)),
+        ("model_capabilities", lambda: model_capabilities.collect(router_id)),
+        ("log_patterns", lambda: log_patterns.collect(router_id)),
     ):
         try:
             result[key] = fn()
@@ -149,6 +152,8 @@ def scheduled_tick():
     _optional("telemetry", lambda: _telemetry_lane(state, now))
     _optional("drift", lambda: _drift_lane(state, now))
     _optional("public_ip_enrichment", ip_enrichment.refresh_all)
+    _optional("public_ip_analysis", public_ip_analysis.assess_all)
+    _optional("identity_collisions", identity_collision.scan)
     _optional("outage_classification", outage_classifier.assess_all)
     _optional("fleet_health", fleet_health.counts)
     _optional("database_health", database_health.collect)
