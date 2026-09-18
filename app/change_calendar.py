@@ -128,11 +128,14 @@ def register(app,page_func):
             p=conn.execute("""SELECT p.*,r.site_name FROM planned_changes p LEFT JOIN routers r ON r.id=p.router_id WHERE p.id=?""",(change_id,)).fetchone()
         if not p:return RedirectResponse("/change-calendar",303)
         csrf=core.csrf_token(request)
+        note_link=""
+        if p["router_id"]:
+            note_link=f'<div style="margin-top:12px"><a href="/notes/{p["router_id"]}?type=planned_change&id={change_id}&ticket={html.escape(p["ticket_reference"] or "")}"><button>Add note / ticket</button></a></div>'
         body=f'''<div class="panel pad"><h2>{html.escape(p["title"])}</h2><div>{html.escape(p["site_name"] or "Fleet")} · {html.escape(p["change_type"])} · {html.escape(p["status"])}</div>
 <div class="muted">{html.escape(p["start_at"])} → {html.escape(p["end_at"] or "")} · ticket {html.escape(p["ticket_reference"] or "-")}</div><p>{html.escape(p["notes"] or "")}</p>
 <form method="post" action="/change-calendar/{change_id}/status" class="inline"><input type="hidden" name="csrf" value="{csrf}">
 <select name="status"><option>planned</option><option>in_progress</option><option>completed</option><option>cancelled</option></select><button class="primary">Update status</button></form>
-{(f'<div style="margin-top:12px"><a href="/notes/{p["router_id"]}?type=planned_change&id={change_id}&ticket={html.escape(p["ticket_reference"] or "")}"><button>Add note / ticket</button></a></div>' if p["router_id"] else '')}</div>'''
+{note_link}</div>'''
         return page_func("Planned Change",body,user,"operations")
 
     @app.post("/change-calendar/{change_id}/status")
