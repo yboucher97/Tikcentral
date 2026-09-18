@@ -1097,7 +1097,18 @@ def _m23(conn):
     """)
 
 
-MIGRATIONS = [_m1, _m2, _m3, _m4, _m5, _m6, _m7, _m8, _m9, _m10, _m11, _m12, _m13, _m14, _m15, _m16, _m17, _m18, _m19, _m20, _m21, _m22, _m23]
+def _m24(conn):
+    """Expand retention policy to access, WAN probe and public-IP history."""
+    for name,definition in {
+        "access_days":"INTEGER NOT NULL DEFAULT 180",
+        "wan_probe_days":"INTEGER NOT NULL DEFAULT 180",
+        "public_ip_days":"INTEGER NOT NULL DEFAULT 365",
+    }.items():
+        if not _has_column(conn,"retention_settings",name):
+            conn.execute(f"ALTER TABLE retention_settings ADD COLUMN {name} {definition}")
+
+
+MIGRATIONS = [_m1, _m2, _m3, _m4, _m5, _m6, _m7, _m8, _m9, _m10, _m11, _m12, _m13, _m14, _m15, _m16, _m17, _m18, _m19, _m20, _m21, _m22, _m23, _m24]
 
 
 def migrate() -> int:
