@@ -90,20 +90,26 @@ JS = r'''
    }
    return ok;
  };
- function installCopyButtons(){
-   const fields=[...document.querySelectorAll('input,textarea')].filter(el=>{
+ function installCopyButtons(rootNode=document){
+   const rootEl=(rootNode&&rootNode.querySelectorAll)?rootNode:document;
+   const fields=[...rootEl.querySelectorAll('input,textarea,select')].filter(el=>{
      const type=(el.getAttribute('type')||'text').toLowerCase();
      return !['hidden','checkbox','radio','submit','button','file'].includes(type)&&!el.dataset.noCopy&&el.id!=='tcGlobalSearch';
    });
+   if(rootNode&&rootNode.matches&&rootNode.matches('input,textarea,select'))fields.unshift(rootNode);
    fields.forEach(el=>{
-     if(el.dataset.tcCopyReady)return;el.dataset.tcCopyReady='1';
-     const b=document.createElement('button');b.type='button';b.className='tc-copy-btn';b.textContent='Copy';b.title='Copy field value';
-     b.addEventListener('click',()=>window.tcCopy(el,b));el.insertAdjacentElement('afterend',b);
+     const type=(el.getAttribute('type')||'text').toLowerCase();
+     if(['hidden','checkbox','radio','submit','button','file'].includes(type)||el.dataset.noCopy||el.id==='tcGlobalSearch'||el.dataset.tcCopyReady)return;
+     el.dataset.tcCopyReady='1';
+     const b=document.createElement('button');b.type='button';b.className='tc-copy-btn';b.textContent='Copy';b.title='Copy field value';b.setAttribute('aria-label','Copy field value');
+     b.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();window.tcCopy(el,b)});el.insertAdjacentElement('afterend',b);
    });
-   document.querySelectorAll('[data-copy],code.tc-copy,pre.tc-copy').forEach(el=>{
+   const copyables=[...rootEl.querySelectorAll('[data-copy],code.tc-copy,pre.tc-copy')];
+   if(rootNode&&rootNode.matches&&rootNode.matches('[data-copy],code.tc-copy,pre.tc-copy'))copyables.unshift(rootNode);
+   copyables.forEach(el=>{
      if(el.dataset.tcCopyReady)return;el.dataset.tcCopyReady='1';
-     const b=document.createElement('button');b.type='button';b.className='tc-copy-btn';b.textContent='Copy';
-     b.addEventListener('click',()=>window.tcCopy(el,b));el.insertAdjacentElement('afterend',b);
+     const b=document.createElement('button');b.type='button';b.className='tc-copy-btn';b.textContent='Copy';b.title='Copy value';
+     b.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();window.tcCopy(el,b)});el.insertAdjacentElement('afterend',b);
    });
  }
  document.addEventListener('click',e=>{const b=e.target.closest('[data-copy-target]');if(!b)return;const t=document.querySelector(b.dataset.copyTarget);if(t)window.tcCopy(t,b)});
@@ -114,7 +120,7 @@ JS = r'''
  function globalFilter(){const q=(document.getElementById('tcGlobalSearch')?.value||'').toLowerCase();document.querySelectorAll('.panel,.card').forEach(el=>{if(el.querySelector('.tc-table-wrap'))return;el.style.display=!q||(el.innerText||'').toLowerCase().includes(q)?'':'none'});document.querySelectorAll('.tc-table-wrap').forEach(w=>{const inp=w.querySelector('.tc-local-search');if(inp){inp.value=q;filterTable(w)}})}
  document.addEventListener('click',()=>document.querySelectorAll('.tc-colbox.open').forEach(x=>x.classList.remove('open')));
  document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='k'){e.preventDefault();document.getElementById('tcGlobalSearch')?.focus()}if(e.key==='Escape'&&document.activeElement===document.getElementById('tcGlobalSearch')){document.getElementById('tcGlobalSearch').value='';globalFilter()}});
- document.addEventListener('DOMContentLoaded',()=>{themeLabel();installCopyButtons();document.querySelectorAll('table').forEach(enhanceTable);const g=document.getElementById('tcGlobalSearch');if(g)g.addEventListener('input',globalFilter);document.querySelectorAll('td').forEach(td=>{if(td.children.length)return;const s=(td.innerText||'').trim().toLowerCase();let tone='';if(['healthy','online','passed','success','succeeded','enabled','ready','commissioned','matches baseline'].includes(s))tone='ok';else if(['warning','partial','degraded','pending','queued','running','verifying','drift','drift detected'].includes(s))tone='warn';else if(['failed','error','critical','offline'].includes(s))tone='bad';if(tone){const text=td.innerText;td.innerHTML='<span class="tc-status '+tone+' live"><span class="tc-status-dot"></span><span></span></span>';td.firstChild.lastChild.textContent=text}})});
+ document.addEventListener('DOMContentLoaded',()=>{themeLabel();installCopyButtons();const observer=new MutationObserver(mutations=>{mutations.forEach(m=>m.addedNodes.forEach(node=>{if(node.nodeType===1)installCopyButtons(node)}))});observer.observe(document.body,{childList:true,subtree:true});document.querySelectorAll('table').forEach(enhanceTable);const g=document.getElementById('tcGlobalSearch');if(g)g.addEventListener('input',globalFilter);document.querySelectorAll('td').forEach(td=>{if(td.children.length)return;const s=(td.innerText||'').trim().toLowerCase();let tone='';if(['healthy','online','passed','success','succeeded','enabled','ready','commissioned','matches baseline'].includes(s))tone='ok';else if(['warning','partial','degraded','pending','queued','running','verifying','drift','drift detected'].includes(s))tone='warn';else if(['failed','error','critical','offline'].includes(s))tone='bad';if(tone){const text=td.innerText;td.innerHTML='<span class="tc-status '+tone+' live"><span class="tc-status-dot"></span><span></span></span>';td.firstChild.lastChild.textContent=text}})});
 })();
 '''
 
