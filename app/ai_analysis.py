@@ -101,6 +101,21 @@ def collect_snapshot(router_id: int, focus_start: str = "", focus_end: str = "",
         compliance = conn.execute("SELECT * FROM router_policy_compliance WHERE router_id=?", (router_id,)).fetchone()
         site_metadata = conn.execute("SELECT * FROM router_site_metadata WHERE router_id=?", (router_id,)).fetchone()
         outage_assessment = conn.execute("SELECT * FROM router_outage_assessment WHERE router_id=?", (router_id,)).fetchone()
+        security_audit = conn.execute("SELECT * FROM router_security_audit WHERE router_id=?", (router_id,)).fetchone()
+        automation_time = conn.execute("SELECT MAX(captured_at) t FROM router_automation_inventory WHERE router_id=?", (router_id,)).fetchone()["t"]
+        automation_inventory = conn.execute(
+            """SELECT object_type,name,enabled,managed,schedule,target,metadata
+               FROM router_automation_inventory WHERE router_id=? AND captured_at=?
+               ORDER BY object_type,name LIMIT 500""",
+            (router_id,automation_time or ""),
+        ).fetchall() if automation_time else []
+        traffic_history = conn.execute(
+            """SELECT captured_at,interface,interval_seconds,rx_bps,tx_bps,rx_delta_bytes,tx_delta_bytes
+               FROM router_traffic_history WHERE router_id=?
+                 AND (?='' OR captured_at>=?) AND (?='' OR captured_at<=?)
+               ORDER BY id DESC LIMIT 1500""",
+            window_args,
+        ).fetchall()
         interface_history = conn.execute(
             """SELECT captured_at,name,interface_type,running,disabled,rx_bytes,tx_bytes,rx_packets,tx_packets,
                       rx_errors,tx_errors,rx_drops,tx_drops,link_downs,rate,full_duplex,auto_negotiation,poe_out
@@ -170,6 +185,9 @@ def collect_snapshot(router_id: int, focus_start: str = "", focus_end: str = "",
             } if site_metadata else None
         ),
         "outage_assessment": row_dict(outage_assessment),
+        "security_exposure_audit": row_dict(security_audit),
+        "automation_inventory": [dict(r) for r in automation_inventory],
+        "traffic_history": [dict(r) for r in traffic_history],
         "interface_history": [dict(r) for r in interface_history],
         "lte_history": [dict(r) for r in lte_history],
         "recent_incidents": [dict(r) for r in incidents],
@@ -216,7 +234,7 @@ Return concise Markdown with these headings exactly:
 # Improvements to Consider
 # Data Gaps
 
-Prioritize management access, WAN and outage-domain evidence, ISP correlation, interface errors/drops/link flaps, LTE signal/band/cell changes when present, routes, DHCP/PPPoE, CPU/memory, versions, golden-policy compliance, configuration drift, recent jobs/events, and suspicious log patterns. Use site/customer metadata only as operational context; do not treat technician notes as measured evidence.
+Prioritize management access, WAN and outage-domain evidence, ISP correlation, security exposure findings, RouterOS automation changes, traffic-rate/usage anomalies, interface errors/drops/link flaps, LTE signal/band/cell changes when present, routes, DHCP/PPPoE, CPU/memory, versions, golden-policy compliance, configuration drift, recent jobs/events, and suspicious log patterns. Use site/customer metadata only as operational context; do not treat technician notes as measured evidence.
 If incident_focus contains a time window or operator note, treat that as the primary investigation scope and distinguish evidence inside that window from current live state.
 Use access-history timing, maintenance windows, correlated incidents, configuration diffs and change transactions to explain what likely changed and when. Distinguish a Tikcentral-attributed change from a change that has no matching Tikcentral job. Treat previous AI reports only as historical context, not as authoritative evidence.
 End with: **No action was taken.**
