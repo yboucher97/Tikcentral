@@ -59,6 +59,11 @@ def _queue_stage(campaign_id:int,stage:str,actor:str):
     queued=0
     for m in members:
         if (m["lifecycle_state"] or "production") not in {"production","maintenance"}:
+            with core.db() as conn:
+                conn.execute(
+                    "UPDATE upgrade_campaign_members SET status='failed',last_error=?,updated_at=? WHERE id=?",
+                    (f'lifecycle state {m["lifecycle_state"] or "production"} is not upgrade-eligible',_now(),m["id"]),
+                )
             continue
         # Campaign target must match the router's checked latest version.
         with core.db() as conn:
@@ -97,6 +102,10 @@ def register(app,page_func):
             f'<label style="display:block"><input type="checkbox" name="router_ids" value="{r["id"]}"> {html.escape(r["site_name"])} · {html.escape(r["model"] or "")} · latest {html.escape(r["latest_version"] or "not checked")}</label>'
             for r in routers
         )
+        canary_options="".join(
+            f'<option value="{r["id"]}">{html.escape(r["site_name"])} · {html.escape(r["model"] or "")}</option>'
+            for r in routers
+        )
         rows="".join(
             f'<tr><td>#{c["id"]}</td><td><a href="/upgrade-campaigns/{c["id"]}">{html.escape(c["name"])}</a></td><td>{html.escape(c["target_version"])}</td><td>{html.escape(c["status"])}</td><td>{html.escape(c["created_by"])}</td></tr>'
             for c in campaigns
@@ -106,7 +115,7 @@ def register(app,page_func):
 <input type="hidden" name="csrf" value="{csrf}">
 <div><label>Name<br><input name="name" required></label> <label>Target RouterOS<br><input name="target_version" required></label></div>
 <div style="margin-top:10px"><strong>Routers</strong>{checks}</div>
-<div style="margin-top:10px"><label>Canary router ID<br><input name="canary_router_id" type="number" required></label></div>
+<div style="margin-top:10px"><label>Canary router<br><select name="canary_router_id" required>{canary_options}</select></label></div>
 <div style="margin-top:10px"><label>Notes<br><textarea name="notes" style="width:100%;min-height:80px"></textarea></label></div>
 <button class="primary">Create campaign</button></form></div>
 <div class="panel"><table><thead><tr><th>ID</th><th>Name</th><th>Target</th><th>Status</th><th>Created by</th></tr></thead><tbody>{rows}</tbody></table></div>'''
