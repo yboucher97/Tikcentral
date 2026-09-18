@@ -858,7 +858,88 @@ def _m19(conn):
     """)
 
 
-MIGRATIONS = [_m1, _m2, _m3, _m4, _m5, _m6, _m7, _m8, _m9, _m10, _m11, _m12, _m13, _m14, _m15, _m16, _m17, _m18, _m19]
+def _m20(conn):
+    """Topology, multi-target WAN probes and desired-state intent."""
+    conn.executescript("""
+    CREATE TABLE IF NOT EXISTS router_topology_devices (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        router_id INTEGER NOT NULL,
+        captured_at TEXT NOT NULL,
+        source TEXT NOT NULL,
+        device_type TEXT NOT NULL DEFAULT 'unknown',
+        vendor TEXT NOT NULL DEFAULT '',
+        name TEXT NOT NULL DEFAULT '',
+        ip_address TEXT NOT NULL DEFAULT '',
+        mac_address TEXT NOT NULL DEFAULT '',
+        local_interface TEXT NOT NULL DEFAULT '',
+        confidence TEXT NOT NULL DEFAULT 'low',
+        inventory_id INTEGER,
+        fingerprint TEXT NOT NULL DEFAULT '',
+        FOREIGN KEY(router_id) REFERENCES routers(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_router_topology_router_time
+      ON router_topology_devices(router_id,captured_at DESC,id DESC);
+
+    CREATE TABLE IF NOT EXISTS router_wan_probe_config (
+        router_id INTEGER PRIMARY KEY,
+        profile TEXT NOT NULL DEFAULT 'standard',
+        targets_json TEXT NOT NULL DEFAULT '[]',
+        dns_name TEXT NOT NULL DEFAULT '',
+        latency_warn_ms REAL,
+        packet_loss_warn_percent REAL,
+        updated_by TEXT NOT NULL DEFAULT '',
+        updated_at TEXT NOT NULL DEFAULT '',
+        FOREIGN KEY(router_id) REFERENCES routers(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS router_wan_probe_history (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        router_id INTEGER NOT NULL,
+        captured_at TEXT NOT NULL,
+        profile TEXT NOT NULL DEFAULT 'standard',
+        gateway TEXT NOT NULL DEFAULT '',
+        gateway_ok INTEGER,
+        target1 TEXT NOT NULL DEFAULT '',
+        target1_ok INTEGER,
+        target1_loss REAL,
+        target1_avg_ms REAL,
+        target2 TEXT NOT NULL DEFAULT '',
+        target2_ok INTEGER,
+        target2_loss REAL,
+        target2_avg_ms REAL,
+        dns_name TEXT NOT NULL DEFAULT '',
+        dns_ok INTEGER,
+        classification TEXT NOT NULL DEFAULT 'unknown',
+        summary TEXT NOT NULL DEFAULT '',
+        FOREIGN KEY(router_id) REFERENCES routers(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_router_wan_probe_router_time
+      ON router_wan_probe_history(router_id,captured_at DESC,id DESC);
+
+    CREATE TABLE IF NOT EXISTS router_desired_state (
+        router_id INTEGER PRIMARY KEY,
+        profile TEXT NOT NULL DEFAULT 'standard',
+        intent_json TEXT NOT NULL DEFAULT '{}',
+        updated_by TEXT NOT NULL DEFAULT '',
+        updated_at TEXT NOT NULL DEFAULT '',
+        FOREIGN KEY(router_id) REFERENCES routers(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS router_desired_state_status (
+        router_id INTEGER PRIMARY KEY,
+        checked_at TEXT NOT NULL,
+        profile TEXT NOT NULL DEFAULT 'standard',
+        status TEXT NOT NULL DEFAULT 'unknown',
+        passed INTEGER NOT NULL DEFAULT 0,
+        warnings INTEGER NOT NULL DEFAULT 0,
+        failed INTEGER NOT NULL DEFAULT 0,
+        details_json TEXT NOT NULL DEFAULT '[]',
+        FOREIGN KEY(router_id) REFERENCES routers(id) ON DELETE CASCADE
+    );
+    """)
+
+
+MIGRATIONS = [_m1, _m2, _m3, _m4, _m5, _m6, _m7, _m8, _m9, _m10, _m11, _m12, _m13, _m14, _m15, _m16, _m17, _m18, _m19, _m20]
 
 
 def migrate() -> int:
