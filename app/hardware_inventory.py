@@ -24,9 +24,10 @@ def register(app,page_func):
         csrf=core.csrf_token(request)
         rendered="".join(
             f'<tr><td>{html.escape(x["category"])}</td><td><strong>{html.escape(x["manufacturer"])} {html.escape(x["model"])}</strong><div class="muted">{html.escape(x["serial"] or "-")}</div></td>'
-            f'<td>{html.escape(x["asset_tag"] or "-")}</td><td>{html.escape(x["location"] or "-")}</td><td>{html.escape(x["installed_at"] or "-")}</td><td>{html.escape(x["warranty_until"] or "-")}</td><td>{html.escape(x["status"])}</td><td>{html.escape(x["notes"] or "")}</td></tr>'
+            f'<td>{html.escape(x["asset_tag"] or "-")}</td><td>{html.escape(x["location"] or "-")}</td><td>{html.escape(x["installed_at"] or "-")}</td><td>{html.escape(x["warranty_until"] or "-")}</td><td>{html.escape(x["status"])}</td><td>{html.escape(x["notes"] or "")}</td>'
+            f'<td><form method="post" action="/hardware/{router_id}/{x["id"]}/status" class="inline"><input type="hidden" name="csrf" value="{csrf}"><select name="status"><option>installed</option><option>spare</option><option>repair</option><option>retired</option></select><button>Update</button></form></td></tr>'
             for x in rows
-        ) or '<tr><td colspan="8">No hardware inventory.</td></tr>'
+        ) or '<tr><td colspan="9">No hardware inventory.</td></tr>'
         body=f'''<div class="panel pad"><h2>Hardware inventory · {html.escape(router["site_name"])}</h2>
 <form method="post" action="/hardware/{router_id}"><input type="hidden" name="csrf" value="{csrf}">
 <div class="cards">
@@ -36,7 +37,7 @@ def register(app,page_func):
 <div><label>Location<br><input name="location" style="width:100%"></label></div><div><label>Installed<br><input type="date" name="installed_at" style="width:100%"></label></div>
 <div><label>Warranty until<br><input type="date" name="warranty_until" style="width:100%"></label></div><div><label>Status<br><select name="status"><option>installed</option><option>spare</option><option>repair</option><option>retired</option></select></label></div>
 </div><div style="margin-top:10px"><label>Notes<br><textarea name="notes" style="width:100%"></textarea></label></div><button class="primary">Add hardware</button></form></div>
-<div class="panel"><table><thead><tr><th>Category</th><th>Equipment</th><th>Asset</th><th>Location</th><th>Installed</th><th>Warranty</th><th>Status</th><th>Notes</th></tr></thead><tbody>{rendered}</tbody></table></div>'''
+<div class="panel"><table><thead><tr><th>Category</th><th>Equipment</th><th>Asset</th><th>Location</th><th>Installed</th><th>Warranty</th><th>Status</th><th>Notes</th><th></th></tr></thead><tbody>{rendered}</tbody></table></div>'''
         return page_func("Hardware Inventory",body,user,"operations")
 
     @app.post("/hardware/{router_id}")
@@ -50,5 +51,19 @@ def register(app,page_func):
                 """INSERT INTO hardware_inventory(router_id,category,manufacturer,model,serial,asset_tag,location,installed_at,warranty_until,status,notes,created_by,created_at,updated_at)
                    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (router_id,*[x[:2000] for x in vals],user["email"],now,now),
+            )
+        return RedirectResponse(f"/hardware/{router_id}",303)
+
+    @app.post("/hardware/{router_id}/{item_id}/status")
+    async def hardware_status(router_id:int,item_id:int,request:Request):
+        user=core.require_web_role(request,"technician")
+        data=await core.form_data(request); core.require_csrf(request,data.get("csrf",""))
+        status=str(data.get("status","installed"))
+        if status not in {"installed","spare","repair","retired"}:
+            status="installed"
+        with core.db() as conn:
+            conn.execute(
+                "UPDATE hardware_inventory SET status=?,updated_at=? WHERE id=? AND router_id=?",
+                (status,_now(),item_id,router_id),
             )
         return RedirectResponse(f"/hardware/{router_id}",303)
