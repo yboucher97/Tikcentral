@@ -45,6 +45,12 @@ def render() -> str:
                JOIN routers r ON r.id=s.router_id WHERE s.last_flap_count>=?
                ORDER BY s.last_flap_count DESC LIMIT 20""", (settings.GUARDIAN_FLAP_THRESHOLD,)
         ).fetchall()
+        compliance = conn.execute(
+            """SELECT r.id,r.site_name,c.status,c.passed,c.warnings,c.failed
+               FROM router_policy_compliance c JOIN routers r ON r.id=c.router_id
+               WHERE r.enabled=1 AND c.status<>'pass'
+               ORDER BY c.failed DESC,c.warnings DESC LIMIT 30"""
+        ).fetchall()
         sys = conn.execute("SELECT checked_at,overall_status,checks_json FROM system_health_history ORDER BY id DESC LIMIT 1").fetchone()
 
     items = []
@@ -70,6 +76,11 @@ def render() -> str:
         items.append(("critical", r["site_name"], f'Failed change: {r["kind"]} {r["error_code"]}', f'/reliability#tx-{r["tx_id"]}'))
     for r in flaps:
         items.append(("warning", r["site_name"], f'{r["last_flap_count"]} management flaps in the detection window', "/guardian"))
+    for r in compliance:
+        level = "critical" if r["failed"] else "warning"
+        items.append((level, r["site_name"],
+                      f'Golden policy: {r["failed"]} failed / {r["warnings"]} warnings',
+                      f'/compliance/{r["id"]}'))
     if sys and sys["overall_status"] != "ok":
         items.append(("critical", "Tikcentral", f'System self-health: {sys["overall_status"]}', "/system-health"))
 
