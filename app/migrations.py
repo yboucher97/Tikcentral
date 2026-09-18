@@ -1015,7 +1015,29 @@ def _m21(conn):
     """)
 
 
-MIGRATIONS = [_m1, _m2, _m3, _m4, _m5, _m6, _m7, _m8, _m9, _m10, _m11, _m12, _m13, _m14, _m15, _m16, _m17, _m18, _m19, _m20, _m21]
+def _m22(conn):
+    """Tikcentral database/storage health history."""
+    conn.executescript("""
+    CREATE TABLE IF NOT EXISTS database_health_history (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        checked_at TEXT NOT NULL,
+        db_bytes INTEGER NOT NULL DEFAULT 0,
+        wal_bytes INTEGER NOT NULL DEFAULT 0,
+        shm_bytes INTEGER NOT NULL DEFAULT 0,
+        total_sqlite_bytes INTEGER NOT NULL DEFAULT 0,
+        filesystem_total_bytes INTEGER NOT NULL DEFAULT 0,
+        filesystem_free_bytes INTEGER NOT NULL DEFAULT 0,
+        growth_bytes_per_day REAL,
+        estimated_days_to_80_percent REAL,
+        status TEXT NOT NULL DEFAULT 'unknown',
+        summary TEXT NOT NULL DEFAULT ''
+    );
+    CREATE INDEX IF NOT EXISTS idx_database_health_time
+      ON database_health_history(checked_at DESC,id DESC);
+    """)
+
+
+MIGRATIONS = [_m1, _m2, _m3, _m4, _m5, _m6, _m7, _m8, _m9, _m10, _m11, _m12, _m13, _m14, _m15, _m16, _m17, _m18, _m19, _m20, _m21, _m22]
 
 
 def migrate() -> int:
