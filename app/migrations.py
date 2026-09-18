@@ -1037,7 +1037,67 @@ def _m22(conn):
     """)
 
 
-MIGRATIONS = [_m1, _m2, _m3, _m4, _m5, _m6, _m7, _m8, _m9, _m10, _m11, _m12, _m13, _m14, _m15, _m16, _m17, _m18, _m19, _m20, _m21, _m22]
+def _m23(conn):
+    """Fleet config search support, retention policy and commissioning checklist."""
+    conn.executescript("""
+    CREATE TABLE IF NOT EXISTS retention_settings (
+        id INTEGER PRIMARY KEY CHECK(id=1),
+        telemetry_days INTEGER NOT NULL DEFAULT 90,
+        traffic_days INTEGER NOT NULL DEFAULT 90,
+        lte_days INTEGER NOT NULL DEFAULT 180,
+        interface_days INTEGER NOT NULL DEFAULT 180,
+        wan_days INTEGER NOT NULL DEFAULT 180,
+        certificate_days INTEGER NOT NULL DEFAULT 365,
+        automation_days INTEGER NOT NULL DEFAULT 180,
+        topology_days INTEGER NOT NULL DEFAULT 180,
+        event_days INTEGER NOT NULL DEFAULT 730,
+        operator_audit_days INTEGER NOT NULL DEFAULT 365,
+        database_health_days INTEGER NOT NULL DEFAULT 90,
+        resolved_alert_days INTEGER NOT NULL DEFAULT 730,
+        snapshot_days INTEGER NOT NULL DEFAULT 0,
+        updated_by TEXT NOT NULL DEFAULT '',
+        updated_at TEXT NOT NULL DEFAULT ''
+    );
+    INSERT OR IGNORE INTO retention_settings(id) VALUES(1);
+
+    CREATE TABLE IF NOT EXISTS retention_cleanup_history (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ran_at TEXT NOT NULL,
+        deleted_rows INTEGER NOT NULL DEFAULT 0,
+        details TEXT NOT NULL DEFAULT ''
+    );
+    CREATE INDEX IF NOT EXISTS idx_retention_cleanup_time
+      ON retention_cleanup_history(ran_at DESC,id DESC);
+
+    CREATE TABLE IF NOT EXISTS commissioning_checklist_settings (
+        id INTEGER PRIMARY KEY CHECK(id=1),
+        require_site_metadata INTEGER NOT NULL DEFAULT 1,
+        require_customer INTEGER NOT NULL DEFAULT 1,
+        require_management INTEGER NOT NULL DEFAULT 1,
+        require_wan INTEGER NOT NULL DEFAULT 1,
+        require_desired_state INTEGER NOT NULL DEFAULT 1,
+        require_security INTEGER NOT NULL DEFAULT 1,
+        require_backup INTEGER NOT NULL DEFAULT 1,
+        require_hardware INTEGER NOT NULL DEFAULT 1,
+        require_baseline INTEGER NOT NULL DEFAULT 1,
+        auto_promote INTEGER NOT NULL DEFAULT 1
+    );
+    INSERT OR IGNORE INTO commissioning_checklist_settings(id) VALUES(1);
+
+    CREATE TABLE IF NOT EXISTS commissioning_checklist_status (
+        router_id INTEGER PRIMARY KEY,
+        checked_at TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'incomplete',
+        passed INTEGER NOT NULL DEFAULT 0,
+        required INTEGER NOT NULL DEFAULT 0,
+        details_json TEXT NOT NULL DEFAULT '[]',
+        promoted_at TEXT NOT NULL DEFAULT '',
+        FOREIGN KEY(router_id) REFERENCES routers(id) ON DELETE CASCADE
+    );
+    """)
+
+
+MIGRATIONS = [_m1, _m2, _m3, _m4, _m5, _m6, _m7, _m8, _m9, _m10, _m11, _m12, _m13, _m14, _m15, _m16, _m17, _m18, _m19, _m20, _m21, _m22, _m23]
 
 
 def migrate() -> int:
