@@ -89,6 +89,13 @@ def render() -> str:
                GROUP BY r.id,r.site_name HAVING COUNT(*)>0
                ORDER BY unmanaged_count DESC LIMIT 30"""
         ).fetchall()
+        capacity = conn.execute(
+            """SELECT r.id,r.site_name,c.summary,c.assessed_at
+               FROM router_capacity_forecast c JOIN routers r ON r.id=c.router_id
+               WHERE r.enabled=1 AND COALESCE(r.lifecycle_state,'production')<>'retired'
+                 AND c.status='warning'
+               ORDER BY c.assessed_at DESC LIMIT 30"""
+        ).fetchall()
         sys = conn.execute("SELECT checked_at,overall_status,checks_json FROM system_health_history ORDER BY id DESC LIMIT 1").fetchone()
 
     items = []
@@ -135,6 +142,8 @@ def render() -> str:
         items.append(("warning",r["site_name"],
                       f'{r["unmanaged_count"]} enabled unmanaged RouterOS automation object(s)',
                       f'/automation-inventory/{r["id"]}'))
+    for r in capacity:
+        items.append(("warning",r["site_name"],f'Capacity trend: {r["summary"]}',f'/capacity/{r["id"]}'))
     if sys and sys["overall_status"] != "ok":
         items.append(("critical", "Tikcentral", f'System self-health: {sys["overall_status"]}', "/system-health"))
 
