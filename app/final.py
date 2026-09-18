@@ -14,6 +14,7 @@ from fastapi.staticfiles import StaticFiles
 # Import route modules once; their decorators register directly on core.app.
 from app import ai_analysis
 from app import changes
+from app import compliance
 from app import change_control
 from app import change_preview
 from app import enrollment
@@ -23,6 +24,7 @@ from app import fleet_explorer
 from app import fleet_web  # noqa: F401
 from app import guardian
 from app import jobs
+from app import lte_monitor
 from app import main as core
 from app import management_script
 from app import operations
@@ -179,6 +181,8 @@ system_health.register(app, ui.page)
 fleet_explorer.register(app, ui.page)
 operator_audit.register(app, ui.page)
 changes.register(app, ui.page)
+compliance.register(app, ui.page)
+lte_monitor.register(app, ui.page)
 enrollment.register(app, ui.page)
 ai_analysis.register(app, ui.page)
 troubleshooting.register(app, ui.page)
