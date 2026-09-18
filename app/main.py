@@ -641,8 +641,8 @@ def enroll(req: EnrollRequest, request: Request):
         public_port = allocate_public_port(conn)
         wg_helper("add", req.public_key, vpn_ip)
         conn.execute(
-            "INSERT INTO routers(site_name,identity,serial,model,routeros_version,routerboot_version,public_key,vpn_ip,public_winbox_port,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)",
-            (token["site_name"], req.identity, req.serial, req.model, req.routeros_version, req.routerboot_version, req.public_key, vpn_ip, public_port, iso(now)),
+            "INSERT INTO routers(site_name,identity,serial,model,routeros_version,routerboot_version,public_key,vpn_ip,public_winbox_port,created_at,lifecycle_state,lifecycle_updated_at,lifecycle_updated_by) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (token["site_name"], req.identity, req.serial, req.model, req.routeros_version, req.routerboot_version, req.public_key, vpn_ip, public_port, iso(now), "new", iso(now), "enrollment"),
         )
         conn.execute("UPDATE enrollment_tokens SET used_at=? WHERE id=?", (iso(now), token["id"]))
     return {
