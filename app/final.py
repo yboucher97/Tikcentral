@@ -30,13 +30,17 @@ from app import fleet_explorer
 from app import fleet_web  # noqa: F401
 from app import guardian
 from app import hardware_inventory
+from app import identity_collision
 from app import interface_monitor
 from app import lifecycle
 from app import jobs
+from app import local_utilization
+from app import log_patterns
 from app import lte_monitor
 from app import main as core
 from app import maintenance_automation
 from app import maintenance_history
+from app import model_capabilities
 from app import mtu_diagnostics
 from app import management_script
 from app import object_protection
@@ -45,6 +49,7 @@ from app import operator_audit
 from app import operator_notes
 from app import portal  # noqa: F401
 from app import production  # noqa: F401
+from app import public_ip_analysis
 from app import diagnostics
 from app import database_health
 from app import desired_state
@@ -212,6 +217,11 @@ automation_inventory.register(app, ui.page)
 traffic_monitor.register(app, ui.page)
 time_health.register(app, ui.page)
 mtu_diagnostics.register(app, ui.page)
+public_ip_analysis.register(app, ui.page)
+identity_collision.register(app, ui.page)
+local_utilization.register(app, ui.page)
+model_capabilities.register(app, ui.page)
+log_patterns.register(app, ui.page)
 topology.register(app, ui.page)
 wan_probe.register(app, ui.page)
 desired_state.register(app, ui.page)
