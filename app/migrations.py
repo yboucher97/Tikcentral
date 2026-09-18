@@ -518,7 +518,46 @@ def _m12(conn):
     """)
 
 
-MIGRATIONS = [_m1, _m2, _m3, _m4, _m5, _m6, _m7, _m8, _m9, _m10, _m11, _m12]
+def _m13(conn):
+    """Golden-policy compliance and LTE observability."""
+    conn.executescript("""
+    CREATE TABLE IF NOT EXISTS router_policy_compliance (
+        router_id INTEGER PRIMARY KEY,
+        checked_at TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'unknown',
+        passed INTEGER NOT NULL DEFAULT 0,
+        warnings INTEGER NOT NULL DEFAULT 0,
+        failed INTEGER NOT NULL DEFAULT 0,
+        details_json TEXT NOT NULL DEFAULT '[]',
+        FOREIGN KEY(router_id) REFERENCES routers(id) ON DELETE CASCADE
+    );
+    CREATE TABLE IF NOT EXISTS router_lte_history (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        router_id INTEGER NOT NULL,
+        captured_at TEXT NOT NULL,
+        interface TEXT NOT NULL DEFAULT '',
+        registered INTEGER,
+        operator TEXT NOT NULL DEFAULT '',
+        access_technology TEXT NOT NULL DEFAULT '',
+        band TEXT NOT NULL DEFAULT '',
+        ca_band TEXT NOT NULL DEFAULT '',
+        cell_id TEXT NOT NULL DEFAULT '',
+        enb_id TEXT NOT NULL DEFAULT '',
+        sector_id TEXT NOT NULL DEFAULT '',
+        phy_cell_id TEXT NOT NULL DEFAULT '',
+        rsrp REAL,
+        rsrq REAL,
+        sinr REAL,
+        rssi REAL,
+        raw TEXT NOT NULL DEFAULT '',
+        FOREIGN KEY(router_id) REFERENCES routers(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_router_lte_router_time
+      ON router_lte_history(router_id,captured_at DESC);
+    """)
+
+
+MIGRATIONS = [_m1, _m2, _m3, _m4, _m5, _m6, _m7, _m8, _m9, _m10, _m11, _m12, _m13]
 
 
 def migrate() -> int:
