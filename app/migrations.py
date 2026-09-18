@@ -479,7 +479,18 @@ def _m10(conn):
     """)
 
 
-MIGRATIONS = [_m1, _m2, _m3, _m4, _m5, _m6, _m7, _m8, _m9, _m10]
+def _m11(conn):
+    """RBAC/incident-analysis metadata."""
+    for name, definition in {
+        "focus_start": "TEXT NOT NULL DEFAULT ''",
+        "focus_end": "TEXT NOT NULL DEFAULT ''",
+        "focus_note": "TEXT NOT NULL DEFAULT ''",
+    }.items():
+        if not _has_column(conn, "router_ai_analyses", name):
+            conn.execute(f"ALTER TABLE router_ai_analyses ADD COLUMN {name} {definition}")
+
+
+MIGRATIONS = [_m1, _m2, _m3, _m4, _m5, _m6, _m7, _m8, _m9, _m10, _m11]
 
 
 def migrate() -> int:
