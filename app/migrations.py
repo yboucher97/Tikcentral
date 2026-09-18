@@ -755,7 +755,60 @@ def _m17(conn):
     """)
 
 
-MIGRATIONS = [_m1, _m2, _m3, _m4, _m5, _m6, _m7, _m8, _m9, _m10, _m11, _m12, _m13, _m14, _m15, _m16, _m17]
+def _m18(conn):
+    """Security exposure, RouterOS automation inventory and traffic history."""
+    conn.executescript("""
+    CREATE TABLE IF NOT EXISTS router_security_audit (
+        router_id INTEGER PRIMARY KEY,
+        checked_at TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'unknown',
+        critical_count INTEGER NOT NULL DEFAULT 0,
+        warning_count INTEGER NOT NULL DEFAULT 0,
+        passed_count INTEGER NOT NULL DEFAULT 0,
+        details_json TEXT NOT NULL DEFAULT '[]',
+        fingerprint TEXT NOT NULL DEFAULT '',
+        FOREIGN KEY(router_id) REFERENCES routers(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS router_automation_inventory (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        router_id INTEGER NOT NULL,
+        captured_at TEXT NOT NULL,
+        object_type TEXT NOT NULL,
+        name TEXT NOT NULL DEFAULT '',
+        enabled INTEGER,
+        managed INTEGER NOT NULL DEFAULT 0,
+        schedule TEXT NOT NULL DEFAULT '',
+        target TEXT NOT NULL DEFAULT '',
+        metadata TEXT NOT NULL DEFAULT '',
+        fingerprint TEXT NOT NULL DEFAULT '',
+        FOREIGN KEY(router_id) REFERENCES routers(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_router_automation_router_time
+      ON router_automation_inventory(router_id,captured_at DESC,id DESC);
+
+    CREATE TABLE IF NOT EXISTS router_traffic_history (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        router_id INTEGER NOT NULL,
+        captured_at TEXT NOT NULL,
+        interface TEXT NOT NULL,
+        rx_bytes INTEGER,
+        tx_bytes INTEGER,
+        interval_seconds REAL,
+        rx_bps REAL,
+        tx_bps REAL,
+        rx_delta_bytes INTEGER,
+        tx_delta_bytes INTEGER,
+        FOREIGN KEY(router_id) REFERENCES routers(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_router_traffic_router_time
+      ON router_traffic_history(router_id,captured_at DESC,id DESC);
+    CREATE INDEX IF NOT EXISTS idx_router_traffic_interface_time
+      ON router_traffic_history(router_id,interface,captured_at DESC,id DESC);
+    """)
+
+
+MIGRATIONS = [_m1, _m2, _m3, _m4, _m5, _m6, _m7, _m8, _m9, _m10, _m11, _m12, _m13, _m14, _m15, _m16, _m17, _m18]
 
 
 def migrate() -> int:
