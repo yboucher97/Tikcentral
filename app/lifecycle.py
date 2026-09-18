@@ -75,5 +75,10 @@ def register(app,page_func):
         user=core.require_web_role(request,"technician")
         data=await core.form_data(request)
         core.require_csrf(request,data.get("csrf",""))
-        set_state(router_id,str(data.get("state","production")),user["email"])
+        requested=str(data.get("state","production"))
+        with core.db() as conn:
+            current=conn.execute("SELECT lifecycle_state FROM routers WHERE id=?",(router_id,)).fetchone()
+        if requested=="retired" or (current and (current["lifecycle_state"] or "production")=="retired"):
+            core.require_web_role(request,"admin")
+        set_state(router_id,requested,user["email"])
         return RedirectResponse(f"/lifecycle/{router_id}",303)
