@@ -44,6 +44,8 @@ REQUIRED_ROUTES = {
     ("GET", "/system-health"),
     ("POST", "/system-health/run"),
     ("POST", "/system-health/verify-backups"),
+    ("GET", "/fleet-search"),
+    ("GET", "/operator-audit"),
     ("GET", "/reliability/{router_id}/breakglass"),
     ("POST", "/reliability/{router_id}/breakglass"),
     ("GET", "/reliability/{router_id}/support"),
@@ -113,6 +115,8 @@ def validate_routes():
         ("POST", "/ssh/{router_id}"): "app.production",
         ("POST", "/audit/{router_id}/normalize"): "app.final",
         ("POST", "/ai/{router_id}/analyze"): "app.ai_analysis",
+        ("GET", "/fleet-search"): "app.fleet_explorer",
+        ("GET", "/operator-audit"): "app.operator_audit",
     }
     for path in (
         "/operations/{router_id}/telemetry", "/operations/{router_id}/commission",
@@ -217,6 +221,21 @@ def validate_source_boundaries():
     for marker in ("MANAGEMENT_STATE_COMMAND", "WAN_STATE_COMMAND", "capture_management_known_good", "compare_management_known_good", "collect_wan_state", "store_config_snapshot_content"):
         if marker not in state_capture_text:
             fail(f"State capture feature missing: {marker}")
+    resource_text = (ROOT / "app/resource_monitor.py").read_text(encoding="utf-8")
+    for marker in ("_uptime_seconds", "_memory_bytes", "_record_reboot", "RESOURCE_CPU_WARN", "Unexpected router reboot detected"):
+        if marker not in resource_text:
+            fail(f"Resource/reboot monitor missing: {marker}")
+    explorer_text = (ROOT / "app/fleet_explorer.py").read_text(encoding="utf-8")
+    for marker in ("Fleet Search", "Backup stale >2d", "CPU ≥85%", "Active resource alert", "No bulk mutation actions"):
+        if marker not in explorer_text:
+            fail(f"Fleet read-only search missing: {marker}")
+    audit_text = (ROOT / "app/operator_audit.py").read_text(encoding="utf-8")
+    for marker in ("operator_audit_log", "install_middleware", "source_ip", "Request bodies", "Guardian repair", "Manual Web SSH"):
+        if marker not in audit_text:
+            fail(f"Operator audit feature missing: {marker}")
+    operations_resource = (ROOT / "app/operations.py").read_text(encoding="utf-8")
+    if "resource_monitor.evaluate" not in operations_resource:
+        fail("Telemetry does not feed resource/reboot monitor")
     changes_text = (ROOT / "app/changes.py").read_text(encoding="utf-8")
     for marker in ("_render_diff", "_diff_counts", "Directly attributed to Tikcentral", "source_kind", "source_actor"):
         if marker not in changes_text:
@@ -296,6 +315,7 @@ def validate_persistence_and_jobs():
         "router_ai_analyses", "change_transactions", "change_transaction_steps",
         "router_maintenance", "fleet_incidents", "router_management_known_good", "router_wan_history",
         "router_access_alert_state", "system_health_history", "backup_verifications",
+        "router_resource_alerts", "operator_audit_log",
     }
     with sqlite3.connect(settings.DB_PATH) as conn:
         version = conn.execute("SELECT MAX(version) FROM schema_version").fetchone()[0]
