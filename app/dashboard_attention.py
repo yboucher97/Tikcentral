@@ -9,7 +9,8 @@ from app import main as core, migrations, settings
 
 def render() -> str:
     migrations.migrate()
-    cutoff = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
+    now = datetime.now(timezone.utc)
+    cutoff = (now - timedelta(hours=24)).isoformat()
     with core.db() as conn:
         stale = conn.execute(
             """SELECT r.id,r.site_name,
@@ -75,7 +76,6 @@ def render() -> str:
         sys = conn.execute("SELECT checked_at,overall_status,checks_json FROM system_health_history ORDER BY id DESC LIMIT 1").fetchone()
 
     items = []
-    now = datetime.now(timezone.utc)
     for r in stale:
         old = True
         if r["last_backup"]:
