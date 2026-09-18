@@ -110,6 +110,11 @@ REQUIRED_ROUTES = {
     ("POST", "/commissioning-checklist/settings"),
     ("GET", "/time-health/{router_id}"),
     ("GET", "/mtu/{router_id}"), ("POST", "/mtu/{router_id}/run"),
+    ("GET", "/public-ip-analysis/{router_id}"),
+    ("GET", "/identity-collisions"),
+    ("GET", "/local-utilization/{router_id}"),
+    ("GET", "/model-capabilities"),
+    ("GET", "/log-patterns/{router_id}"),
 }
 
 FORBIDDEN_FILES = {
@@ -227,6 +232,11 @@ def validate_routes():
         ("GET", "/time-health/{router_id}"): "app.time_health",
         ("GET", "/mtu/{router_id}"): "app.mtu_diagnostics",
         ("POST", "/mtu/{router_id}/run"): "app.mtu_diagnostics",
+        ("GET", "/public-ip-analysis/{router_id}"): "app.public_ip_analysis",
+        ("GET", "/identity-collisions"): "app.identity_collision",
+        ("GET", "/local-utilization/{router_id}"): "app.local_utilization",
+        ("GET", "/model-capabilities"): "app.model_capabilities",
+        ("GET", "/log-patterns/{router_id}"): "app.log_patterns",
     }
     for path in (
         "/operations/{router_id}/telemetry", "/operations/{router_id}/commission",
@@ -550,7 +560,7 @@ def validate_source_boundaries():
         if marker not in config_search_text:
             fail(f"Fleet config search missing: {marker}")
     retention_text = (ROOT / "app/retention_policy.py").read_text(encoding="utf-8")
-    for marker in ("retention_settings", "retention_cleanup_history", "snapshot_days", "mtu_days", "router_mtu_history", "0 days means keep forever", "router_access_history", "router_wan_probe_history", "router_public_ip_history"):
+    for marker in ("retention_settings", "retention_cleanup_history", "snapshot_days", "mtu_days", "router_mtu_history", "public_ip_sighting_days", "router_public_ip_sightings", "local_utilization_days", "router_local_utilization", "log_pattern_days", "router_log_patterns", "0 days means keep forever", "router_access_history", "router_wan_probe_history", "router_public_ip_history"):
         if marker not in retention_text:
             fail(f"Retention policy missing: {marker}")
     commissioning_text = (ROOT / "app/commissioning_checklist.py").read_text(encoding="utf-8")
@@ -585,6 +595,33 @@ def validate_source_boundaries():
     for marker in ("router_time_health", "router_mtu_history", "/time-health/", "/mtu/"):
         if marker not in attention_network_diag:
             fail(f"Time/MTU attention integration missing: {marker}")
+    public_ip_analysis_text = (ROOT / "app/public_ip_analysis.py").read_text(encoding="utf-8")
+    for marker in ("router_public_ip_sightings", "changes_7d", "changes_30d", "changes_90d", "high_churn", "avg_days_between_changes"):
+        if marker not in public_ip_analysis_text:
+            fail(f"Public-IP frequency analysis missing: {marker}")
+    ip_enrichment_text = (ROOT / "app/ip_enrichment.py").read_text(encoding="utf-8")
+    if "router_public_ip_sightings" not in ip_enrichment_text or "transition" not in ip_enrichment_text:
+        fail("Public-IP enrichment does not record actual transitions")
+    identity_text = (ROOT / "app/identity_collision.py").read_text(encoding="utf-8")
+    for marker in ("router_identity_collisions", "Duplicate RouterOS identity detected", "LOWER(TRIM(identity))", "HAVING COUNT(*)>1"):
+        if marker not in identity_text:
+            fail(f"Identity collision detector missing: {marker}")
+    local_util_text = (ROOT / "app/local_utilization.py").read_text(encoding="utf-8")
+    for marker in ("router_local_utilization", "confidence", "topo_if", "bridges", "_wan_interfaces", "estimate"):
+        if marker not in local_util_text:
+            fail(f"Local utilization estimation missing: {marker}")
+    model_cap_text = (ROOT / "app/model_capabilities.py").read_text(encoding="utf-8")
+    for marker in ("router_model_capability_observations", "router_model_capability_catalog", "architecture-name", "ethernet_ports", "lte_interfaces", "wifi_interfaces"):
+        if marker not in model_cap_text:
+            fail(f"Model capability database missing: {marker}")
+    log_patterns_text = (ROOT / "app/log_patterns.py").read_text(encoding="utf-8")
+    for marker in ("router_log_patterns", "normalized_pattern", "IP_RE", "MAC_RE", "pattern_hash", "Router log pattern detected"):
+        if marker not in log_patterns_text:
+            fail(f"Router log pattern detector missing: {marker}")
+    scheduler_intel_text = (ROOT / "app/scheduler.py").read_text(encoding="utf-8")
+    for marker in ("public_ip_analysis.assess_all", "identity_collision.scan", "local_utilization.collect", "model_capabilities.collect", "log_patterns.collect"):
+        if marker not in scheduler_intel_text:
+            fail(f"Fleet intelligence scheduler integration missing: {marker}")
     resource_text = (ROOT / "app/resource_monitor.py").read_text(encoding="utf-8")
     for marker in ("_uptime_seconds", "_memory_bytes", "_record_reboot", "RESOURCE_CPU_WARN", "Unexpected router reboot detected"):
         if marker not in resource_text:
@@ -694,6 +731,9 @@ def validate_persistence_and_jobs():
         "retention_settings", "retention_cleanup_history",
         "commissioning_checklist_settings", "commissioning_checklist_status",
         "router_time_health", "router_mtu_history",
+        "router_public_ip_analysis", "router_public_ip_sightings", "router_identity_collisions",
+        "router_local_utilization", "router_model_capability_observations", "router_model_capability_catalog",
+        "router_log_patterns",
     }
     with sqlite3.connect(settings.DB_PATH) as conn:
         version = conn.execute("SELECT MAX(version) FROM schema_version").fetchone()[0]
