@@ -450,7 +450,36 @@ def _m9(conn):
     """)
 
 
-MIGRATIONS = [_m1, _m2, _m3, _m4, _m5, _m6, _m7, _m8, _m9]
+def _m10(conn):
+    """Resource anomaly state and operator audit history."""
+    conn.executescript("""
+    CREATE TABLE IF NOT EXISTS router_resource_alerts (
+        router_id INTEGER NOT NULL,
+        metric TEXT NOT NULL,
+        active INTEGER NOT NULL DEFAULT 0,
+        first_seen_at TEXT NOT NULL DEFAULT '',
+        last_seen_at TEXT NOT NULL DEFAULT '',
+        last_value TEXT NOT NULL DEFAULT '',
+        PRIMARY KEY(router_id,metric),
+        FOREIGN KEY(router_id) REFERENCES routers(id) ON DELETE CASCADE
+    );
+    CREATE TABLE IF NOT EXISTS operator_audit_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        event_at TEXT NOT NULL,
+        actor TEXT NOT NULL DEFAULT '',
+        action TEXT NOT NULL,
+        method TEXT NOT NULL DEFAULT '',
+        path TEXT NOT NULL DEFAULT '',
+        source_ip TEXT NOT NULL DEFAULT '',
+        status_code INTEGER,
+        details TEXT NOT NULL DEFAULT ''
+    );
+    CREATE INDEX IF NOT EXISTS idx_operator_audit_time ON operator_audit_log(id DESC);
+    CREATE INDEX IF NOT EXISTS idx_operator_audit_actor_time ON operator_audit_log(actor,id DESC);
+    """)
+
+
+MIGRATIONS = [_m1, _m2, _m3, _m4, _m5, _m6, _m7, _m8, _m9, _m10]
 
 
 def migrate() -> int:
