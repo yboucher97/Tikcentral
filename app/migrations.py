@@ -618,7 +618,28 @@ def _m14(conn):
     """)
 
 
-MIGRATIONS = [_m1, _m2, _m3, _m4, _m5, _m6, _m7, _m8, _m9, _m10, _m11, _m12, _m13, _m14]
+def _m15(conn):
+    """Protected-object ownership and recovery metadata."""
+    conn.executescript("""
+    CREATE TABLE IF NOT EXISTS router_object_protection (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        router_id INTEGER NOT NULL,
+        object_type TEXT NOT NULL,
+        selector TEXT NOT NULL,
+        ownership TEXT NOT NULL DEFAULT 'customer-owned',
+        protected INTEGER NOT NULL DEFAULT 1,
+        notes TEXT NOT NULL DEFAULT '',
+        created_by TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY(router_id) REFERENCES routers(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_router_object_protection_router
+      ON router_object_protection(router_id,protected,object_type);
+    """)
+
+
+MIGRATIONS = [_m1, _m2, _m3, _m4, _m5, _m6, _m7, _m8, _m9, _m10, _m11, _m12, _m13, _m14, _m15]
 
 
 def migrate() -> int:
