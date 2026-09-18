@@ -490,7 +490,35 @@ def _m11(conn):
             conn.execute(f"ALTER TABLE router_ai_analyses ADD COLUMN {name} {definition}")
 
 
-MIGRATIONS = [_m1, _m2, _m3, _m4, _m5, _m6, _m7, _m8, _m9, _m10, _m11]
+def _m12(conn):
+    """Public-IP/ISP enrichment history."""
+    conn.executescript("""
+    CREATE TABLE IF NOT EXISTS router_public_ip_history (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        router_id INTEGER NOT NULL,
+        public_ip TEXT NOT NULL,
+        first_seen_at TEXT NOT NULL,
+        last_seen_at TEXT NOT NULL,
+        lookup_at TEXT NOT NULL DEFAULT '',
+        isp TEXT NOT NULL DEFAULT '',
+        organization TEXT NOT NULL DEFAULT '',
+        asn TEXT NOT NULL DEFAULT '',
+        country TEXT NOT NULL DEFAULT '',
+        region TEXT NOT NULL DEFAULT '',
+        city TEXT NOT NULL DEFAULT '',
+        lookup_status TEXT NOT NULL DEFAULT '',
+        lookup_error TEXT NOT NULL DEFAULT '',
+        FOREIGN KEY(router_id) REFERENCES routers(id) ON DELETE CASCADE,
+        UNIQUE(router_id,public_ip)
+    );
+    CREATE INDEX IF NOT EXISTS idx_router_public_ip_router_time
+      ON router_public_ip_history(router_id,last_seen_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_router_public_ip_ip
+      ON router_public_ip_history(public_ip);
+    """)
+
+
+MIGRATIONS = [_m1, _m2, _m3, _m4, _m5, _m6, _m7, _m8, _m9, _m10, _m11, _m12]
 
 
 def migrate() -> int:
