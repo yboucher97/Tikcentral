@@ -15,6 +15,7 @@ from fastapi.staticfiles import StaticFiles
 from app import ai_analysis
 from app import changes
 from app import change_control
+from app import change_preview
 from app import enrollment
 from app import errors
 from app import events
@@ -30,6 +31,7 @@ from app import portal  # noqa: F401
 from app import production  # noqa: F401
 from app import rescue
 from app import reliability
+from app import role_access
 from app import router_exec
 from app import system_health
 from app import ui
@@ -179,3 +181,5 @@ changes.register(app, ui.page)
 enrollment.register(app, ui.page)
 ai_analysis.register(app, ui.page)
 operator_audit.install_middleware(app)
+change_preview.install_middleware(app)
+role_access.install_middleware(app)
