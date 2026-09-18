@@ -37,6 +37,7 @@ from app import lte_monitor
 from app import main as core
 from app import maintenance_automation
 from app import maintenance_history
+from app import mtu_diagnostics
 from app import management_script
 from app import object_protection
 from app import operations
@@ -61,6 +62,7 @@ from app import router_exec
 from app import site_metadata
 from app import system_health
 from app import topology
+from app import time_health
 from app import traffic_monitor
 from app import troubleshooting
 from app import upgrade_campaigns
@@ -208,6 +210,8 @@ database_health.register(app, ui.page)
 security_audit.register(app, ui.page)
 automation_inventory.register(app, ui.page)
 traffic_monitor.register(app, ui.page)
+time_health.register(app, ui.page)
+mtu_diagnostics.register(app, ui.page)
 topology.register(app, ui.page)
 wan_probe.register(app, ui.page)
 desired_state.register(app, ui.page)
