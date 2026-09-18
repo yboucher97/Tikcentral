@@ -98,6 +98,10 @@ REQUIRED_ROUTES = {
     ("GET", "/topology/{router_id}"),
     ("GET", "/wan-probe/{router_id}"), ("POST", "/wan-probe/{router_id}"),
     ("GET", "/desired-state/{router_id}"), ("POST", "/desired-state/{router_id}"),
+    ("GET", "/replacements"), ("POST", "/replacements"),
+    ("GET", "/replacements/{replacement_id}"), ("POST", "/replacements/{replacement_id}/execute"),
+    ("GET", "/maintenance-automation"), ("POST", "/maintenance-automation"),
+    ("GET", "/alerts"), ("POST", "/alerts/{alert_id}"),
 }
 
 FORBIDDEN_FILES = {
@@ -196,6 +200,14 @@ def validate_routes():
         ("POST", "/wan-probe/{router_id}"): "app.wan_probe",
         ("GET", "/desired-state/{router_id}"): "app.desired_state",
         ("POST", "/desired-state/{router_id}"): "app.desired_state",
+        ("GET", "/replacements"): "app.router_replacement",
+        ("POST", "/replacements"): "app.router_replacement",
+        ("GET", "/replacements/{replacement_id}"): "app.router_replacement",
+        ("POST", "/replacements/{replacement_id}/execute"): "app.router_replacement",
+        ("GET", "/maintenance-automation"): "app.maintenance_automation",
+        ("POST", "/maintenance-automation"): "app.maintenance_automation",
+        ("GET", "/alerts"): "app.alert_queue",
+        ("POST", "/alerts/{alert_id}"): "app.alert_queue",
     }
     for path in (
         "/operations/{router_id}/telemetry", "/operations/{router_id}/commission",
@@ -478,6 +490,28 @@ def validate_source_boundaries():
     outage_next = (ROOT / "app/outage_classifier.py").read_text(encoding="utf-8")
     if "router_wan_probe_history" not in outage_next or "Multi-target WAN probe" not in outage_next:
         fail("Outage classifier does not use multi-target WAN evidence")
+    replacement_text = (ROOT / "app/router_replacement.py").read_text(encoding="utf-8")
+    for marker in ("router_replacements", "copy_site_metadata", "copy_protection", "copy_desired_state", "copy_wan_profile", "move_hardware", "move_future_changes", "does not clone a RouterOS export", "WireGuard/public-key identity"):
+        if marker not in replacement_text:
+            fail(f"Router replacement workflow missing: {marker}")
+    maintenance_auto_text = (ROOT / "app/maintenance_automation.py").read_text(encoding="utf-8")
+    for marker in ("maintenance_automation_runs", "run_on_upgrades", "run_on_routerboot", "post-change", "capture_config_snapshot", "compliance.evaluate", "security_audit.collect", "wan_probe.collect", "interface_monitor.collect", "desired_state.check"):
+        if marker not in maintenance_auto_text:
+            fail(f"Post-change maintenance automation missing: {marker}")
+    alert_queue_text = (ROOT / "app/alert_queue.py").read_text(encoding="utf-8")
+    for marker in ("alert_queue", "acknowledged", "assigned", "investigating", "resolved", "ticket_reference", "resolution_note"):
+        if marker not in alert_queue_text:
+            fail(f"Persistent alert workflow missing: {marker}")
+    dashboard_queue_text = (ROOT / "app/dashboard_attention.py").read_text(encoding="utf-8")
+    if "alert_queue.sync" not in dashboard_queue_text or "Open alert queue" not in dashboard_queue_text:
+        fail("Dashboard Attention is not connected to alert workflow")
+    scheduler_ops_text = (ROOT / "app/scheduler.py").read_text(encoding="utf-8")
+    for marker in ("maintenance_automation.process", "alert_queue.sync"):
+        if marker not in scheduler_ops_text:
+            fail(f"Scheduler workflow integration missing: {marker}")
+    operations_backup_text = (ROOT / "app/operations.py").read_text(encoding="utf-8")
+    if '"post-change"' not in operations_backup_text:
+        fail("Post-change backup tier is not supported")
     resource_text = (ROOT / "app/resource_monitor.py").read_text(encoding="utf-8")
     for marker in ("_uptime_seconds", "_memory_bytes", "_record_reboot", "RESOURCE_CPU_WARN", "Unexpected router reboot detected"):
         if marker not in resource_text:
@@ -582,6 +616,7 @@ def validate_persistence_and_jobs():
         "router_capacity_forecast", "operator_notes", "customer_report_history",
         "router_topology_devices", "router_wan_probe_config", "router_wan_probe_history",
         "router_desired_state", "router_desired_state_status",
+        "router_replacements", "maintenance_automation_settings", "maintenance_automation_runs", "alert_queue",
     }
     with sqlite3.connect(settings.DB_PATH) as conn:
         version = conn.execute("SELECT MAX(version) FROM schema_version").fetchone()[0]
