@@ -96,6 +96,21 @@ def render() -> str:
                  AND c.status='warning'
                ORDER BY c.assessed_at DESC LIMIT 30"""
         ).fetchall()
+        wan_probes = conn.execute(
+            """SELECT r.id,r.site_name,w.classification,w.summary,w.captured_at
+               FROM router_wan_probe_history w JOIN routers r ON r.id=w.router_id
+               WHERE r.enabled=1 AND COALESCE(r.lifecycle_state,'production') NOT IN ('retired','maintenance')
+                 AND w.id=(SELECT MAX(w2.id) FROM router_wan_probe_history w2 WHERE w2.router_id=w.router_id)
+                 AND w.classification NOT IN ('healthy','unknown')
+               ORDER BY w.id DESC LIMIT 30"""
+        ).fetchall()
+        desired_state = conn.execute(
+            """SELECT r.id,r.site_name,d.status,d.failed,d.warnings
+               FROM router_desired_state_status d JOIN routers r ON r.id=d.router_id
+               WHERE r.enabled=1 AND COALESCE(r.lifecycle_state,'production')<>'retired'
+                 AND d.status IN ('fail','warning')
+               ORDER BY d.failed DESC,d.warnings DESC LIMIT 30"""
+        ).fetchall()
         sys = conn.execute("SELECT checked_at,overall_status,checks_json FROM system_health_history ORDER BY id DESC LIMIT 1").fetchone()
 
     items = []
@@ -144,6 +159,14 @@ def render() -> str:
                       f'/automation-inventory/{r["id"]}'))
     for r in capacity:
         items.append(("warning",r["site_name"],f'Capacity trend: {r["summary"]}',f'/capacity/{r["id"]}'))
+    for r in wan_probes:
+        level="critical" if r["classification"] in {"site_or_upstream","upstream"} else "warning"
+        items.append((level,r["site_name"],f'WAN probe: {r["summary"]}',f'/wan-probe/{r["id"]}'))
+    for r in desired_state:
+        level="critical" if r["failed"] else "warning"
+        items.append((level,r["site_name"],
+                      f'Desired state: {r["failed"]} failed / {r["warnings"]} warnings',
+                      f'/desired-state/{r["id"]}'))
     if sys and sys["overall_status"] != "ok":
         items.append(("critical", "Tikcentral", f'System self-health: {sys["overall_status"]}', "/system-health"))
 
