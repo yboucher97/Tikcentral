@@ -102,6 +102,8 @@ REQUIRED_ROUTES = {
     ("GET", "/replacements/{replacement_id}"), ("POST", "/replacements/{replacement_id}/execute"),
     ("GET", "/maintenance-automation"), ("POST", "/maintenance-automation"),
     ("GET", "/alerts"), ("POST", "/alerts/{alert_id}"),
+    ("GET", "/customers"), ("GET", "/customer"),
+    ("GET", "/database-health"),
 }
 
 FORBIDDEN_FILES = {
@@ -208,6 +210,9 @@ def validate_routes():
         ("POST", "/maintenance-automation"): "app.maintenance_automation",
         ("GET", "/alerts"): "app.alert_queue",
         ("POST", "/alerts/{alert_id}"): "app.alert_queue",
+        ("GET", "/customers"): "app.customer_overview",
+        ("GET", "/customer"): "app.customer_overview",
+        ("GET", "/database-health"): "app.database_health",
     }
     for path in (
         "/operations/{router_id}/telemetry", "/operations/{router_id}/commission",
@@ -512,6 +517,20 @@ def validate_source_boundaries():
     operations_backup_text = (ROOT / "app/operations.py").read_text(encoding="utf-8")
     if '"post-change"' not in operations_backup_text:
         fail("Post-change backup tier is not supported")
+    customer_overview_text = (ROOT / "app/customer_overview.py").read_text(encoding="utf-8")
+    for marker in ("Customers / sites", "Unassigned", "Sites / circuits", "Maintenance history", "Hardware", "Generated reports", "alert_queue"):
+        if marker not in customer_overview_text:
+            fail(f"Customer/site overview missing: {marker}")
+    database_health_text = (ROOT / "app/database_health.py").read_text(encoding="utf-8")
+    for marker in ("database_health_history", "statvfs", "growth_bytes_per_day", "estimated_days_to_80_percent", "SAMPLE_MINUTES", "FORECAST_WINDOW_DAYS", "Standard thresholds"):
+        if marker not in database_health_text:
+            fail(f"Database/storage health feature missing: {marker}")
+    scheduler_storage_text = (ROOT / "app/scheduler.py").read_text(encoding="utf-8")
+    if "database_health.collect" not in scheduler_storage_text:
+        fail("Database/storage health is not scheduled")
+    dashboard_storage_text = (ROOT / "app/dashboard_attention.py").read_text(encoding="utf-8")
+    if "database_health_history" not in dashboard_storage_text or "/database-health" not in dashboard_storage_text:
+        fail("Database/storage warnings are not surfaced in Attention")
     resource_text = (ROOT / "app/resource_monitor.py").read_text(encoding="utf-8")
     for marker in ("_uptime_seconds", "_memory_bytes", "_record_reboot", "RESOURCE_CPU_WARN", "Unexpected router reboot detected"):
         if marker not in resource_text:
@@ -617,6 +636,7 @@ def validate_persistence_and_jobs():
         "router_topology_devices", "router_wan_probe_config", "router_wan_probe_history",
         "router_desired_state", "router_desired_state_status",
         "router_replacements", "maintenance_automation_settings", "maintenance_automation_runs", "alert_queue",
+        "database_health_history",
     }
     with sqlite3.connect(settings.DB_PATH) as conn:
         version = conn.execute("SELECT MAX(version) FROM schema_version").fetchone()[0]
