@@ -74,6 +74,11 @@ REQUIRED_ROUTES = {
     ("GET", "/lte/{router_id}"),
     ("GET", "/interfaces/{router_id}"),
     ("GET", "/site/{router_id}"), ("POST", "/site/{router_id}"),
+    ("GET", "/protection/{router_id}"), ("POST", "/protection/{router_id}"),
+    ("POST", "/protection/{router_id}/{rule_id}/delete"),
+    ("GET", "/diagnostics/{router_id}"), ("POST", "/diagnostics/{router_id}"),
+    ("GET", "/recovery/{router_id}"),
+    ("GET", "/recovery/{router_id}/snapshot/{snapshot_id}"),
 }
 
 FORBIDDEN_FILES = {
@@ -135,6 +140,13 @@ def validate_routes():
         ("GET", "/interfaces/{router_id}"): "app.interface_monitor",
         ("GET", "/site/{router_id}"): "app.site_metadata",
         ("POST", "/site/{router_id}"): "app.site_metadata",
+        ("GET", "/protection/{router_id}"): "app.object_protection",
+        ("POST", "/protection/{router_id}"): "app.object_protection",
+        ("POST", "/protection/{router_id}/{rule_id}/delete"): "app.object_protection",
+        ("GET", "/diagnostics/{router_id}"): "app.diagnostics",
+        ("POST", "/diagnostics/{router_id}"): "app.diagnostics",
+        ("GET", "/recovery/{router_id}"): "app.recovery_browser",
+        ("GET", "/recovery/{router_id}/snapshot/{snapshot_id}"): "app.recovery_browser",
     }
     for path in (
         "/operations/{router_id}/telemetry", "/operations/{router_id}/commission",
@@ -308,6 +320,31 @@ def validate_source_boundaries():
     for marker in ("interface_monitor.collect", "outage_classifier.assess_all"):
         if marker not in scheduler_new:
             fail(f"Scheduled monitoring missing: {marker}")
+    protection_text = (ROOT / "app/object_protection.py").read_text(encoding="utf-8")
+    for marker in ("router_object_protection", "protected_matches", "customer-owned", "never-modify", "Protected objects"):
+        if marker not in protection_text:
+            fail(f"Protected-object ownership feature missing: {marker}")
+    diagnostics_text = (ROOT / "app/diagnostics.py").read_text(encoding="utf-8")
+    for marker in ("TEMPLATES", "System resources", "Internet traceroute", "LTE monitor", 'require_web_role(request,"technician")'):
+        if marker not in diagnostics_text:
+            fail(f"Safe diagnostic templates missing: {marker}")
+    recovery_text = (ROOT / "app/recovery_browser.py").read_text(encoding="utf-8")
+    for marker in ("Guided recovery", "router_backup_records", "router_snapshots", "does not automatically apply", "Protected objects"):
+        if marker not in recovery_text:
+            fail(f"Recovery browser feature missing: {marker}")
+    production_guard = (ROOT / "app/production.py").read_text(encoding="utf-8")
+    if "object_protection.protected_matches" not in production_guard:
+        fail("Manual Web SSH does not enforce protected objects")
+    role_guard = (ROOT / "app/role_access.py").read_text(encoding="utf-8")
+    if '"/ssh"' not in role_guard or "ADMIN_PREFIXES" not in role_guard:
+        fail("Arbitrary Web SSH is not admin-only")
+    preview_guard = (ROOT / "app/change_preview.py").read_text(encoding="utf-8")
+    for marker in ("Protected objects", "protected_hits", "Blocked by protected object policy"):
+        if marker not in preview_guard:
+            fail(f"Protected-object preview integration missing: {marker}")
+    final_guard = (ROOT / "app/final.py").read_text(encoding="utf-8")
+    if "Normalization blocked by protected object rule" not in final_guard:
+        fail("Normalization does not enforce protected-object policy")
     resource_text = (ROOT / "app/resource_monitor.py").read_text(encoding="utf-8")
     for marker in ("_uptime_seconds", "_memory_bytes", "_record_reboot", "RESOURCE_CPU_WARN", "Unexpected router reboot detected"):
         if marker not in resource_text:
@@ -405,6 +442,7 @@ def validate_persistence_and_jobs():
         "router_resource_alerts", "operator_audit_log", "router_public_ip_history",
         "router_policy_compliance", "router_lte_history",
         "router_interface_history", "router_outage_assessment", "router_site_metadata",
+        "router_object_protection",
     }
     with sqlite3.connect(settings.DB_PATH) as conn:
         version = conn.execute("SELECT MAX(version) FROM schema_version").fetchone()[0]
