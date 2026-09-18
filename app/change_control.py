@@ -38,6 +38,20 @@ def begin(router_id: int, kind: str, actor: str, *, job_id: int | None = None, p
         )
         tx = int(cur.lastrowid)
     step(tx, "preflight", "ok", "Transaction started")
+    # Capture an attributed pre-change configuration snapshot before any
+    # transaction mutation. Best-effort: snapshot failure must not block a safe
+    # change that has already passed Guardian preflight.
+    try:
+        from app import state_capture
+        snapshot_id = state_capture.capture_config_snapshot(
+            router_id,
+            source_kind="transaction_pre",
+            source_id=tx,
+            actor=actor or "",
+        )
+        step(tx, "snapshot", "ok", "Pre-change configuration snapshot captured", f"snapshot_id={snapshot_id}")
+    except Exception as exc:
+        step(tx, "snapshot", "warning", "Pre-change configuration snapshot unavailable", errors.short(exc))
     return tx
 
 
@@ -84,7 +98,7 @@ def finish(transaction_id: int, *, post_access: dict | None = None):
             from app import state_capture
             snapshot_id = state_capture.capture_config_snapshot(
                 int(tx["router_id"]),
-                source_kind="transaction",
+                source_kind="transaction_post",
                 source_id=transaction_id,
                 actor=tx["actor"] or "",
             )
