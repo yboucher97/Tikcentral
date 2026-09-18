@@ -108,6 +108,8 @@ REQUIRED_ROUTES = {
     ("GET", "/retention"), ("POST", "/retention"),
     ("GET", "/commissioning-checklist/{router_id}"),
     ("POST", "/commissioning-checklist/settings"),
+    ("GET", "/time-health/{router_id}"),
+    ("GET", "/mtu/{router_id}"), ("POST", "/mtu/{router_id}/run"),
 }
 
 FORBIDDEN_FILES = {
@@ -222,6 +224,9 @@ def validate_routes():
         ("POST", "/retention"): "app.retention_policy",
         ("GET", "/commissioning-checklist/{router_id}"): "app.commissioning_checklist",
         ("POST", "/commissioning-checklist/settings"): "app.commissioning_checklist",
+        ("GET", "/time-health/{router_id}"): "app.time_health",
+        ("GET", "/mtu/{router_id}"): "app.mtu_diagnostics",
+        ("POST", "/mtu/{router_id}/run"): "app.mtu_diagnostics",
     }
     for path in (
         "/operations/{router_id}/telemetry", "/operations/{router_id}/commission",
@@ -545,7 +550,7 @@ def validate_source_boundaries():
         if marker not in config_search_text:
             fail(f"Fleet config search missing: {marker}")
     retention_text = (ROOT / "app/retention_policy.py").read_text(encoding="utf-8")
-    for marker in ("retention_settings", "retention_cleanup_history", "snapshot_days", "0 days means keep forever", "router_access_history", "router_wan_probe_history", "router_public_ip_history"):
+    for marker in ("retention_settings", "retention_cleanup_history", "snapshot_days", "mtu_days", "router_mtu_history", "0 days means keep forever", "router_access_history", "router_wan_probe_history", "router_public_ip_history"):
         if marker not in retention_text:
             fail(f"Retention policy missing: {marker}")
     commissioning_text = (ROOT / "app/commissioning_checklist.py").read_text(encoding="utf-8")
@@ -564,6 +569,22 @@ def validate_source_boundaries():
         page_text=(ROOT / path_name).read_text(encoding="utf-8")
         if "tcCopy(" not in page_text:
             fail(f"Page does not use shared clipboard helper: {path_name}")
+    time_health_text = (ROOT / "app/time_health.py").read_text(encoding="utf-8")
+    for marker in ("router_time_health", "DRIFT_WARN_SECONDS", "DRIFT_CRITICAL_SECONDS", "/system clock print", "/system ntp client print", "Time / NTP health", "Read-only"):
+        if marker not in time_health_text:
+            fail(f"Time/NTP health feature missing: {marker}")
+    mtu_text = (ROOT / "app/mtu_diagnostics.py").read_text(encoding="utf-8")
+    for marker in ("router_mtu_history", "do-not-fragment=yes", "PAYLOADS", "estimated_path_mtu", "recommended_tcp_mss", "AUTO_INTERVAL_HOURS", "Read-only DF ping"):
+        if marker not in mtu_text:
+            fail(f"MTU/MSS diagnostics missing: {marker}")
+    scheduler_network_diag = (ROOT / "app/scheduler.py").read_text(encoding="utf-8")
+    for marker in ("time_health.collect", "mtu_diagnostics.collect"):
+        if marker not in scheduler_network_diag:
+            fail(f"Time/MTU scheduler integration missing: {marker}")
+    attention_network_diag = (ROOT / "app/dashboard_attention.py").read_text(encoding="utf-8")
+    for marker in ("router_time_health", "router_mtu_history", "/time-health/", "/mtu/"):
+        if marker not in attention_network_diag:
+            fail(f"Time/MTU attention integration missing: {marker}")
     resource_text = (ROOT / "app/resource_monitor.py").read_text(encoding="utf-8")
     for marker in ("_uptime_seconds", "_memory_bytes", "_record_reboot", "RESOURCE_CPU_WARN", "Unexpected router reboot detected"):
         if marker not in resource_text:
@@ -672,6 +693,7 @@ def validate_persistence_and_jobs():
         "database_health_history",
         "retention_settings", "retention_cleanup_history",
         "commissioning_checklist_settings", "commissioning_checklist_status",
+        "router_time_health", "router_mtu_history",
     }
     with sqlite3.connect(settings.DB_PATH) as conn:
         version = conn.execute("SELECT MAX(version) FROM schema_version").fetchone()[0]
