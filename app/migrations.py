@@ -639,7 +639,63 @@ def _m15(conn):
     """)
 
 
-MIGRATIONS = [_m1, _m2, _m3, _m4, _m5, _m6, _m7, _m8, _m9, _m10, _m11, _m12, _m13, _m14, _m15]
+def _m16(conn):
+    """Lifecycle, maintenance work log and staged upgrade campaigns."""
+    if not _has_column(conn, "routers", "lifecycle_state"):
+        conn.execute("ALTER TABLE routers ADD COLUMN lifecycle_state TEXT NOT NULL DEFAULT 'production'")
+    if not _has_column(conn, "routers", "lifecycle_updated_at"):
+        conn.execute("ALTER TABLE routers ADD COLUMN lifecycle_updated_at TEXT NOT NULL DEFAULT ''")
+    if not _has_column(conn, "routers", "lifecycle_updated_by"):
+        conn.execute("ALTER TABLE routers ADD COLUMN lifecycle_updated_by TEXT NOT NULL DEFAULT ''")
+    conn.executescript("""
+    CREATE TABLE IF NOT EXISTS router_maintenance_history (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        router_id INTEGER NOT NULL,
+        occurred_at TEXT NOT NULL,
+        technician TEXT NOT NULL DEFAULT '',
+        work_type TEXT NOT NULL DEFAULT 'service',
+        ticket_reference TEXT NOT NULL DEFAULT '',
+        issue TEXT NOT NULL DEFAULT '',
+        work_performed TEXT NOT NULL DEFAULT '',
+        result TEXT NOT NULL DEFAULT '',
+        follow_up TEXT NOT NULL DEFAULT '',
+        created_by TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL,
+        FOREIGN KEY(router_id) REFERENCES routers(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_router_maintenance_history_router_time
+      ON router_maintenance_history(router_id,occurred_at DESC,id DESC);
+
+    CREATE TABLE IF NOT EXISTS upgrade_campaigns (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        target_version TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'draft',
+        created_by TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL,
+        approved_by TEXT NOT NULL DEFAULT '',
+        approved_at TEXT NOT NULL DEFAULT '',
+        notes TEXT NOT NULL DEFAULT ''
+    );
+    CREATE TABLE IF NOT EXISTS upgrade_campaign_members (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        campaign_id INTEGER NOT NULL,
+        router_id INTEGER NOT NULL,
+        stage TEXT NOT NULL DEFAULT 'rollout',
+        status TEXT NOT NULL DEFAULT 'pending',
+        job_id INTEGER,
+        last_error TEXT NOT NULL DEFAULT '',
+        updated_at TEXT NOT NULL DEFAULT '',
+        FOREIGN KEY(campaign_id) REFERENCES upgrade_campaigns(id) ON DELETE CASCADE,
+        FOREIGN KEY(router_id) REFERENCES routers(id) ON DELETE CASCADE,
+        UNIQUE(campaign_id,router_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_upgrade_campaign_members_campaign
+      ON upgrade_campaign_members(campaign_id,stage,status,id);
+    """)
+
+
+MIGRATIONS = [_m1, _m2, _m3, _m4, _m5, _m6, _m7, _m8, _m9, _m10, _m11, _m12, _m13, _m14, _m15, _m16]
 
 
 def migrate() -> int:
