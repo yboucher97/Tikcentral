@@ -201,7 +201,8 @@ def register(app, page_func):
         csrf=core.csrf_token(request)
         body=f'''<div class="panel pad"><h2>Incident builder · {html.escape(router["site_name"])}</h2>
 <form method="get" action="/incidents/{router_id}" class="inline"><input name="start" value="{html.escape(start)}" style="min-width:290px"><input name="end" value="{html.escape(end)}" style="min-width:290px"><button>Build window</button></form>
-<form method="post" action="/incidents/{router_id}/analyze" class="inline" style="margin-top:12px"><input type="hidden" name="csrf" value="{csrf}"><input type="hidden" name="start" value="{html.escape(start)}"><input type="hidden" name="end" value="{html.escape(end)}"><input name="note" maxlength="500" placeholder="Incident symptom / note"><button class="primary">Analyze this incident with AI</button></form></div>'''+_render(_window(router_id,start,end))
+<form method="post" action="/incidents/{router_id}/analyze" class="inline" style="margin-top:12px"><input type="hidden" name="csrf" value="{csrf}"><input type="hidden" name="start" value="{html.escape(start)}"><input type="hidden" name="end" value="{html.escape(end)}"><input name="note" maxlength="500" placeholder="Incident symptom / note"><button class="primary">Analyze this incident with AI</button></form>
+<div style="margin-top:12px"><a href="/notes/{router_id}?type=incident"><button>Add incident note / ticket</button></a></div></div>'''+_render(_window(router_id,start,end))
         return page_func("Incident Builder",body,user,"operations")
 
     @app.post("/incidents/{router_id}/analyze")
