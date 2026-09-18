@@ -51,15 +51,18 @@ def register(app,page_func):
             else:
                 rows=conn.execute("SELECT * FROM alert_queue WHERE status<>'resolved' ORDER BY CASE severity WHEN 'critical' THEN 0 ELSE 1 END,id DESC LIMIT 250").fetchall()
         csrf=core.csrf_token(request)
-        rendered="".join(
-            f'<tr><td>{html.escape(x["severity"])}</td><td><strong>{html.escape(x["title"])}</strong><div class="muted">{html.escape(x["details"][-300:])}</div></td>'
-            f'<td>{html.escape(x["status"])}</td><td>{html.escape(x["assigned_to"] or "-")}</td><td>{html.escape(x["ticket_reference"] or "-")}</td>'
-            f'<td><a href="{html.escape(x["link"])}">Open</a><form method="post" action="/alerts/{x["id"]}" class="inline"><input type="hidden" name="csrf" value="{csrf}">'
-            f'<select name="status">{"".join(f"<option {'selected' if s==x['status'] else ''}>{s}</option>" for s in STATUSES)}</select>'
-            f'<input name="assigned_to" value="{html.escape(x["assigned_to"] or "")}" placeholder="technician"><input name="ticket_reference" value="{html.escape(x["ticket_reference"] or "")}" placeholder="ticket">'
-            f'<input name="resolution_note" value="{html.escape(x["resolution_note"] or "")}" placeholder="note"><button>Update</button></form></td></tr>'
-            for x in rows
-        ) or '<tr><td colspan="6">No alerts.</td></tr>'
+        rendered_parts=[]
+        for x in rows:
+            options="".join(f'<option {"selected" if s==x["status"] else ""}>{s}</option>' for s in STATUSES)
+            rendered_parts.append(
+                f'<tr><td>{html.escape(x["severity"])}</td><td><strong>{html.escape(x["title"])}</strong><div class="muted">{html.escape(x["details"][-300:])}</div></td>'
+                f'<td>{html.escape(x["status"])}</td><td>{html.escape(x["assigned_to"] or "-")}</td><td>{html.escape(x["ticket_reference"] or "-")}</td>'
+                f'<td><a href="{html.escape(x["link"])}">Open</a><form method="post" action="/alerts/{x["id"]}" class="inline"><input type="hidden" name="csrf" value="{csrf}">'
+                f'<select name="status">{options}</select>'
+                f'<input name="assigned_to" value="{html.escape(x["assigned_to"] or "")}" placeholder="technician"><input name="ticket_reference" value="{html.escape(x["ticket_reference"] or "")}" placeholder="ticket">'
+                f'<input name="resolution_note" value="{html.escape(x["resolution_note"] or "")}" placeholder="note"><button>Update</button></form></td></tr>'
+            )
+        rendered="".join(rendered_parts) or '<tr><td colspan="6">No alerts.</td></tr>'
         body=f'''<div class="panel pad"><h2>Alert queue</h2>
 <div class="muted">Persistent NOC workflow: New → Acknowledged → Assigned → Investigating → Resolved.</div>
 <div class="inline"><a href="/alerts"><button>Open</button></a><a href="/alerts?status=resolved"><button>Resolved</button></a></div></div>
