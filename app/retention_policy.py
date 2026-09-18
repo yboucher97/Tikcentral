@@ -26,6 +26,7 @@ POLICIES=[
     ("event_days","Router events","router_events","event_at",""),
     ("operator_audit_days","Operator audit","operator_audit_log","event_at",""),
     ("database_health_days","DB health history","database_health_history","checked_at",""),
+    ("mtu_days","MTU diagnostics","router_mtu_history","captured_at",""),
     ("resolved_alert_days","Resolved alerts","alert_queue","resolved_at","status='resolved'"),
     ("snapshot_days","Configuration snapshots","router_snapshots","captured_at",""),
 ]
