@@ -221,6 +221,30 @@ def validate_source_boundaries():
     for marker in ("MANAGEMENT_STATE_COMMAND", "WAN_STATE_COMMAND", "capture_management_known_good", "compare_management_known_good", "collect_wan_state", "store_config_snapshot_content"):
         if marker not in state_capture_text:
             fail(f"State capture feature missing: {marker}")
+    role_text = (ROOT / "app/role_access.py").read_text(encoding="utf-8")
+    for token in ("viewer", "technician", "admin", "Viewer accounts are read-only", "/admin/users"):
+        if token not in role_text:
+            fail(f"RBAC feature missing: {token}")
+    preview_text = (ROOT / "app/change_preview.py").read_text(encoding="utf-8")
+    for token in ("Pre-change preview", "Planned touch", "Guardian", "Backup state", "Recovery path", "preview_ack"):
+        if token not in preview_text:
+            fail(f"Change preview feature missing: {token}")
+    attention_text = (ROOT / "app/dashboard_attention.py").read_text(encoding="utf-8")
+    for token in ("Backup stale", "Management access degraded", "Configuration drift detected", "Failed change", "System self-health"):
+        if token not in attention_text:
+            fail(f"Dashboard attention feature missing: {token}")
+    ai_focus_text = (ROOT / "app/ai_analysis.py").read_text(encoding="utf-8")
+    for token in ("incident_focus", "focus_start", "focus_end", "focus_note", "Incident · last 24h"):
+        if token not in ai_focus_text:
+            fail(f"Incident-focused AI feature missing: {token}")
+    support_text = (ROOT / "app/reliability.py").read_text(encoding="utf-8")
+    for token in ("_support_summary_html", 'files["SUMMARY.html"]', "Start here"):
+        if token not in support_text:
+            fail(f"Support HTML summary missing: {token}")
+    final_policy = (ROOT / "app/final.py").read_text(encoding="utf-8")
+    for token in ("change_preview.install_middleware", "role_access.install_middleware"):
+        if token not in final_policy:
+            fail(f"Production policy middleware missing: {token}")
     resource_text = (ROOT / "app/resource_monitor.py").read_text(encoding="utf-8")
     for marker in ("_uptime_seconds", "_memory_bytes", "_record_reboot", "RESOURCE_CPU_WARN", "Unexpected router reboot detected"):
         if marker not in resource_text:
@@ -321,10 +345,13 @@ def validate_persistence_and_jobs():
         version = conn.execute("SELECT MAX(version) FROM schema_version").fetchone()[0]
         tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         snapshot_columns = {r[1] for r in conn.execute("PRAGMA table_info(router_snapshots)")}
+        ai_columns = {r[1] for r in conn.execute("PRAGMA table_info(router_ai_analyses)")}
     if version != expected or not required.issubset(tables):
         fail("Fresh migration schema validation failed")
     if not {"source_kind", "source_id", "source_actor"}.issubset(snapshot_columns):
         fail("Attributed snapshot schema validation failed")
+    if not {"focus_start", "focus_end", "focus_note"}.issubset(ai_columns):
+        fail("Incident AI schema validation failed")
 
     capabilities.set_mode(9001, capabilities.OPTICABLE_DEFAULT, "2026-01-01T00:00:00+00:00", "smoke")
     cap = capabilities.get(9001)
