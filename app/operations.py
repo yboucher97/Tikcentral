@@ -25,6 +25,7 @@ from app import jobs
 from app import main as core
 from app import migrations
 from app import provisioning
+from app import resource_monitor
 from app import router_exec
 from app import settings
 from app import state_capture
@@ -183,6 +184,18 @@ def collect_telemetry(router_id: int, record_event: bool = False):
     if cap and cap["supports_performance_profiles"] and not any("FastTrack" in x or "QoS" in x for x in probe_errors):
         if expected and expected["expected_profile"] and expected["expected_profile"] != profile:
             events.record(router_id, "drift", f"Performance profile drift: expected {expected['expected_profile']}, found {profile}", severity="warning")
+
+    current_sample = {
+        "cpu_load": cpu,
+        "free_memory": free_memory,
+        "total_memory": total_memory,
+        "uptime": uptime,
+        "routeros_version": version,
+    }
+    try:
+        resource_monitor.evaluate(router_id, current_sample, previous)
+    except Exception as exc:
+        probe_errors.append("resource monitor: " + errors.short(exc))
 
     if record_event:
         events.record(router_id, "telemetry", f"Telemetry collected: CPU {cpu}% · RouterOS {version or 'unknown'}", "; ".join(probe_errors), "warning" if probe_errors else "info")
