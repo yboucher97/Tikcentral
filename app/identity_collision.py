@@ -48,4 +48,4 @@ def register(app,page_func):
                 body_rows.append(f'<tr><td><strong>{html.escape(x["identity"])}</strong></td><td>{x["router_count"]}</td><td>{" · ".join(names)}</td></tr>')
         body=f'''<div class="panel pad"><h2>Router identity collisions</h2><div class="muted">Detects duplicate RouterOS identities across active enrolled routers. Matching is case-insensitive and ignores surrounding spaces.</div></div>
 <div class="panel"><table><thead><tr><th>Identity</th><th>Routers</th><th>Sites</th></tr></thead><tbody>{''.join(body_rows) or '<tr><td colspan="3">No active identity collisions.</td></tr>'}</tbody></table></div>'''
-        return page_func("Identity Collisions",body,user,"operations")
+        return page_func("Identity Collisions",body,user,"identity-collisions")
