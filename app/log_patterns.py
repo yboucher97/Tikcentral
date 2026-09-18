@@ -14,6 +14,8 @@ NUM_RE=re.compile(r"\b\d{2,}\b")
 def _now():return datetime.now(timezone.utc).isoformat()
 def _normalize(line):
     s=router_exec.sanitize(line,1200)
+    s=re.sub(r"^\s*(?:[a-z]{3}/\d{1,2}/\d{4}\s+)?\d{1,2}:\d{2}:\d{2}\s+","",s,flags=re.I)
+    s=re.sub(r"^\s*[a-z]{3}/\d{1,2}\s+\d{1,2}:\d{2}:\d{2}\s+","",s,flags=re.I)
     s=IP_RE.sub("<ip>",s); s=MAC_RE.sub("<mac>",s); s=NUM_RE.sub("<n>",s)
     s=re.sub(r"\s+"," ",s).strip()
     return s[-500:]
@@ -27,10 +29,16 @@ def _severity(s):
     if any(k in low for k in ("error","failed","failure","critical","timeout")): return "warning"
     return "info"
 
-def collect(router_id:int):
+def collect(router_id:int,force=False):
     migrations.migrate()
-    with core.db() as conn:r=conn.execute("SELECT id,site_name,vpn_ip,enabled,lifecycle_state FROM routers WHERE id=?",(router_id,)).fetchone()
+    with core.db() as conn:
+        r=conn.execute("SELECT id,site_name,vpn_ip,enabled,lifecycle_state FROM routers WHERE id=?",(router_id,)).fetchone()
+        last=conn.execute("SELECT captured_at FROM router_log_patterns WHERE router_id=? ORDER BY id DESC LIMIT 1",(router_id,)).fetchone()
     if not r or not r["enabled"] or (r["lifecycle_state"] or "production")=="retired":return None
+    if last and not force:
+        try:
+            if (datetime.now(timezone.utc)-datetime.fromisoformat(last["captured_at"])).total_seconds()<3600:return 0
+        except Exception:pass
     raw=router_exec.read(r["vpn_ip"],"/log print without-paging",timeout=35,label="Log pattern analysis")
     patterns=[]
     for line in raw.splitlines()[-1000:]:
