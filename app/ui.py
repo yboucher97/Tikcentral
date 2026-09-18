@@ -14,6 +14,8 @@ NAV = [
     ("guardian", "/guardian", "Guardian"),
     ("reliability", "/reliability", "Reliability"),
     ("operations", "/operations", "Operations"),
+    ("lifecycle", "/lifecycle", "Lifecycle"),
+    ("upgrade-campaigns", "/upgrade-campaigns", "Upgrades"),
     ("compliance", "/compliance", "Compliance"),
     ("rescue", "/rescue", "Rescue"),
     ("automation", "/automation", "Automation"),
