@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 from fastapi import Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
-from app import main as core, migrations, router_exec
+from app import events, main as core, migrations, router_exec
 
 
 COMMAND="/interface print stats-detail as-value without-paging"
@@ -45,7 +45,7 @@ def collect(router_id:int):
         for x in rows:
             name=x.get("name",""); rx=_int(x.get("rx-byte") or x.get("rx-bytes")); tx=_int(x.get("tx-byte") or x.get("tx-bytes"))
             prev=conn.execute(
-                "SELECT captured_at,rx_bytes,tx_bytes FROM router_traffic_history WHERE router_id=? AND interface=? ORDER BY id DESC LIMIT 1",
+                "SELECT captured_at,rx_bytes,tx_bytes,rx_bps,tx_bps FROM router_traffic_history WHERE router_id=? AND interface=? ORDER BY id DESC LIMIT 1",
                 (router_id,name),
             ).fetchone()
             interval=rx_bps=tx_bps=None; drx=dtx=None
@@ -63,6 +63,15 @@ def collect(router_id:int):
                    VALUES(?,?,?,?,?,?,?,?,?,?)""",
                 (router_id,captured.isoformat(),name,rx,tx,interval,rx_bps,tx_bps,drx,dtx),
             )
+            if prev and rx_bps is not None and tx_bps is not None:
+                previous_total=float(prev["rx_bps"] or 0)+float(prev["tx_bps"] or 0)
+                current_total=float(rx_bps)+float(tx_bps)
+                if previous_total >= 1_000_000 and current_total >= 10_000_000 and current_total >= previous_total*4:
+                    events.record(
+                        router_id,"traffic",f"Traffic surge on {name}",
+                        f"previous={previous_total/1e6:.2f} Mbps current={current_total/1e6:.2f} Mbps interval={interval:.0f}s",
+                        "warning",
+                    )
         cutoff=(captured-timedelta(days=90)).isoformat()
         conn.execute("DELETE FROM router_traffic_history WHERE router_id=? AND captured_at<?",(router_id,cutoff))
     return rows
