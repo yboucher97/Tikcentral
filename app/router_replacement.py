@@ -58,8 +58,9 @@ def execute(replacement_id:int,actor:str):
         if rep["move_future_changes"]:
             conn.execute("UPDATE planned_changes SET router_id=? WHERE router_id=? AND status IN ('planned','in_progress')",(dst["id"],src["id"]))
 
-        conn.execute("UPDATE routers SET lifecycle_state='retired',lifecycle_updated_at=?,lifecycle_updated_by=? WHERE id=?",(now,actor,src["id"]))
-        conn.execute("UPDATE routers SET lifecycle_state='commissioning',lifecycle_updated_at=?,lifecycle_updated_by=? WHERE id=?",(now,actor,dst["id"]))
+        retired_name=src["site_name"] if str(src["site_name"]).endswith(" (retired)") else f'{src["site_name"]} (retired)'
+        conn.execute("UPDATE routers SET site_name=?,lifecycle_state='retired',lifecycle_updated_at=?,lifecycle_updated_by=? WHERE id=?",(retired_name,now,actor,src["id"]))
+        conn.execute("UPDATE routers SET site_name=?,lifecycle_state='commissioning',lifecycle_updated_at=?,lifecycle_updated_by=? WHERE id=?",(src["site_name"],now,actor,dst["id"]))
         conn.execute("UPDATE router_replacements SET status='completed',completed_by=?,completed_at=? WHERE id=?",(actor,now,replacement_id))
     events.record(src["id"],"replacement",f"Router replaced by #{dst['id']} {dst['site_name']}",f"replacement_id={replacement_id}","info")
     events.record(dst["id"],"replacement",f"Router replacing #{src['id']} {src['site_name']}",f"replacement_id={replacement_id}","info")
@@ -91,7 +92,7 @@ def register(app,page_func):
             for x in rows
         ) or '<tr><td colspan="6">No replacement workflows.</td></tr>'
         body=f'''<div class="panel pad"><h2>Router replacement</h2>
-<div class="muted">Transfers Tikcentral site metadata/intent/protection and selected site associations. It does not clone a RouterOS export onto different hardware.</div></div>
+<div class="muted">Transfers Tikcentral site metadata/intent/protection and selected site associations. The new router keeps its own enrolled WireGuard/public-key identity. Tikcentral does not clone a RouterOS export onto different hardware.</div></div>
 <div class="panel pad"><form method="post" action="/replacements">
 <input type="hidden" name="csrf" value="{csrf}">
 <label>Old router <select name="source_router_id">{opts}</select></label>
