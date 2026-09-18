@@ -11,7 +11,6 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from app import events, main as core, migrations, router_exec, settings
 
 
-COMMAND=':put "TC_CLOCK"; /system clock print; :put "TC_NTP"; /system ntp client print; :put "TC_NTP_SERVERS"; /system ntp client servers print without-paging'
 DRIFT_WARN_SECONDS=120
 DRIFT_CRITICAL_SECONDS=600
 
@@ -68,11 +67,21 @@ def collect(router_id:int):
 
     checked=_now()
     try:
-        raw=router_exec.read(r["vpn_ip"],COMMAND,timeout=35,label="Time/NTP health")
-        sections=_sections(raw)
-        clock=_kv(sections["clock"])
-        ntp=_kv(sections["ntp"])
-        servers_text=router_exec.sanitize(sections["servers"],2000).strip()
+        clock_raw=router_exec.read(r["vpn_ip"],"/system clock print",timeout=20,label="Router clock health")
+        clock=_kv(clock_raw)
+        ntp={}
+        servers_text=""
+        ntp_errors=[]
+        try:
+            ntp_raw=router_exec.read(r["vpn_ip"],"/system ntp client print",timeout=20,label="NTP client health")
+            ntp=_kv(ntp_raw)
+        except Exception as exc:
+            ntp_errors.append(f"client: {str(exc)[:180]}")
+        try:
+            servers_raw=router_exec.read(r["vpn_ip"],"/system ntp client servers print without-paging",timeout=20,label="NTP server inventory")
+            servers_text=router_exec.sanitize(servers_raw,2000).strip()
+        except Exception as exc:
+            ntp_errors.append(f"servers: {str(exc)[:180]}")
         router_dt=_parse_router_time(clock)
         drift=abs((checked-router_dt).total_seconds()) if router_dt else None
         tzname=(clock.get("time-zone-name") or clock.get("timezone") or "").strip()
@@ -110,6 +119,7 @@ def collect(router_id:int):
             "drift_warn_seconds":DRIFT_WARN_SECONDS,
             "drift_critical_seconds":DRIFT_CRITICAL_SECONDS,
             "router_time_utc":router_dt.isoformat() if router_dt else "",
+            "ntp_probe_errors":ntp_errors,
         }
     except Exception as exc:
         status="unknown"; summary=f"Time/NTP probe unavailable: {str(exc)[:220]}"
