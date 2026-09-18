@@ -70,6 +70,8 @@ REQUIRED_ROUTES = {
     ("GET", "/timeline/{router_id}/before"),
     ("GET", "/incidents/{router_id}"),
     ("POST", "/incidents/{router_id}/analyze"),
+    ("GET", "/compliance"), ("GET", "/compliance/{router_id}"),
+    ("GET", "/lte/{router_id}"),
 }
 
 FORBIDDEN_FILES = {
@@ -125,6 +127,9 @@ def validate_routes():
         ("GET", "/timeline/{router_id}/before"): "app.troubleshooting",
         ("GET", "/incidents/{router_id}"): "app.troubleshooting",
         ("POST", "/incidents/{router_id}/analyze"): "app.troubleshooting",
+        ("GET", "/compliance"): "app.compliance",
+        ("GET", "/compliance/{router_id}"): "app.compliance",
+        ("GET", "/lte/{router_id}"): "app.lte_monitor",
     }
     for path in (
         "/operations/{router_id}/telemetry", "/operations/{router_id}/commission",
@@ -266,6 +271,22 @@ def validate_source_boundaries():
         fail("Public-IP enrichment is not scheduled")
     if "troubleshooting.register(app, ui.page)" not in final_text:
         fail("Troubleshooting routes are not registered")
+    compliance_text = (ROOT / "app/compliance.py").read_text(encoding="utf-8")
+    for marker in ("POLICY_COMMAND", "Tikcentral WireGuard interface exists", "Default admin account is not active", "router_policy_compliance"):
+        if marker not in compliance_text:
+            fail(f"Golden-policy compliance feature missing: {marker}")
+    lte_text = (ROOT / "app/lte_monitor.py").read_text(encoding="utf-8")
+    for marker in ("LTE_COMMAND", "router_lte_history", "rsrp", "ca_band", "LTE history"):
+        if marker not in lte_text:
+            fail(f"LTE observability feature missing: {marker}")
+    scheduler_obs = (ROOT / "app/scheduler.py").read_text(encoding="utf-8")
+    for marker in ("compliance.evaluate", "lte_monitor.collect"):
+        if marker not in scheduler_obs:
+            fail(f"Scheduled observability missing: {marker}")
+    cc_text = (ROOT / "app/change_control.py").read_text(encoding="utf-8")
+    for marker in ("transaction_pre", "transaction_post", "Pre-change configuration snapshot captured", "Post-change configuration snapshot captured"):
+        if marker not in cc_text:
+            fail(f"Transaction snapshot pairing missing: {marker}")
     resource_text = (ROOT / "app/resource_monitor.py").read_text(encoding="utf-8")
     for marker in ("_uptime_seconds", "_memory_bytes", "_record_reboot", "RESOURCE_CPU_WARN", "Unexpected router reboot detected"):
         if marker not in resource_text:
@@ -361,6 +382,7 @@ def validate_persistence_and_jobs():
         "router_maintenance", "fleet_incidents", "router_management_known_good", "router_wan_history",
         "router_access_alert_state", "system_health_history", "backup_verifications",
         "router_resource_alerts", "operator_audit_log", "router_public_ip_history",
+        "router_policy_compliance", "router_lte_history",
     }
     with sqlite3.connect(settings.DB_PATH) as conn:
         version = conn.execute("SELECT MAX(version) FROM schema_version").fetchone()[0]
