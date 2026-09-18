@@ -111,7 +111,7 @@ def register(app, page_func):
             )) or "No text differences."
 
             pieces = []
-            if new["source_kind"] == "transaction" and new["source_id"]:
+            if new["source_kind"] in {"transaction_pre","transaction_post","transaction"} and new["source_id"]:
                 with core.db() as conn:
                     tx = conn.execute(
                         """SELECT t.id,t.kind,t.actor,t.status,t.created_at,t.finished_at,j.id AS job_id,j.target
@@ -125,7 +125,7 @@ def register(app, page_func):
                         '<div class="tc-status ok"><span class="tc-status-dot"></span>Directly attributed to Tikcentral</div>'
                     )
                     pieces.append(
-                        f'''<div style="margin-top:8px"><strong>Transaction #{tx["id"]} · {html.escape(tx["kind"])}</strong>
+                        f'''<div style="margin-top:8px"><strong>Transaction #{tx["id"]} · {html.escape(tx["kind"])}</strong><div class="muted">Snapshot phase: {html.escape(new["source_kind"].replace("transaction_","").title())}</div>
 <div class="muted">{html.escape(tx["actor"] or "-")} · {html.escape(tx["created_at"])} → {html.escape(tx["finished_at"] or "")}{f' · Job #{tx["job_id"]}' if tx["job_id"] else ''}</div>
 <div><a href="/reliability#tx-{tx["id"]}">Open transaction transcript</a></div></div>'''
                     )
