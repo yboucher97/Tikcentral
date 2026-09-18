@@ -3,6 +3,7 @@
 import calendar
 import html
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 from fastapi import Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -10,8 +11,20 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from app import main as core, migrations
 
 
+LOCAL_TZ=ZoneInfo("America/Toronto")
+
 def _now():
     return datetime.now(timezone.utc).isoformat()
+
+def _normalize_datetime(value: str) -> str:
+    value=(value or "").strip()
+    if not value:
+        return ""
+    dt=datetime.fromisoformat(value)
+    if dt.tzinfo is None:
+        dt=dt.replace(tzinfo=LOCAL_TZ)
+    return dt.astimezone(timezone.utc).isoformat()
+
 
 
 def register(app,page_func):
@@ -75,8 +88,7 @@ def register(app,page_func):
 <div class="cards"><div><label>Router<br><select name="router_id">{router_opts}</select></label></div>
 <div><label>Title<br><input name="title" required style="width:100%"></label></div>
 <div><label>Type<br><select name="change_type"><option>maintenance</option><option>upgrade</option><option>configuration</option><option>installation</option><option>incident</option></select></label></div>
-<div><label>Start (ISO/local or UTC)<br><input name="start_at" required style="width:100%"></label></div>
-<div><label>End<br><input name="end_at" style="width:100%"></label></div>
+<div><label>Start<br><input type="datetime-local" name="start_at" required style="width:100%"></label></div>\n<div><label>End<br><input type="datetime-local" name="end_at" style="width:100%"></label></div>
 <div><label>Ticket<br><input name="ticket_reference" style="width:100%"></label></div></div>
 <div style="margin-top:10px"><label>Notes<br><textarea name="notes" style="width:100%;min-height:80px"></textarea></label></div>
 <button class="primary">Create planned change</button></form></div>
@@ -89,12 +101,21 @@ def register(app,page_func):
         data=await core.form_data(request)
         core.require_csrf(request,data.get("csrf",""))
         rid=int(data.get("router_id")) if str(data.get("router_id","")).isdigit() else None
+        try:
+            start_at=_normalize_datetime(str(data.get("start_at","")))
+            end_at=_normalize_datetime(str(data.get("end_at",""))) if str(data.get("end_at","")).strip() else ""
+        except Exception:
+            return HTMLResponse("<h1>400</h1><p>Invalid planned change date/time.</p>",status_code=400)
+        if not start_at:
+            return HTMLResponse("<h1>400</h1><p>Start date/time is required.</p>",status_code=400)
+        if end_at and end_at < start_at:
+            return HTMLResponse("<h1>400</h1><p>End date/time must be after start.</p>",status_code=400)
         with core.db() as conn:
             conn.execute(
                 """INSERT INTO planned_changes(router_id,title,change_type,start_at,end_at,status,ticket_reference,notes,created_by,created_at)
                    VALUES(?,?,?,?,?,'planned',?,?,?,?)""",
                 (rid,str(data.get("title",""))[:300],str(data.get("change_type","maintenance"))[:80],
-                 str(data.get("start_at",""))[:80],str(data.get("end_at",""))[:80],
+                 start_at,end_at,
                  str(data.get("ticket_reference",""))[:200],str(data.get("notes",""))[:4000],user["email"],_now()),
             )
         return RedirectResponse("/change-calendar",303)
