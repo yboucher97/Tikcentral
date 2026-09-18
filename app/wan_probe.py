@@ -83,6 +83,9 @@ def collect(router_id:int):
     except Exception:dns_ok=False
 
     successes=sum(1 for x in (p1[0],p2[0]) if x)
+    losses=[v for v in (p1[1],p2[1]) if v is not None]
+    latencies=[v for v in (p1[2],p2[2]) if v is not None]
+    quality_bad=(losses and max(losses)>=float(cfg["packet_loss_warn_percent"])) or (latencies and max(latencies)>=float(cfg["latency_warn_ms"]))
     if gok is False and successes==0 and not dns_ok:
         classification="site_or_upstream"; summary="Gateway and external Internet probes failed"
     elif gok and successes==0:
@@ -91,6 +94,9 @@ def collect(router_id:int):
         classification="dns"; summary="Internet IP reachability works but DNS resolution failed"
     elif successes==1:
         classification="partial"; summary="One Internet probe target failed while another succeeded"
+    elif successes==2 and dns_ok and quality_bad:
+        classification="degraded_quality"
+        summary=f'Internet reachable but quality exceeds standard threshold (loss ≥ {cfg["packet_loss_warn_percent"]}% or latency ≥ {cfg["latency_warn_ms"]} ms)'
     elif successes==2 and dns_ok:
         classification="healthy"; summary="Gateway/Internet/DNS probing is healthy" if gok is not False else "Internet/DNS healthy; gateway probe unavailable or failed"
     else:
