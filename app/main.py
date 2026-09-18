@@ -295,6 +295,18 @@ async def login(request: Request):
             "INSERT INTO sessions(user_id,token_hash,expires_at,created_at) VALUES(?,?,?,?)",
             (user["id"], hash_token(raw), iso(now + timedelta(days=SESSION_DAYS)), iso(now)),
         )
+    try:
+        from app import operator_audit
+        operator_audit.record(
+            user["email"],
+            "Login",
+            method="POST",
+            path="/login",
+            source_ip=request_public_ip(request) or "",
+            status_code=303,
+        )
+    except Exception:
+        pass
     response = RedirectResponse("/", status_code=303)
     response.set_cookie(
         "tikcentral_session", raw, max_age=SESSION_DAYS * 86400,
