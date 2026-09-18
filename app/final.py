@@ -18,12 +18,14 @@ from app import change_control
 from app import enrollment
 from app import errors
 from app import events
+from app import fleet_explorer
 from app import fleet_web  # noqa: F401
 from app import guardian
 from app import jobs
 from app import main as core
 from app import management_script
 from app import operations
+from app import operator_audit
 from app import portal  # noqa: F401
 from app import production  # noqa: F401
 from app import rescue
@@ -171,6 +173,9 @@ operations.register(app, ui.page)
 rescue.register(app, ui.page)
 reliability.register(app, ui.page)
 system_health.register(app, ui.page)
+fleet_explorer.register(app, ui.page)
+operator_audit.register(app, ui.page)
 changes.register(app, ui.page)
 enrollment.register(app, ui.page)
 ai_analysis.register(app, ui.page)
+operator_audit.install_middleware(app)
