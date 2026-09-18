@@ -16,32 +16,24 @@ def assess(router_id:int):
     migrations.migrate(); now=_now()
     with core.db() as conn:
         rows=conn.execute(
-            "SELECT public_ip,first_seen_at,last_seen_at FROM router_public_ip_history WHERE router_id=? ORDER BY first_seen_at,id",
+            "SELECT observed_at,public_ip,changed,previous_ip FROM router_public_ip_sightings WHERE router_id=? ORDER BY observed_at,id",
             (router_id,),
         ).fetchall()
         r=conn.execute("SELECT id,site_name FROM routers WHERE id=?",(router_id,)).fetchone()
     if not r:return None
     if not rows:
-        result={"current_ip":"","unique_ips_30d":0,"changes_7d":0,"changes_30d":0,"changes_90d":0,"avg_days_between_changes":None,"status":"unknown","summary":"No public-IP history yet"}
+        result={"current_ip":"","unique_ips_30d":0,"changes_7d":0,"changes_30d":0,"changes_90d":0,"avg_days_between_changes":None,"status":"unknown","summary":"No public-IP transition history yet"}
     else:
         changes=[]
-        prev=None
-        for x in rows:
-            ip=x["public_ip"] or ""
-            if prev is not None and ip!=prev["public_ip"]:
-                try: changes.append(datetime.fromisoformat(x["first_seen_at"]))
-                except Exception: pass
-            prev=x
-        def count(days): return sum(1 for d in changes if d>=now-timedelta(days=days))
         recent_ips=set()
         cutoff30=now-timedelta(days=30)
         for x in rows:
-            try:
-                if datetime.fromisoformat(x["last_seen_at"])>=cutoff30: recent_ips.add(x["public_ip"])
-            except Exception: pass
-        intervals=[]
-        for a,b in zip(changes,changes[1:]):
-            intervals.append((b-a).total_seconds()/86400)
+            try: observed=datetime.fromisoformat(x["observed_at"])
+            except Exception: continue
+            if x["changed"]: changes.append(observed)
+            if observed>=cutoff30: recent_ips.add(x["public_ip"])
+        def count(days): return sum(1 for d in changes if d>=now-timedelta(days=days))
+        intervals=[(b-a).total_seconds()/86400 for a,b in zip(changes,changes[1:])]
         avg=(sum(intervals)/len(intervals)) if intervals else None
         c7,c30,c90=count(7),count(30),count(90)
         if c7>=3 or c30>=8: status="high_churn"
