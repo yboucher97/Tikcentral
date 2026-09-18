@@ -115,6 +115,17 @@ def _window(router_id: int, start: str, end: str):
                 detail = f'errors/drops Δ={err_delta}; link-downs Δ={link_delta}; rate={r["rate"] or "-"}; duplex={r["full_duplex"]}; PoE={r["poe_out"] or "-"}'
                 items.append((r["captured_at"],sev,"interface",summary,detail))
             prev_by_name[r["name"]] = r
+        for r in conn.execute(
+            """SELECT created_at,object_type,object_id,ticket_reference,visibility,note,created_by
+               FROM operator_notes WHERE router_id=? AND created_at>=? AND created_at<=?""",
+            (router_id,start,end),
+        ).fetchall():
+            items.append((r["created_at"],"info","operator-note",
+                          f'Operator note · {r["object_type"]} {("#"+str(r["object_id"])) if r["object_id"] else ""}',
+                          f'ticket={r["ticket_reference"] or "-"} visibility={r["visibility"]} by={r["created_by"] or "-"} · {r["note"]}'))
+        capacity = conn.execute("SELECT * FROM router_capacity_forecast WHERE router_id=?", (router_id,)).fetchone()
+        if capacity and start <= capacity["assessed_at"] <= end and capacity["status"]=="warning":
+            items.append((capacity["assessed_at"],"warning","capacity","Capacity trend warning",capacity["summary"]))
         outage = conn.execute("SELECT * FROM router_outage_assessment WHERE router_id=?", (router_id,)).fetchone()
         if outage and outage["classification"] != "healthy" and start <= outage["assessed_at"] <= end:
             items.append((outage["assessed_at"],"warning","outage-domain",outage["summary"],
@@ -153,7 +164,7 @@ def register(app, page_func):
         end=datetime.now(timezone.utc)
         start=end-timedelta(hours=hours)
         links=" ".join(f'<a href="/timeline/{router_id}?hours={h}"><button>{label}</button></a>' for h,label in [(6,"6h"),(24,"24h"),(72,"3d"),(168,"7d"),(720,"30d")])
-        body=f'<div class="panel pad"><h2>Router timeline · {html.escape(router["site_name"])}</h2><div class="muted">Unified Guardian, WAN/ISP classification, interface health, LTE, reboot, resource, jobs, config and public-IP/ISP history.</div><div class="inline" style="margin-top:12px">{links}<a href="/timeline/{router_id}/before"><button>What changed before failure?</button></a><a href="/incidents/{router_id}"><button class="primary">Build incident</button></a></div></div>'+_render(_window(router_id,start.isoformat(),end.isoformat()))
+        body=f'<div class="panel pad"><h2>Router timeline · {html.escape(router["site_name"])}</h2><div class="muted">Unified Guardian, WAN/ISP classification, capacity trends, operator notes, interface health, LTE, reboot, resource, jobs, config and public-IP/ISP history.</div><div class="inline" style="margin-top:12px">{links}<a href="/timeline/{router_id}/before"><button>What changed before failure?</button></a><a href="/incidents/{router_id}"><button class="primary">Build incident</button></a></div></div>'+_render(_window(router_id,start.isoformat(),end.isoformat()))
         return page_func("Router Timeline",body,user,"operations")
 
     @app.get("/timeline/{router_id}/before", response_class=HTMLResponse)
