@@ -21,6 +21,7 @@ NAV = [
     ("automation", "/automation", "Automation"),
     ("ssh", "/ssh", "SSH"),
     ("changes", "/changes", "Changes"),
+    ("change-calendar", "/change-calendar", "Calendar"),
     ("fleet-search", "/fleet-search", "Fleet Search"),
     ("audit", "/audit", "Audit"),
     ("operator-audit", "/operator-audit", "Operator Audit"),
