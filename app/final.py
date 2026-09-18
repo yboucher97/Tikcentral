@@ -16,6 +16,7 @@ from app import ai_analysis
 from app import automation_inventory
 from app import changes
 from app import change_calendar
+from app import capacity_forecast
 from app import certificate_monitor
 from app import compliance
 from app import change_control
@@ -37,9 +38,11 @@ from app import management_script
 from app import object_protection
 from app import operations
 from app import operator_audit
+from app import operator_notes
 from app import portal  # noqa: F401
 from app import production  # noqa: F401
 from app import diagnostics
+from app import customer_reports
 from app import rescue
 from app import security_audit
 from app import recovery_browser
@@ -202,6 +205,9 @@ operator_audit.register(app, ui.page)
 changes.register(app, ui.page)
 change_calendar.register(app, ui.page)
 certificate_monitor.register(app, ui.page)
+capacity_forecast.register(app, ui.page)
+operator_notes.register(app, ui.page)
+customer_reports.register(app, ui.page)
 security_audit.register(app, ui.page)
 automation_inventory.register(app, ui.page)
 traffic_monitor.register(app, ui.page)
