@@ -11,6 +11,7 @@ from app import main as core, migrations, router_exec
 
 STATS_COMMAND = "/interface print stats-detail as-value without-paging"
 ETHERNET_COMMAND = "/interface ethernet print detail as-value without-paging"
+ETHERNET_MONITOR_COMMAND = "/interface ethernet monitor [find] once as-value"
 
 
 def _now():
@@ -65,7 +66,12 @@ def collect(router_id:int):
         ethernet=_parse_as_value(router_exec.read(router["vpn_ip"],ETHERNET_COMMAND,timeout=35,label="Ethernet detail"))
     except Exception:
         ethernet=[]
+    try:
+        monitor=_parse_as_value(router_exec.read(router["vpn_ip"],ETHERNET_MONITOR_COMMAND,timeout=35,label="Ethernet monitor"))
+    except Exception:
+        monitor=[]
     eth_by_name={x.get("name",""):x for x in ethernet if x.get("name")}
+    monitor_by_name={x.get("name",""):x for x in monitor if x.get("name")}
     captured=_now()
     rows=[]
     for x in stats:
@@ -73,6 +79,7 @@ def collect(router_id:int):
         if not name:
             continue
         e=eth_by_name.get(name,{})
+        mon=monitor_by_name.get(name,{})
         row={
             "name":name,
             "interface_type":x.get("type") or e.get("type") or "",
@@ -87,10 +94,10 @@ def collect(router_id:int):
             "rx_drops":_int(x.get("rx-drop") or x.get("rx-drops")),
             "tx_drops":_int(x.get("tx-drop") or x.get("tx-drops")),
             "link_downs":_int(e.get("link-downs") or x.get("link-downs")),
-            "rate":e.get("rate") or x.get("rate") or "",
-            "full_duplex":_bool(e.get("full-duplex") or x.get("full-duplex")),
-            "auto_negotiation":e.get("auto-negotiation") or "",
-            "poe_out":e.get("poe-out") or e.get("poe-out-status") or "",
+            "rate":mon.get("rate") or e.get("rate") or x.get("rate") or "",
+            "full_duplex":_bool(mon.get("full-duplex") or e.get("full-duplex") or x.get("full-duplex")),
+            "auto_negotiation":mon.get("auto-negotiation") or e.get("auto-negotiation") or "",
+            "poe_out":mon.get("poe-out") or mon.get("poe-out-status") or e.get("poe-out") or e.get("poe-out-status") or "",
         }
         rows.append(row)
 
