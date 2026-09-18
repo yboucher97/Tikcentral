@@ -83,6 +83,10 @@ REQUIRED_ROUTES = {
     ("GET", "/maintenance-history/{router_id}"), ("POST", "/maintenance-history/{router_id}"),
     ("GET", "/upgrade-campaigns"), ("POST", "/upgrade-campaigns"),
     ("GET", "/upgrade-campaigns/{campaign_id}"), ("POST", "/upgrade-campaigns/{campaign_id}/approve"),
+    ("GET", "/change-calendar"), ("POST", "/change-calendar"),
+    ("GET", "/change-calendar/{change_id}"), ("POST", "/change-calendar/{change_id}/status"),
+    ("GET", "/hardware/{router_id}"), ("POST", "/hardware/{router_id}"),
+    ("GET", "/certificates/{router_id}"),
 }
 
 FORBIDDEN_FILES = {
@@ -160,6 +164,13 @@ def validate_routes():
         ("POST", "/upgrade-campaigns"): "app.upgrade_campaigns",
         ("GET", "/upgrade-campaigns/{campaign_id}"): "app.upgrade_campaigns",
         ("POST", "/upgrade-campaigns/{campaign_id}/approve"): "app.upgrade_campaigns",
+        ("GET", "/change-calendar"): "app.change_calendar",
+        ("POST", "/change-calendar"): "app.change_calendar",
+        ("GET", "/change-calendar/{change_id}"): "app.change_calendar",
+        ("POST", "/change-calendar/{change_id}/status"): "app.change_calendar",
+        ("GET", "/hardware/{router_id}"): "app.hardware_inventory",
+        ("POST", "/hardware/{router_id}"): "app.hardware_inventory",
+        ("GET", "/certificates/{router_id}"): "app.certificate_monitor",
     }
     for path in (
         "/operations/{router_id}/telemetry", "/operations/{router_id}/commission",
@@ -377,6 +388,21 @@ def validate_source_boundaries():
     main_lifecycle = (ROOT / "app/main.py").read_text(encoding="utf-8")
     if '"new", iso(now), "enrollment"' not in main_lifecycle:
         fail("New enrollments do not start in New lifecycle state")
+    calendar_text = (ROOT / "app/change_calendar.py").read_text(encoding="utf-8")
+    for marker in ("planned_changes", "Plan a change", "Recorded changes this month", "change_transactions"):
+        if marker not in calendar_text:
+            fail(f"Change calendar feature missing: {marker}")
+    hardware_text = (ROOT / "app/hardware_inventory.py").read_text(encoding="utf-8")
+    for marker in ("hardware_inventory", "warranty_until", "asset_tag", "Hardware inventory"):
+        if marker not in hardware_text:
+            fail(f"Hardware inventory feature missing: {marker}")
+    cert_text = (ROOT / "app/certificate_monitor.py").read_text(encoding="utf-8")
+    for marker in ("router_certificates", "invalid-after", "days_remaining", "critical", "warning"):
+        if marker not in cert_text:
+            fail(f"Certificate inventory feature missing: {marker}")
+    scheduler_cert = (ROOT / "app/scheduler.py").read_text(encoding="utf-8")
+    if "certificate_monitor.collect" not in scheduler_cert:
+        fail("Certificate inventory is not scheduled")
     resource_text = (ROOT / "app/resource_monitor.py").read_text(encoding="utf-8")
     for marker in ("_uptime_seconds", "_memory_bytes", "_record_reboot", "RESOURCE_CPU_WARN", "Unexpected router reboot detected"):
         if marker not in resource_text:
@@ -476,6 +502,7 @@ def validate_persistence_and_jobs():
         "router_interface_history", "router_outage_assessment", "router_site_metadata",
         "router_object_protection",
         "router_maintenance_history", "upgrade_campaigns", "upgrade_campaign_members",
+        "planned_changes", "hardware_inventory", "router_certificates",
     }
     with sqlite3.connect(settings.DB_PATH) as conn:
         version = conn.execute("SELECT MAX(version) FROM schema_version").fetchone()[0]
