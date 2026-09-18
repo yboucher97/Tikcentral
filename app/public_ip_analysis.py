@@ -74,6 +74,10 @@ def register(app,page_func):
         with core.db() as conn:
             r=conn.execute("SELECT site_name FROM routers WHERE id=?",(router_id,)).fetchone()
             a=conn.execute("SELECT * FROM router_public_ip_analysis WHERE router_id=?",(router_id,)).fetchone()
+            transitions=conn.execute(
+                """SELECT observed_at,previous_ip,public_ip FROM router_public_ip_sightings
+                   WHERE router_id=? AND changed=1 ORDER BY id DESC LIMIT 25""",(router_id,)
+            ).fetchall()
         if not r:return RedirectResponse("/operations",303)
         body=f'''<div class="panel pad"><h2>Public-IP change analysis · {html.escape(r["site_name"])}</h2>
 <div><strong>{html.escape(a["status"] if a else "unknown")}</strong> · {html.escape(a["summary"] if a else "No data")}</div></div>
@@ -83,5 +87,6 @@ def register(app,page_func):
 <div class="card"><h3>Changes 30d</h3><div class="value">{a["changes_30d"] if a else 0}</div></div>
 <div class="card"><h3>Changes 90d</h3><div class="value">{a["changes_90d"] if a else 0}</div></div>
 <div class="card"><h3>Unique IPs 30d</h3><div class="value">{a["unique_ips_30d"] if a else 0}</div></div>
-</div>'''
+</div>
+<div class="panel"><div class="pad"><h3>Recent transitions</h3></div><table><thead><tr><th>Observed</th><th>Previous</th><th>New</th></tr></thead><tbody>{''.join(f'<tr><td>{html.escape(x["observed_at"])}</td><td>{html.escape(x["previous_ip"] or "-")}</td><td>{html.escape(x["public_ip"])}</td></tr>' for x in transitions) or '<tr><td colspan="3">No recorded transitions yet.</td></tr>'}</tbody></table></div>'''
         return page_func("Public-IP Analysis",body,user,"operations")
