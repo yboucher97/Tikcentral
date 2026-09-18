@@ -607,7 +607,7 @@ def validate_source_boundaries():
         if marker not in identity_text:
             fail(f"Identity collision detector missing: {marker}")
     local_util_text = (ROOT / "app/local_utilization.py").read_text(encoding="utf-8")
-    for marker in ("router_local_utilization", "confidence", "topo_if", "bridges", "_wan_interfaces", "estimate"):
+    for marker in ("router_local_utilization", "confidence", "topo_if", "bridges", "_wan_interfaces", "estimate", "utilization_percent", "estimated_capacity_bps"):
         if marker not in local_util_text:
             fail(f"Local utilization estimation missing: {marker}")
     model_cap_text = (ROOT / "app/model_capabilities.py").read_text(encoding="utf-8")
