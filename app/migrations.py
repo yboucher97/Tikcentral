@@ -939,7 +939,83 @@ def _m20(conn):
     """)
 
 
-MIGRATIONS = [_m1, _m2, _m3, _m4, _m5, _m6, _m7, _m8, _m9, _m10, _m11, _m12, _m13, _m14, _m15, _m16, _m17, _m18, _m19, _m20]
+def _m21(conn):
+    """Router replacement, post-change automation and persistent alert queue."""
+    conn.executescript("""
+    CREATE TABLE IF NOT EXISTS router_replacements (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        source_router_id INTEGER NOT NULL,
+        target_router_id INTEGER NOT NULL,
+        status TEXT NOT NULL DEFAULT 'planned',
+        copy_site_metadata INTEGER NOT NULL DEFAULT 1,
+        copy_protection INTEGER NOT NULL DEFAULT 1,
+        copy_desired_state INTEGER NOT NULL DEFAULT 1,
+        copy_wan_profile INTEGER NOT NULL DEFAULT 1,
+        move_hardware INTEGER NOT NULL DEFAULT 1,
+        move_future_changes INTEGER NOT NULL DEFAULT 1,
+        created_by TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL,
+        completed_by TEXT NOT NULL DEFAULT '',
+        completed_at TEXT NOT NULL DEFAULT '',
+        notes TEXT NOT NULL DEFAULT '',
+        FOREIGN KEY(source_router_id) REFERENCES routers(id),
+        FOREIGN KEY(target_router_id) REFERENCES routers(id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_router_replacements_source ON router_replacements(source_router_id,id DESC);
+    CREATE INDEX IF NOT EXISTS idx_router_replacements_target ON router_replacements(target_router_id,id DESC);
+
+    CREATE TABLE IF NOT EXISTS maintenance_automation_settings (
+        id INTEGER PRIMARY KEY CHECK(id=1),
+        enabled INTEGER NOT NULL DEFAULT 1,
+        run_on_upgrades INTEGER NOT NULL DEFAULT 1,
+        run_on_routerboot INTEGER NOT NULL DEFAULT 1,
+        run_on_all_changes INTEGER NOT NULL DEFAULT 0,
+        capture_backup INTEGER NOT NULL DEFAULT 1,
+        run_compliance INTEGER NOT NULL DEFAULT 1,
+        run_security INTEGER NOT NULL DEFAULT 1,
+        run_wan_probe INTEGER NOT NULL DEFAULT 1,
+        run_interfaces INTEGER NOT NULL DEFAULT 1,
+        run_desired_state INTEGER NOT NULL DEFAULT 1
+    );
+    INSERT OR IGNORE INTO maintenance_automation_settings(id) VALUES(1);
+
+    CREATE TABLE IF NOT EXISTS maintenance_automation_runs (
+        job_id INTEGER PRIMARY KEY,
+        router_id INTEGER NOT NULL,
+        job_kind TEXT NOT NULL,
+        processed_at TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'completed',
+        summary TEXT NOT NULL DEFAULT '',
+        FOREIGN KEY(job_id) REFERENCES router_jobs(id) ON DELETE CASCADE,
+        FOREIGN KEY(router_id) REFERENCES routers(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS alert_queue (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        source_key TEXT NOT NULL UNIQUE,
+        router_id INTEGER,
+        severity TEXT NOT NULL DEFAULT 'warning',
+        title TEXT NOT NULL,
+        details TEXT NOT NULL DEFAULT '',
+        link TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL DEFAULT 'new',
+        assigned_to TEXT NOT NULL DEFAULT '',
+        ticket_reference TEXT NOT NULL DEFAULT '',
+        resolution_note TEXT NOT NULL DEFAULT '',
+        first_seen_at TEXT NOT NULL,
+        last_seen_at TEXT NOT NULL,
+        acknowledged_at TEXT NOT NULL DEFAULT '',
+        resolved_at TEXT NOT NULL DEFAULT '',
+        updated_by TEXT NOT NULL DEFAULT '',
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY(router_id) REFERENCES routers(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_alert_queue_status ON alert_queue(status,severity,last_seen_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_alert_queue_router ON alert_queue(router_id,status,id DESC);
+    """)
+
+
+MIGRATIONS = [_m1, _m2, _m3, _m4, _m5, _m6, _m7, _m8, _m9, _m10, _m11, _m12, _m13, _m14, _m15, _m16, _m17, _m18, _m19, _m20, _m21]
 
 
 def migrate() -> int:
