@@ -771,6 +771,16 @@ def register(app, page_func):
                 "SELECT captured_at,name,running,disabled,rx_errors,tx_errors,rx_drops,tx_drops,link_downs,rate,full_duplex,poe_out FROM router_interface_history WHERE router_id=? ORDER BY id DESC LIMIT 1",
                 (router_id,),
             ).fetchone()
+            security_row = conn.execute("SELECT * FROM router_security_audit WHERE router_id=?", (router_id,)).fetchone()
+            automation_time = conn.execute("SELECT MAX(captured_at) t FROM router_automation_inventory WHERE router_id=?", (router_id,)).fetchone()["t"]
+            unmanaged_count = conn.execute(
+                "SELECT COUNT(*) c FROM router_automation_inventory WHERE router_id=? AND captured_at=? AND enabled=1 AND managed=0",
+                (router_id, automation_time or ""),
+            ).fetchone()["c"] if automation_time else 0
+            traffic_latest = conn.execute(
+                "SELECT interface,rx_bps,tx_bps,captured_at FROM router_traffic_history WHERE router_id=? AND rx_bps IS NOT NULL ORDER BY id DESC LIMIT 1",
+                (router_id,),
+            ).fetchone()
         recent_jobs = jobs.latest(router_id, 15)
         txs = change_control.latest(router_id, 15)
         tx_by_job = {int(t["job_id"]): t for t in txs if t["job_id"] is not None}
@@ -803,11 +813,17 @@ def register(app, page_func):
         outage_text = "No assessment yet" if not outage else f'{outage["summary"]} · confidence {outage["confidence"]}'
         site_text = "No customer/site metadata" if not site_meta else " · ".join(x for x in (site_meta["customer_name"],site_meta["site_code"],site_meta["circuit_type"]) if x) or "Metadata saved"
         interface_text = "No interface samples" if not interface_latest else f'{interface_latest["name"]} · {"up" if interface_latest["running"] else "down"} · {interface_latest["rate"] or "-"}'
-        body = f'''<div class="panel pad"><h2>{html.escape(router['site_name'])}</h2><div class="muted">{html.escape(router['model'] or '')} · <code>{html.escape(router['vpn_ip'])}</code> · capability: {html.escape(cap['mode'] if cap else 'tikcentral_only')}</div><div class="inline" style="margin-top:12px"><a href="/timeline/{router_id}"><button>Full timeline</button></a><a href="/timeline/{router_id}/before"><button>What changed before failure?</button></a><a href="/incidents/{router_id}"><button>Build incident</button></a><a href="/compliance/{router_id}"><button>Compliance</button></a><a href="/lte/{router_id}"><button>LTE</button></a><a href="/interfaces/{router_id}"><button>Interfaces</button></a><a href="/site/{router_id}"><button>Site / customer</button></a><a href="/diagnostics/{router_id}"><button>Safe diagnostics</button></a><a href="/protection/{router_id}"><button>Protected objects</button></a><a href="/recovery/{router_id}"><button>Recovery</button></a><a href="/lifecycle/{router_id}"><button>Lifecycle</button></a><a href="/maintenance-history/{router_id}"><button>Maintenance history</button></a><a href="/hardware/{router_id}"><button>Hardware</button></a><a href="/certificates/{router_id}"><button>Certificates</button></a><a href="/change-calendar"><button>Calendar</button></a></div></div>
+        security_text = "Not checked" if not security_row else f'{security_row["status"]} · {security_row["critical_count"]} critical / {security_row["warning_count"]} warning'
+        automation_text = f'{unmanaged_count} enabled unmanaged object(s)' if automation_time else "Not inventoried"
+        traffic_text = "No traffic rate yet" if not traffic_latest else f'{traffic_latest["interface"]} · RX {(traffic_latest["rx_bps"] or 0)/1e6:.2f} Mbps / TX {(traffic_latest["tx_bps"] or 0)/1e6:.2f} Mbps'
+        body = f'''<div class="panel pad"><h2>{html.escape(router['site_name'])}</h2><div class="muted">{html.escape(router['model'] or '')} · <code>{html.escape(router['vpn_ip'])}</code> · capability: {html.escape(cap['mode'] if cap else 'tikcentral_only')}</div><div class="inline" style="margin-top:12px"><a href="/timeline/{router_id}"><button>Full timeline</button></a><a href="/timeline/{router_id}/before"><button>What changed before failure?</button></a><a href="/incidents/{router_id}"><button>Build incident</button></a><a href="/compliance/{router_id}"><button>Compliance</button></a><a href="/lte/{router_id}"><button>LTE</button></a><a href="/interfaces/{router_id}"><button>Interfaces</button></a><a href="/site/{router_id}"><button>Site / customer</button></a><a href="/diagnostics/{router_id}"><button>Safe diagnostics</button></a><a href="/protection/{router_id}"><button>Protected objects</button></a><a href="/recovery/{router_id}"><button>Recovery</button></a><a href="/lifecycle/{router_id}"><button>Lifecycle</button></a><a href="/maintenance-history/{router_id}"><button>Maintenance history</button></a><a href="/hardware/{router_id}"><button>Hardware</button></a><a href="/certificates/{router_id}"><button>Certificates</button></a><a href="/change-calendar"><button>Calendar</button></a><a href="/security-audit/{router_id}"><button>Security exposure</button></a><a href="/automation-inventory/{router_id}"><button>RouterOS automation</button></a><a href="/traffic/{router_id}"><button>Traffic</button></a></div></div>
 <div class="panel pad"><h3>Lifecycle</h3><div>{html.escape(router["lifecycle_state"] or "production").title()}</div><div class="muted">{html.escape(router["lifecycle_updated_at"] or "")} {html.escape(router["lifecycle_updated_by"] or "")}</div></div>
 <div class="panel pad"><h3>Site / customer</h3><div>{html.escape(site_text)}</div></div>
 <div class="panel pad"><h3>Outage domain</h3><div>{html.escape(outage_text)}</div><div class="muted">{html.escape(outage["evidence"] if outage else "")}</div></div>
 <div class="panel pad"><h3>Interface health</h3><div>{html.escape(interface_text)}</div></div>
+<div class="panel pad"><h3>Security exposure</h3><div>{html.escape(security_text)}</div></div>
+<div class="panel pad"><h3>RouterOS automation</h3><div>{html.escape(automation_text)}</div></div>
+<div class="panel pad"><h3>Traffic</h3><div>{html.escape(traffic_text)}</div></div>
 <div class="panel pad"><h3>Golden policy</h3><div>{html.escape(compliance_text)}</div></div>
 <div class="panel pad"><h3>LTE</h3><div>{html.escape(lte_text)}</div></div>
 <div class="panel pad"><h3>Access / commissioning</h3><div>{'Healthy' if access and access['management_ok'] else 'Degraded'} · commissioning {html.escape(commissioning)} · config {html.escape(drift_status)}</div><div class="inline" style="margin-top:12px">{_post_button(f'/operations/{router_id}/commission',csrf,'Run commissioning validation')} {_post_button(f'/operations/{router_id}/baseline',csrf,'Accept current baseline')} {_post_button(f'/operations/{router_id}/drift/check',csrf,'Check drift')}</div></div>
