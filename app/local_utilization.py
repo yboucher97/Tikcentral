@@ -30,15 +30,23 @@ def collect(router_id:int):
         traffic=conn.execute("SELECT interface,rx_bps,tx_bps FROM router_traffic_history WHERE router_id=? AND captured_at=?",(router_id,t or "")).fetchall() if t else []
         topo_t=conn.execute("SELECT MAX(captured_at) t FROM router_topology_devices WHERE router_id=?",(router_id,)).fetchone()["t"]
         topo=conn.execute("SELECT DISTINCT local_interface FROM router_topology_devices WHERE router_id=? AND captured_at=? AND local_interface<>''",(router_id,topo_t or "")).fetchall() if topo_t else []
+        iface_t=conn.execute("SELECT MAX(captured_at) t FROM router_interface_history WHERE router_id=?",(router_id,)).fetchone()["t"]
+        iface_rows=conn.execute("SELECT name,interface_type FROM router_interface_history WHERE router_id=? AND captured_at=?",(router_id,iface_t or "")).fetchall() if iface_t else []
     if not r or not r["enabled"] or (r["lifecycle_state"] or "production")=="retired":return None
     wan=_wan_interfaces(r["vpn_ip"])
     topo_if={x["local_interface"] for x in topo if x["local_interface"]}
     if topo_if:
         lan=topo_if; confidence="high"
     else:
-        candidates={x["interface"] for x in traffic if x["interface"] and not x["interface"].startswith(("opticable-wg","wireguard","lo"))}
-        lan={x for x in candidates if x not in wan}
-        confidence="medium" if wan else "low"
+        bridges={x["name"] for x in iface_rows if (x["interface_type"] or "").lower()=="bridge" or "bridge" in (x["name"] or "").lower()}
+        bridges={x for x in bridges if x not in wan and not x.startswith(("opticable-wg","wireguard","lo"))}
+        if bridges:
+            lan=bridges; confidence="medium"
+        else:
+            candidates={x["interface"] for x in traffic if x["interface"] and not x["interface"].startswith(("opticable-wg","wireguard","lo"))}
+            physical={x for x in candidates if x.lower().startswith(("ether","sfp","combo"))}
+            lan={x for x in (physical or candidates) if x not in wan}
+            confidence="medium" if wan else "low"
     selected=[x for x in traffic if x["interface"] in lan]
     rx=sum(float(x["rx_bps"] or 0) for x in selected); tx=sum(float(x["tx_bps"] or 0) for x in selected); total=rx+tx
     summary=f"Estimated local traffic {total/1e6:.2f} Mbps across {len(lan)} interface(s) · confidence {confidence}"
