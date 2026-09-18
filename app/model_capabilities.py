@@ -63,4 +63,4 @@ def register(app,page_func):
         rendered="".join(f'<tr><td><strong>{html.escape(x["model"])}</strong></td><td>{x["observed_routers"]}</td><td>{html.escape(x["architecture"] or "-")}</td><td>{html.escape(x["cpu"] or "-")} / {x["max_cpu_count"] or "—"}</td><td>{gb(x["max_memory_bytes"])}</td><td>{gb(x["max_storage_bytes"])}</td><td>{x["max_ethernet_ports"]}</td><td>{x["max_sfp_ports"]}</td><td>{x["max_lte_interfaces"]}</td><td>{x["max_wifi_interfaces"]}</td></tr>' for x in rows) or '<tr><td colspan="10">No capability observations yet.</td></tr>'
         body=f'''<div class="panel pad"><h2>Router model capability database</h2><div class="muted">Learned from enrolled MikroTik routers actually observed by Tikcentral; no external model database is assumed.</div></div>
 <div class="panel"><table><thead><tr><th>Model</th><th>Observed</th><th>Architecture</th><th>CPU / cores</th><th>Memory</th><th>Storage</th><th>Ethernet</th><th>SFP</th><th>LTE</th><th>Wi-Fi</th></tr></thead><tbody>{rendered}</tbody></table></div>'''
-        return page_func("Model Capabilities",body,user,"operations")
+        return page_func("Model Capabilities",body,user,"model-capabilities")
