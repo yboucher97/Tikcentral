@@ -162,7 +162,13 @@ def collect_snapshot(router_id: int, focus_start: str = "", focus_end: str = "",
         "recent_jobs": [dict(r) for r in recent_jobs],
         "maintenance": row_dict(maintenance),
         "golden_policy_compliance": row_dict(compliance),
-        "site_metadata": row_dict(site_metadata),
+        "site_metadata": (
+            {
+                "customer_name": site_metadata["customer_name"],
+                "site_code": site_metadata["site_code"],
+                "circuit_type": site_metadata["circuit_type"],
+            } if site_metadata else None
+        ),
         "outage_assessment": row_dict(outage_assessment),
         "interface_history": [dict(r) for r in interface_history],
         "lte_history": [dict(r) for r in lte_history],
