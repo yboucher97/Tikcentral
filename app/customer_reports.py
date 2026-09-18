@@ -21,7 +21,7 @@ def _build(router_id:int,days:int):
             "SELECT management_ok FROM router_access_history WHERE router_id=? AND checked_at>=? AND checked_at<=?",
             (router_id,start.isoformat(),end.isoformat())).fetchall()
         maintenance=conn.execute(
-            """SELECT occurred_at,work_type,ticket_reference,issue,work_performed,result,follow_up
+            """SELECT occurred_at,work_type,ticket_reference
                FROM router_maintenance_history WHERE router_id=? AND occurred_at>=? AND occurred_at<=?
                ORDER BY occurred_at DESC""",(router_id,start.isoformat(),end.isoformat())).fetchall()
         notes=conn.execute(
@@ -60,8 +60,8 @@ def register(app,page_func):
         customer=(site["customer_name"] if site else "") or r["site_name"]
         location=(site["address"] if site else "") or ""
         maint="".join(
-            f'<tr><td>{html.escape(x["occurred_at"])}</td><td>{html.escape(x["work_type"])}</td><td>{html.escape(x["ticket_reference"] or "-")}</td><td>{html.escape(x["issue"] or "")}<div class="muted">{html.escape(x["work_performed"] or "")}</div></td><td>{html.escape(x["result"] or "")}</td></tr>'
-            for x in maintenance) or '<tr><td colspan="5">No recorded service interventions in this period.</td></tr>'
+            f'<tr><td>{html.escape(x["occurred_at"])}</td><td>{html.escape(x["work_type"])}</td><td>{html.escape(x["ticket_reference"] or "-")}</td></tr>'
+            for x in maintenance) or '<tr><td colspan="3">No recorded service interventions in this period.</td></tr>'
         note_rows="".join(f'<tr><td>{html.escape(x["created_at"])}</td><td>{html.escape(x["ticket_reference"] or "-")}</td><td>{html.escape(x["note"])}</td></tr>' for x in notes) or '<tr><td colspan="3">No customer-facing service notes.</td></tr>'
         hw="".join(f'<tr><td>{html.escape(x["category"])}</td><td>{html.escape((x["manufacturer"]+" "+x["model"]).strip())}</td><td>{html.escape(x["asset_tag"] or "-")}</td><td>{html.escape(x["location"] or "-")}</td></tr>' for x in hardware) or '<tr><td colspan="4">No equipment inventory published.</td></tr>'
         up="".join(f'<tr><td>{html.escape(x["created_at"])}</td><td>{html.escape(x["target"] or "-")}</td><td>{html.escape(x["status"])}</td></tr>' for x in upgrades) or '<tr><td colspan="3">No RouterOS upgrades in this period.</td></tr>'
@@ -75,7 +75,7 @@ def register(app,page_func):
 <div class="inline no-print" style="margin-top:12px"><button onclick="window.print()">Print / Save PDF</button><a href="/customer-report/{router_id}?days=7"><button>7d</button></a><a href="/customer-report/{router_id}?days=30"><button>30d</button></a><a href="/customer-report/{router_id}?days=90"><button>90d</button></a><a href="/customer-report/{router_id}?days=365"><button>1y</button></a>
 <form method="post" action="/customer-report/{router_id}/record"><input type="hidden" name="csrf" value="{csrf}"><input type="hidden" name="days" value="{days}"><button>Record report generation</button></form></div></div>
 <div class="panel pad"><h3>Service health</h3><div><strong>{html.escape(availability_text)}</strong></div><div>{html.escape(capacity_text)}</div></div>
-<div class="panel"><div class="pad"><h3>Service interventions</h3></div><table><thead><tr><th>Date</th><th>Type</th><th>Ticket</th><th>Work</th><th>Result</th></tr></thead><tbody>{maint}</tbody></table></div>
+<div class="panel"><div class="pad"><h3>Service interventions</h3></div><table><thead><tr><th>Date</th><th>Type</th><th>Ticket</th></tr></thead><tbody>{maint}</tbody></table></div>
 <div class="panel"><div class="pad"><h3>Service notes</h3></div><table><thead><tr><th>Date</th><th>Ticket</th><th>Note</th></tr></thead><tbody>{note_rows}</tbody></table></div>
 <div class="panel"><div class="pad"><h3>Equipment</h3></div><table><thead><tr><th>Type</th><th>Equipment</th><th>Asset</th><th>Location</th></tr></thead><tbody>{hw}</tbody></table></div>
 <div class="panel"><div class="pad"><h3>Software maintenance</h3></div><table><thead><tr><th>Date</th><th>Target</th><th>Status</th></tr></thead><tbody>{up}</tbody></table></div>
