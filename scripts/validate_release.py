@@ -104,6 +104,10 @@ REQUIRED_ROUTES = {
     ("GET", "/alerts"), ("POST", "/alerts/{alert_id}"),
     ("GET", "/customers"), ("GET", "/customer"),
     ("GET", "/database-health"),
+    ("GET", "/config-search"),
+    ("GET", "/retention"), ("POST", "/retention"),
+    ("GET", "/commissioning-checklist/{router_id}"),
+    ("POST", "/commissioning-checklist/settings"),
 }
 
 FORBIDDEN_FILES = {
@@ -213,6 +217,11 @@ def validate_routes():
         ("GET", "/customers"): "app.customer_overview",
         ("GET", "/customer"): "app.customer_overview",
         ("GET", "/database-health"): "app.database_health",
+        ("GET", "/config-search"): "app.config_search",
+        ("GET", "/retention"): "app.retention_policy",
+        ("POST", "/retention"): "app.retention_policy",
+        ("GET", "/commissioning-checklist/{router_id}"): "app.commissioning_checklist",
+        ("POST", "/commissioning-checklist/settings"): "app.commissioning_checklist",
     }
     for path in (
         "/operations/{router_id}/telemetry", "/operations/{router_id}/commission",
@@ -531,6 +540,30 @@ def validate_source_boundaries():
     dashboard_storage_text = (ROOT / "app/dashboard_attention.py").read_text(encoding="utf-8")
     if "database_health_history" not in dashboard_storage_text or "/database-health" not in dashboard_storage_text:
         fail("Database/storage warnings are not surfaced in Attention")
+    config_search_text = (ROOT / "app/config_search.py").read_text(encoding="utf-8")
+    for marker in ("Fleet configuration search", "router_snapshots", "router_exec.sanitize", "Latest snapshot per router", "All retained history"):
+        if marker not in config_search_text:
+            fail(f"Fleet config search missing: {marker}")
+    retention_text = (ROOT / "app/retention_policy.py").read_text(encoding="utf-8")
+    for marker in ("retention_settings", "retention_cleanup_history", "snapshot_days", "0 days means keep forever", "router_access_history", "router_wan_probe_history", "router_public_ip_history"):
+        if marker not in retention_text:
+            fail(f"Retention policy missing: {marker}")
+    commissioning_text = (ROOT / "app/commissioning_checklist.py").read_text(encoding="utf-8")
+    for marker in ("commissioning_checklist_status", "auto_promote", "promoted to Production", "require_hardware", "require_backup", "classification\"]==\"healthy"):
+        if marker not in commissioning_text:
+            fail(f"Commissioning checklist missing: {marker}")
+    scheduler_policy_text = (ROOT / "app/scheduler.py").read_text(encoding="utf-8")
+    for marker in ("retention_policy.cleanup", "commissioning_checklist.evaluate_candidates"):
+        if marker not in scheduler_policy_text:
+            fail(f"Retention/commissioning scheduler integration missing: {marker}")
+    ui_copy_text = (ROOT / "app/ui.py").read_text(encoding="utf-8")
+    for marker in ("window.tcCopy", "tcWriteClipboard", "document.execCommand('copy')", "installCopyButtons"):
+        if marker not in ui_copy_text:
+            fail(f"Shared clipboard support missing: {marker}")
+    for path_name in ("app/enrollment.py", "app/changes.py"):
+        page_text=(ROOT / path_name).read_text(encoding="utf-8")
+        if "tcCopy(" not in page_text:
+            fail(f"Page does not use shared clipboard helper: {path_name}")
     resource_text = (ROOT / "app/resource_monitor.py").read_text(encoding="utf-8")
     for marker in ("_uptime_seconds", "_memory_bytes", "_record_reboot", "RESOURCE_CPU_WARN", "Unexpected router reboot detected"):
         if marker not in resource_text:
@@ -561,7 +594,7 @@ def validate_ui_and_assets():
         '<div class="panel"><table><thead><tr><th>Status</th></tr></thead><tbody><tr><td>Healthy</td></tr></tbody></table></div>',
         {"email": "validator@opticable.local"}, "operations",
     ).body.decode()
-    for marker in ("tcGlobalSearch", "tcToggleTheme", "tc-local-search", "Columns ▾"):
+    for marker in ("tcGlobalSearch", "tcToggleTheme", "tc-local-search", "Columns ▾", "tcCopy", "Copy field value"):
         if marker not in rendered:
             fail(f"Shared UI missing {marker}")
     if set(settings.ASSET_FILES) != {"logo_light", "logo_dark", "icon"}:
@@ -637,6 +670,8 @@ def validate_persistence_and_jobs():
         "router_desired_state", "router_desired_state_status",
         "router_replacements", "maintenance_automation_settings", "maintenance_automation_runs", "alert_queue",
         "database_health_history",
+        "retention_settings", "retention_cleanup_history",
+        "commissioning_checklist_settings", "commissioning_checklist_status",
     }
     with sqlite3.connect(settings.DB_PATH) as conn:
         version = conn.execute("SELECT MAX(version) FROM schema_version").fetchone()[0]
