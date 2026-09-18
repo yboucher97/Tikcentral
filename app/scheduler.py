@@ -16,7 +16,7 @@ def _eligible_healthy_router_ids() -> list[int]:
         rows = conn.execute(
             """SELECT r.id FROM routers r
                JOIN router_access_state a ON a.router_id=r.id
-               WHERE r.enabled=1 AND a.management_ok=1
+               WHERE r.enabled=1 AND a.management_ok=1 AND COALESCE(r.lifecycle_state,'production')<>'retired'
                ORDER BY r.id"""
         ).fetchall()
     return [int(r["id"]) for r in rows if int(r["id"]) not in busy]
@@ -108,6 +108,7 @@ def _drift_lane(state, now):
                JOIN router_access_state a ON a.router_id=e.router_id
                JOIN routers r ON r.id=e.router_id
                WHERE e.baseline_sha256<>'' AND a.management_ok=1 AND r.enabled=1
+                 AND COALESCE(r.lifecycle_state,'production')<>'retired'
                ORDER BY e.router_id"""
         ).fetchall()
     drift_ids = [int(r["router_id"]) for r in rows if int(r["router_id"]) not in busy]
