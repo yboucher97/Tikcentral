@@ -809,7 +809,7 @@ def register(app, page_func):
         job_rows_parts = []
         for j in recent_jobs:
             tx = tx_by_job.get(int(j["id"]))
-            transcript = f'<div><a href="/reliability#tx-{tx["id"]}">Transaction #{tx["id"]}</a></div>' if tx else ""
+            transcript = f'<div><a href="/reliability#tx-{tx["id"]}">Transaction #{tx["id"]}</a> · <a href="/notes/{router_id}?type=change&id={tx["id"]}">Add change note</a></div>' if tx else ""
             note_link = f'<div><a href="/notes/{router_id}?type=job&id={j["id"]}">Add note</a></div>'
             job_rows_parts.append(f"<tr><td>{html.escape(j['created_at'])}</td><td>{html.escape(j['kind'])}{transcript}{note_link}</td><td>{html.escape(j['status'])}</td><td>{html.escape(j['target'] or '-')}</td><td>{html.escape(j['error_code'] or '')} {html.escape(j['error_message'] or '')}</td></tr>")
         job_rows = ''.join(job_rows_parts) or '<tr><td colspan="5">No jobs.</td></tr>'
