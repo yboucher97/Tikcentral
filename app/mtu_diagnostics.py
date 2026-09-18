@@ -33,7 +33,7 @@ def _ping(ip,target,size):
         out=router_exec.read(ip,cmd,timeout=15,label=f"MTU probe {target} size {size}")
         return _parse_ping(out),router_exec.sanitize(out,500)
     except Exception as exc:
-        return False,str(exc)[:300]
+        return None,str(exc)[:300]
 
 
 def collect(router_id:int,force=False,target=STANDARD_TARGET):
@@ -51,12 +51,16 @@ def collect(router_id:int,force=False,target=STANDARD_TARGET):
     results=[]; largest=None
     for size in PAYLOADS:
         ok,evidence=_ping(r["vpn_ip"],target,size)
-        results.append({"payload":size,"estimated_mtu":size+IP_ICMP_OVERHEAD,"ok":bool(ok),"evidence":evidence})
+        results.append({"payload":size,"estimated_mtu":size+IP_ICMP_OVERHEAD,"ok":ok,"evidence":evidence})
         if ok and largest is None:
             largest=size
             break
 
-    if largest is None:
+    attempted=[x for x in results if x["ok"] is not None]
+    if largest is None and not attempted:
+        status="unknown"; mtu=None; mss=None
+        summary="MTU diagnostic unavailable; RouterOS did not return a usable DF-ping result"
+    elif largest is None:
         status="warning"; mtu=None; mss=None
         summary=f"No DF probe succeeded down to {PAYLOADS[-1]+IP_ICMP_OVERHEAD} byte estimated path MTU"
     else:
@@ -101,7 +105,7 @@ def register(app,page_func):
         csrf=core.csrf_token(request)
         results=json.loads(latest["results_json"]) if latest and latest["results_json"] else []
         rows="".join(
-            f'<tr><td>{x["payload"]}</td><td>{x["estimated_mtu"]}</td><td>{"PASS" if x["ok"] else "FAIL"}</td></tr>'
+            f'<tr><td>{x["payload"]}</td><td>{x["estimated_mtu"]}</td><td>{"PASS" if x["ok"] is True else ("FAIL" if x["ok"] is False else "UNAVAILABLE")}</td></tr>'
             for x in results
         ) or '<tr><td colspan="3">No MTU diagnostic has run yet.</td></tr>'
         body=f'''<div class="panel pad"><h2>MTU / MSS diagnostics · {html.escape(r["site_name"])}</h2>
