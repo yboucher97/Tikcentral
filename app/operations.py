@@ -786,6 +786,16 @@ def register(app, page_func):
                 "SELECT * FROM operator_notes WHERE router_id=? ORDER BY id DESC LIMIT 8",
                 (router_id,),
             ).fetchall()
+            wan_probe_latest = conn.execute(
+                "SELECT * FROM router_wan_probe_history WHERE router_id=? ORDER BY id DESC LIMIT 1",
+                (router_id,),
+            ).fetchone()
+            desired_state_row = conn.execute("SELECT * FROM router_desired_state_status WHERE router_id=?", (router_id,)).fetchone()
+            topology_time = conn.execute("SELECT MAX(captured_at) t FROM router_topology_devices WHERE router_id=?", (router_id,)).fetchone()["t"]
+            topology_count = conn.execute(
+                "SELECT COUNT(*) c FROM router_topology_devices WHERE router_id=? AND captured_at=?",
+                (router_id, topology_time or ""),
+            ).fetchone()["c"] if topology_time else 0
         recent_jobs = jobs.latest(router_id, 15)
         txs = change_control.latest(router_id, 15)
         tx_by_job = {int(t["job_id"]): t for t in txs if t["job_id"] is not None}
@@ -823,11 +833,14 @@ def register(app, page_func):
         automation_text = f'{unmanaged_count} enabled unmanaged object(s)' if automation_time else "Not inventoried"
         traffic_text = "No traffic rate yet" if not traffic_latest else f'{traffic_latest["interface"]} · RX {(traffic_latest["rx_bps"] or 0)/1e6:.2f} Mbps / TX {(traffic_latest["tx_bps"] or 0)/1e6:.2f} Mbps'
         capacity_text = "Not assessed" if not capacity_row else f'{capacity_row["status"]} · {capacity_row["summary"]}'
+        wan_probe_text = "No multi-target probe yet" if not wan_probe_latest else f'{wan_probe_latest["classification"]} · {wan_probe_latest["summary"]}'
+        desired_text = "Not checked" if not desired_state_row else f'{desired_state_row["status"]} · {desired_state_row["failed"]} fail / {desired_state_row["warnings"]} warning / {desired_state_row["passed"]} pass'
+        topology_text = f'{topology_count} external switch/AP device(s) observed or inventoried' if topology_time else "No topology evidence yet"
         notes_rows = ''.join(
             f'<tr><td>{html.escape(n["created_at"])}</td><td>{html.escape(n["object_type"])} {("#"+str(n["object_id"])) if n["object_id"] else ""}</td><td>{html.escape(n["ticket_reference"] or "-")}</td><td>{html.escape(n["visibility"])}</td><td>{html.escape(n["note"])}</td></tr>'
             for n in recent_notes
         ) or '<tr><td colspan="5">No operator notes.</td></tr>'
-        body = f'''<div class="panel pad"><h2>{html.escape(router['site_name'])}</h2><div class="muted">{html.escape(router['model'] or '')} · <code>{html.escape(router['vpn_ip'])}</code> · capability: {html.escape(cap['mode'] if cap else 'tikcentral_only')}</div><div class="inline" style="margin-top:12px"><a href="/timeline/{router_id}"><button>Full timeline</button></a><a href="/timeline/{router_id}/before"><button>What changed before failure?</button></a><a href="/incidents/{router_id}"><button>Build incident</button></a><a href="/compliance/{router_id}"><button>Compliance</button></a><a href="/lte/{router_id}"><button>LTE</button></a><a href="/interfaces/{router_id}"><button>Interfaces</button></a><a href="/site/{router_id}"><button>Site / customer</button></a><a href="/diagnostics/{router_id}"><button>Safe diagnostics</button></a><a href="/protection/{router_id}"><button>Protected objects</button></a><a href="/recovery/{router_id}"><button>Recovery</button></a><a href="/lifecycle/{router_id}"><button>Lifecycle</button></a><a href="/maintenance-history/{router_id}"><button>Maintenance history</button></a><a href="/hardware/{router_id}"><button>Hardware</button></a><a href="/certificates/{router_id}"><button>Certificates</button></a><a href="/change-calendar"><button>Calendar</button></a><a href="/security-audit/{router_id}"><button>Security exposure</button></a><a href="/automation-inventory/{router_id}"><button>RouterOS automation</button></a><a href="/traffic/{router_id}"><button>Traffic</button></a><a href="/capacity/{router_id}"><button>Capacity trends</button></a><a href="/notes/{router_id}"><button>Operator notes</button></a><a href="/customer-report/{router_id}"><button>Customer report</button></a></div></div>
+        body = f'''<div class="panel pad"><h2>{html.escape(router['site_name'])}</h2><div class="muted">{html.escape(router['model'] or '')} · <code>{html.escape(router['vpn_ip'])}</code> · capability: {html.escape(cap['mode'] if cap else 'tikcentral_only')}</div><div class="inline" style="margin-top:12px"><a href="/timeline/{router_id}"><button>Full timeline</button></a><a href="/timeline/{router_id}/before"><button>What changed before failure?</button></a><a href="/incidents/{router_id}"><button>Build incident</button></a><a href="/compliance/{router_id}"><button>Compliance</button></a><a href="/lte/{router_id}"><button>LTE</button></a><a href="/interfaces/{router_id}"><button>Interfaces</button></a><a href="/site/{router_id}"><button>Site / customer</button></a><a href="/diagnostics/{router_id}"><button>Safe diagnostics</button></a><a href="/protection/{router_id}"><button>Protected objects</button></a><a href="/recovery/{router_id}"><button>Recovery</button></a><a href="/lifecycle/{router_id}"><button>Lifecycle</button></a><a href="/maintenance-history/{router_id}"><button>Maintenance history</button></a><a href="/hardware/{router_id}"><button>Hardware</button></a><a href="/certificates/{router_id}"><button>Certificates</button></a><a href="/change-calendar"><button>Calendar</button></a><a href="/security-audit/{router_id}"><button>Security exposure</button></a><a href="/automation-inventory/{router_id}"><button>RouterOS automation</button></a><a href="/traffic/{router_id}"><button>Traffic</button></a><a href="/capacity/{router_id}"><button>Capacity trends</button></a><a href="/notes/{router_id}"><button>Operator notes</button></a><a href="/customer-report/{router_id}"><button>Customer report</button></a><a href="/topology/{router_id}"><button>Topology</button></a><a href="/wan-probe/{router_id}"><button>WAN probe</button></a><a href="/desired-state/{router_id}"><button>Desired state</button></a></div></div>
 <div class="panel pad"><h3>Lifecycle</h3><div>{html.escape(router["lifecycle_state"] or "production").title()}</div><div class="muted">{html.escape(router["lifecycle_updated_at"] or "")} {html.escape(router["lifecycle_updated_by"] or "")}</div></div>
 <div class="panel pad"><h3>Site / customer</h3><div>{html.escape(site_text)}</div></div>
 <div class="panel pad"><h3>Outage domain</h3><div>{html.escape(outage_text)}</div><div class="muted">{html.escape(outage["evidence"] if outage else "")}</div></div>
@@ -836,6 +849,9 @@ def register(app, page_func):
 <div class="panel pad"><h3>RouterOS automation</h3><div>{html.escape(automation_text)}</div></div>
 <div class="panel pad"><h3>Traffic</h3><div>{html.escape(traffic_text)}</div></div>
 <div class="panel pad"><h3>Capacity trends</h3><div>{html.escape(capacity_text)}</div></div>
+<div class="panel pad"><h3>Topology</h3><div>{html.escape(topology_text)}</div></div>
+<div class="panel pad"><h3>WAN probe</h3><div>{html.escape(wan_probe_text)}</div></div>
+<div class="panel pad"><h3>Desired state</h3><div>{html.escape(desired_text)}</div></div>
 <div class="panel pad"><h3>Golden policy</h3><div>{html.escape(compliance_text)}</div></div>
 <div class="panel pad"><h3>LTE</h3><div>{html.escape(lte_text)}</div></div>
 <div class="panel pad"><h3>Access / commissioning</h3><div>{'Healthy' if access and access['management_ok'] else 'Degraded'} · commissioning {html.escape(commissioning)} · config {html.escape(drift_status)}</div><div class="inline" style="margin-top:12px">{_post_button(f'/operations/{router_id}/commission',csrf,'Run commissioning validation')} {_post_button(f'/operations/{router_id}/baseline',csrf,'Accept current baseline')} {_post_button(f'/operations/{router_id}/drift/check',csrf,'Check drift')}</div></div>
