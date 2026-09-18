@@ -134,6 +134,8 @@ def register(app,page_func):
                 f'<td>{growth}</td><td>{runway}</td><td>{_human(x["filesystem_free_bytes"])}</td></tr>'
             )
         history="".join(history_parts) or '<tr><td colspan="6">No history.</td></tr>'
+        current_runway=f'{current["estimated_days_to_80_percent"]:.0f}' if current["estimated_days_to_80_percent"] is not None else "—"
+        current_growth=_human(current["growth_bytes_per_day"]) if current["growth_bytes_per_day"] is not None else "—"
         body=f'''<div class="panel pad"><h2>Database / storage health</h2>
 <div><strong>{html.escape(current["status"])}</strong> · {html.escape(current["summary"])}</div>
 <div class="muted">Standard thresholds: warning at ≤20% filesystem free or ≤30 forecast days to 80% use; critical at ≤10% free or ≤7 days.</div></div>
@@ -141,8 +143,8 @@ def register(app,page_func):
 <div class="card"><h3>SQLite DB</h3><div class="value">{_human(current["db_bytes"])}</div></div>
 <div class="card"><h3>WAL</h3><div class="value">{_human(current["wal_bytes"])}</div></div>
 <div class="card"><h3>Total SQLite files</h3><div class="value">{_human(current["total_sqlite_bytes"])}</div></div>
-<div class="card"><h3>Growth/day</h3><div class="value">{_human(current["growth_bytes_per_day"]) if current["growth_bytes_per_day"] is not None else "—"}</div></div>
-<div class="card"><h3>Days to 80%</h3><div class="value">{f"{current['estimated_days_to_80_percent']:.0f}" if current["estimated_days_to_80_percent"] is not None else "—"}</div></div>
+<div class="card"><h3>Growth/day</h3><div class="value">{current_growth}</div></div>
+<div class="card"><h3>Days to 80%</h3><div class="value">{current_runway}</div></div>
 <div class="card"><h3>Filesystem free</h3><div class="value">{_human(current["filesystem_free_bytes"])}</div></div>
 </div>
 <div class="panel pad"><h3>SQLite internals</h3><div>Pages: {page_count} · page size: {_human(page_size)} · freelist pages: {freelist} · approximate freelist space: {_human(freelist*page_size)}</div></div>
