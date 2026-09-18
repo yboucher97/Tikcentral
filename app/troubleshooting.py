@@ -116,7 +116,7 @@ def _window(router_id: int, start: str, end: str):
                 items.append((r["captured_at"],sev,"interface",summary,detail))
             prev_by_name[r["name"]] = r
         outage = conn.execute("SELECT * FROM router_outage_assessment WHERE router_id=?", (router_id,)).fetchone()
-        if outage and outage["classification"] != "healthy":
+        if outage and outage["classification"] != "healthy" and start <= outage["assessed_at"] <= end:
             items.append((outage["assessed_at"],"warning","outage-domain",outage["summary"],
                           f'classification={outage["classification"]}; confidence={outage["confidence"]}; {outage["evidence"]}'))
         like_path = f"%/{router_id}%"
