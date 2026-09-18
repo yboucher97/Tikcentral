@@ -13,6 +13,7 @@ from fastapi.staticfiles import StaticFiles
 
 # Import route modules once; their decorators register directly on core.app.
 from app import ai_analysis
+from app import alert_queue
 from app import automation_inventory
 from app import changes
 from app import change_calendar
@@ -33,6 +34,7 @@ from app import lifecycle
 from app import jobs
 from app import lte_monitor
 from app import main as core
+from app import maintenance_automation
 from app import maintenance_history
 from app import management_script
 from app import object_protection
@@ -45,6 +47,7 @@ from app import diagnostics
 from app import desired_state
 from app import customer_reports
 from app import rescue
+from app import router_replacement
 from app import security_audit
 from app import recovery_browser
 from app import reliability
@@ -210,6 +213,7 @@ change_calendar.register(app, ui.page)
 certificate_monitor.register(app, ui.page)
 capacity_forecast.register(app, ui.page)
 operator_notes.register(app, ui.page)
+alert_queue.register(app, ui.page)
 customer_reports.register(app, ui.page)
 security_audit.register(app, ui.page)
 automation_inventory.register(app, ui.page)
@@ -224,6 +228,8 @@ interface_monitor.register(app, ui.page)
 site_metadata.register(app, ui.page)
 lifecycle.register(app, ui.page)
 maintenance_history.register(app, ui.page)
+maintenance_automation.register(app, ui.page)
+router_replacement.register(app, ui.page)
 upgrade_campaigns.register(app, ui.page)
 object_protection.register(app, ui.page)
 diagnostics.register(app, ui.page)
