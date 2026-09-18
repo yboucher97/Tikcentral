@@ -14,16 +14,16 @@ def render() -> str:
         stale = conn.execute(
             """SELECT r.id,r.site_name,
               (SELECT created_at FROM router_backup_records b WHERE b.router_id=r.id ORDER BY b.id DESC LIMIT 1) last_backup
-              FROM routers r WHERE r.enabled=1"""
+              FROM routers r WHERE r.enabled=1 AND COALESCE(r.lifecycle_state,'production')<>'retired'"""
         ).fetchall()
         degraded = conn.execute(
             """SELECT r.id,r.site_name,a.last_error FROM routers r
                LEFT JOIN router_access_state a ON a.router_id=r.id
-               WHERE r.enabled=1 AND (a.management_ok IS NULL OR a.management_ok=0)"""
+               WHERE r.enabled=1 AND COALESCE(r.lifecycle_state,'production') NOT IN ('retired','maintenance') AND (a.management_ok IS NULL OR a.management_ok=0)"""
         ).fetchall()
         drift = conn.execute(
             """SELECT r.id,r.site_name FROM routers r JOIN router_expected_state e ON e.router_id=r.id
-               WHERE r.enabled=1 AND e.drifted=1"""
+               WHERE r.enabled=1 AND COALESCE(r.lifecycle_state,'production')<>'retired' AND e.drifted=1"""
         ).fetchall()
         alerts = conn.execute(
             """SELECT r.id,r.site_name,x.metric,x.last_value FROM router_resource_alerts x
@@ -48,13 +48,13 @@ def render() -> str:
         compliance = conn.execute(
             """SELECT r.id,r.site_name,c.status,c.passed,c.warnings,c.failed
                FROM router_policy_compliance c JOIN routers r ON r.id=c.router_id
-               WHERE r.enabled=1 AND c.status<>'pass'
+               WHERE r.enabled=1 AND COALESCE(r.lifecycle_state,'production')<>'retired' AND c.status<>'pass'
                ORDER BY c.failed DESC,c.warnings DESC LIMIT 30"""
         ).fetchall()
         outages = conn.execute(
             """SELECT r.id,r.site_name,o.classification,o.confidence,o.summary
                FROM router_outage_assessment o JOIN routers r ON r.id=o.router_id
-               WHERE r.enabled=1 AND o.classification<>'healthy'
+               WHERE r.enabled=1 AND COALESCE(r.lifecycle_state,'production') NOT IN ('retired','maintenance') AND o.classification<>'healthy'
                ORDER BY o.assessed_at DESC LIMIT 30"""
         ).fetchall()
         sys = conn.execute("SELECT checked_at,overall_status,checks_json FROM system_health_history ORDER BY id DESC LIMIT 1").fetchone()
