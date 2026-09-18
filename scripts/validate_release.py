@@ -95,6 +95,9 @@ REQUIRED_ROUTES = {
     ("GET", "/notes/{router_id}"), ("POST", "/notes/{router_id}"),
     ("GET", "/customer-report/{router_id}"),
     ("POST", "/customer-report/{router_id}/record"),
+    ("GET", "/topology/{router_id}"),
+    ("GET", "/wan-probe/{router_id}"), ("POST", "/wan-probe/{router_id}"),
+    ("GET", "/desired-state/{router_id}"), ("POST", "/desired-state/{router_id}"),
 }
 
 FORBIDDEN_FILES = {
@@ -188,6 +191,11 @@ def validate_routes():
         ("POST", "/notes/{router_id}"): "app.operator_notes",
         ("GET", "/customer-report/{router_id}"): "app.customer_reports",
         ("POST", "/customer-report/{router_id}/record"): "app.customer_reports",
+        ("GET", "/topology/{router_id}"): "app.topology",
+        ("GET", "/wan-probe/{router_id}"): "app.wan_probe",
+        ("POST", "/wan-probe/{router_id}"): "app.wan_probe",
+        ("GET", "/desired-state/{router_id}"): "app.desired_state",
+        ("POST", "/desired-state/{router_id}"): "app.desired_state",
     }
     for path in (
         "/operations/{router_id}/telemetry", "/operations/{router_id}/commission",
@@ -451,6 +459,25 @@ def validate_source_boundaries():
     scheduler_capacity = (ROOT / "app/scheduler.py").read_text(encoding="utf-8")
     if "capacity_forecast.assess" not in scheduler_capacity:
         fail("Capacity forecasting is not scheduled after observability")
+    topology_text = (ROOT / "app/topology.py").read_text(encoding="utf-8")
+    for marker in ("router_topology_devices", "Ubiquiti / UniFi", "TP-Link / Omada", "MikroTik router", "hardware_inventory"):
+        if marker not in topology_text:
+            fail(f"Topology feature missing: {marker}")
+    wan_probe_text = (ROOT / "app/wan_probe.py").read_text(encoding="utf-8")
+    for marker in ("STANDARD", "1.1.1.1", "8.8.8.8", "cloudflare.com", "degraded_quality", "packet_loss_warn_percent", "latency_warn_ms"):
+        if marker not in wan_probe_text:
+            fail(f"WAN probe standard profile missing: {marker}")
+    desired_text = (ROOT / "app/desired_state.py").read_text(encoding="utf-8")
+    for marker in ("STANDARD_INTENT", "management_services_restricted", "default_route_required", "wireguard_required", "audit only"):
+        if marker not in desired_text:
+            fail(f"Desired-state intent feature missing: {marker}")
+    scheduler_next = (ROOT / "app/scheduler.py").read_text(encoding="utf-8")
+    for marker in ("topology.collect", "wan_probe.collect", "desired_state.check"):
+        if marker not in scheduler_next:
+            fail(f"Topology/WAN/desired-state scheduling missing: {marker}")
+    outage_next = (ROOT / "app/outage_classifier.py").read_text(encoding="utf-8")
+    if "router_wan_probe_history" not in outage_next or "Multi-target WAN probe" not in outage_next:
+        fail("Outage classifier does not use multi-target WAN evidence")
     resource_text = (ROOT / "app/resource_monitor.py").read_text(encoding="utf-8")
     for marker in ("_uptime_seconds", "_memory_bytes", "_record_reboot", "RESOURCE_CPU_WARN", "Unexpected router reboot detected"):
         if marker not in resource_text:
@@ -553,6 +580,8 @@ def validate_persistence_and_jobs():
         "planned_changes", "hardware_inventory", "router_certificates",
         "router_security_audit", "router_automation_inventory", "router_traffic_history",
         "router_capacity_forecast", "operator_notes", "customer_report_history",
+        "router_topology_devices", "router_wan_probe_config", "router_wan_probe_history",
+        "router_desired_state", "router_desired_state_status",
     }
     with sqlite3.connect(settings.DB_PATH) as conn:
         version = conn.execute("SELECT MAX(version) FROM schema_version").fetchone()[0]
