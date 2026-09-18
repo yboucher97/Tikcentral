@@ -34,7 +34,8 @@ def collect(router_id:int):
         iface_rows=conn.execute("SELECT name,interface_type FROM router_interface_history WHERE router_id=? AND captured_at=?",(router_id,iface_t or "")).fetchall() if iface_t else []
     if not r or not r["enabled"] or (r["lifecycle_state"] or "production")=="retired":return None
     wan=_wan_interfaces(r["vpn_ip"])
-    topo_if={x["local_interface"] for x in topo if x["local_interface"]}
+    traffic_names={x["interface"] for x in traffic if x["interface"]}
+    topo_if={x["local_interface"] for x in topo if x["local_interface"] and x["local_interface"] in traffic_names}
     if topo_if:
         lan=topo_if; confidence="high"
     else:
