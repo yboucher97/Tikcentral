@@ -62,6 +62,25 @@ def _window(router_id: int, start: str, end: str):
         ).fetchall():
             items.append((r["first_seen_at"], "info", "public-ip", f'Public IP {r["public_ip"]}',
                           f'ISP={r["isp"] or "-"} ASN={r["asn"] or "-"} Org={r["organization"] or "-"}'))
+        for r in conn.execute(
+            "SELECT created_at,finished_at,status,kind,actor,error_code,error_detail FROM change_transactions WHERE router_id=? AND created_at>=? AND created_at<=?",
+            (router_id,start,end),
+        ).fetchall():
+            items.append((r["created_at"], "info" if r["status"]=="succeeded" else "warning", "change",
+                          f'{r["kind"]} · {r["status"]}', f'actor={r["actor"] or "-"} {r["error_code"] or ""} {r["error_detail"] or ""}'))
+        for r in conn.execute(
+            "SELECT created_at,finished_at,status,requested_by,focus_start,focus_end,focus_note FROM router_ai_analyses WHERE router_id=? AND created_at>=? AND created_at<=?",
+            (router_id,start,end),
+        ).fetchall():
+            items.append((r["created_at"], "info", "ai", f'AI analysis · {r["status"]}',
+                          f'by={r["requested_by"] or "-"} focus={r["focus_start"] or "-"}→{r["focus_end"] or "-"} {r["focus_note"] or ""}'))
+        like_path = f"%/{router_id}%"
+        for r in conn.execute(
+            "SELECT event_at,actor,action,path,status_code,details FROM operator_audit_log WHERE event_at>=? AND event_at<=? AND path LIKE ?",
+            (start,end,like_path),
+        ).fetchall():
+            items.append((r["event_at"], "info", "operator", r["action"],
+                          f'actor={r["actor"] or "-"} path={r["path"]} status={r["status_code"] or "-"} {r["details"] or ""}'))
     return sorted(items, key=lambda x:x[0], reverse=True)
 
 
