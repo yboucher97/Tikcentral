@@ -59,7 +59,12 @@ def assess_all():
         with core.db() as conn:
             previous=conn.execute("SELECT classification FROM router_outage_assessment WHERE router_id=?",(rid,)).fetchone()
 
-        if rid not in degraded_ids:
+        if r["management_ok"] is None or not r["checked_at"]:
+            classification="unknown"
+            confidence="low"
+            summary="Outage domain not yet assessed"
+            detail="No recent Guardian management sample is available yet."
+        elif rid not in degraded_ids:
             classification="healthy"
             confidence="high"
             summary="No active management outage detected"
