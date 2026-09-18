@@ -99,6 +99,16 @@ def collect_snapshot(router_id: int, focus_start: str = "", focus_end: str = "",
         ).fetchall()
         maintenance = conn.execute("SELECT * FROM router_maintenance WHERE router_id=?", (router_id,)).fetchone()
         compliance = conn.execute("SELECT * FROM router_policy_compliance WHERE router_id=?", (router_id,)).fetchone()
+        site_metadata = conn.execute("SELECT * FROM router_site_metadata WHERE router_id=?", (router_id,)).fetchone()
+        outage_assessment = conn.execute("SELECT * FROM router_outage_assessment WHERE router_id=?", (router_id,)).fetchone()
+        interface_history = conn.execute(
+            """SELECT captured_at,name,interface_type,running,disabled,rx_bytes,tx_bytes,rx_packets,tx_packets,
+                      rx_errors,tx_errors,rx_drops,tx_drops,link_downs,rate,full_duplex,auto_negotiation,poe_out
+               FROM router_interface_history WHERE router_id=?
+                 AND (?='' OR captured_at>=?) AND (?='' OR captured_at<=?)
+               ORDER BY id DESC LIMIT 1500""",
+            window_args,
+        ).fetchall()
         lte_history = conn.execute(
             """SELECT captured_at,interface,registered,operator,access_technology,band,ca_band,
                       cell_id,enb_id,sector_id,phy_cell_id,rsrp,rsrq,sinr,rssi
@@ -152,6 +162,9 @@ def collect_snapshot(router_id: int, focus_start: str = "", focus_end: str = "",
         "recent_jobs": [dict(r) for r in recent_jobs],
         "maintenance": row_dict(maintenance),
         "golden_policy_compliance": row_dict(compliance),
+        "site_metadata": row_dict(site_metadata),
+        "outage_assessment": row_dict(outage_assessment),
+        "interface_history": [dict(r) for r in interface_history],
         "lte_history": [dict(r) for r in lte_history],
         "recent_incidents": [dict(r) for r in incidents],
         "change_transactions": [dict(r) for r in transactions],
@@ -197,7 +210,7 @@ Return concise Markdown with these headings exactly:
 # Improvements to Consider
 # Data Gaps
 
-Prioritize management access, WAN, LTE signal/band/cell changes when present, interface errors/flaps, routes, DHCP/PPPoE, CPU/memory, versions, golden-policy compliance, configuration drift, recent jobs/events, and suspicious log patterns.
+Prioritize management access, WAN and outage-domain evidence, ISP correlation, interface errors/drops/link flaps, LTE signal/band/cell changes when present, routes, DHCP/PPPoE, CPU/memory, versions, golden-policy compliance, configuration drift, recent jobs/events, and suspicious log patterns. Use site/customer metadata only as operational context; do not treat technician notes as measured evidence.
 If incident_focus contains a time window or operator note, treat that as the primary investigation scope and distinguish evidence inside that window from current live state.
 Use access-history timing, maintenance windows, correlated incidents, configuration diffs and change transactions to explain what likely changed and when. Distinguish a Tikcentral-attributed change from a change that has no matching Tikcentral job. Treat previous AI reports only as historical context, not as authoritative evidence.
 End with: **No action was taken.**
