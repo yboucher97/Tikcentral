@@ -115,6 +115,21 @@ def render() -> str:
                  AND d.status IN ('fail','warning')
                ORDER BY d.failed DESC,d.warnings DESC LIMIT 30"""
         ).fetchall()
+        time_health = conn.execute(
+            """SELECT r.id,r.site_name,t.status,t.summary
+               FROM router_time_health t JOIN routers r ON r.id=t.router_id
+               WHERE r.enabled=1 AND COALESCE(r.lifecycle_state,'production') NOT IN ('retired','maintenance')
+                 AND t.status IN ('warning','critical')
+               ORDER BY CASE t.status WHEN 'critical' THEN 0 ELSE 1 END,t.checked_at DESC LIMIT 30"""
+        ).fetchall()
+        mtu_health = conn.execute(
+            """SELECT r.id,r.site_name,m.status,m.summary
+               FROM router_mtu_history m JOIN routers r ON r.id=m.router_id
+               WHERE r.enabled=1 AND COALESCE(r.lifecycle_state,'production') NOT IN ('retired','maintenance')
+                 AND m.id=(SELECT MAX(m2.id) FROM router_mtu_history m2 WHERE m2.router_id=m.router_id)
+                 AND m.status='warning'
+               ORDER BY m.id DESC LIMIT 30"""
+        ).fetchall()
         sys = conn.execute("SELECT checked_at,overall_status,checks_json FROM system_health_history ORDER BY id DESC LIMIT 1").fetchone()
         db_health = conn.execute(
             "SELECT * FROM database_health_history ORDER BY id DESC LIMIT 1"
@@ -182,6 +197,10 @@ def render() -> str:
         items.append((level,r["site_name"],
                       f'Desired state: {r["failed"]} failed / {r["warnings"]} warnings',
                       f'/desired-state/{r["id"]}'))
+    for r in time_health:
+        items.append((r["status"],r["site_name"],f'Time/NTP: {r["summary"]}',f'/time-health/{r["id"]}'))
+    for r in mtu_health:
+        items.append(("warning",r["site_name"],f'MTU/MSS: {r["summary"]}',f'/mtu/{r["id"]}'))
     if sys and sys["overall_status"] != "ok":
         items.append(("critical", "Tikcentral", f'System self-health: {sys["overall_status"]}', "/system-health"))
     if db_health and db_health["status"] in {"warning","critical"}:
