@@ -91,6 +91,17 @@ def refresh_all() -> int:
                     (router["id"], public_ip, _iso(now), _iso(now)),
                 )
             changed = bool(previous and previous["public_ip"] != public_ip)
+            last_sighting=conn.execute(
+                "SELECT public_ip FROM router_public_ip_sightings WHERE router_id=? ORDER BY id DESC LIMIT 1",
+                (router["id"],),
+            ).fetchone()
+            transition=bool(last_sighting and last_sighting["public_ip"]!=public_ip)
+            if not last_sighting or transition:
+                conn.execute(
+                    """INSERT INTO router_public_ip_sightings(router_id,observed_at,public_ip,changed,previous_ip)
+                       VALUES(?,?,?,?,?)""",
+                    (router["id"],_iso(now),public_ip,1 if transition else 0,last_sighting["public_ip"] if last_sighting else ""),
+                )
         stale = True
         if current and current["lookup_at"]:
             try:
