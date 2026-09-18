@@ -1108,7 +1108,44 @@ def _m24(conn):
             conn.execute(f"ALTER TABLE retention_settings ADD COLUMN {name} {definition}")
 
 
-MIGRATIONS = [_m1, _m2, _m3, _m4, _m5, _m6, _m7, _m8, _m9, _m10, _m11, _m12, _m13, _m14, _m15, _m16, _m17, _m18, _m19, _m20, _m21, _m22, _m23, _m24]
+def _m25(conn):
+    """Router time/NTP health and path-MTU diagnostics."""
+    conn.executescript("""
+    CREATE TABLE IF NOT EXISTS router_time_health (
+        router_id INTEGER PRIMARY KEY,
+        checked_at TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'unknown',
+        router_time TEXT NOT NULL DEFAULT '',
+        timezone_name TEXT NOT NULL DEFAULT '',
+        utc_offset TEXT NOT NULL DEFAULT '',
+        ntp_enabled INTEGER,
+        ntp_status TEXT NOT NULL DEFAULT '',
+        ntp_servers TEXT NOT NULL DEFAULT '',
+        drift_seconds REAL,
+        summary TEXT NOT NULL DEFAULT '',
+        details_json TEXT NOT NULL DEFAULT '{}',
+        FOREIGN KEY(router_id) REFERENCES routers(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS router_mtu_history (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        router_id INTEGER NOT NULL,
+        captured_at TEXT NOT NULL,
+        target TEXT NOT NULL DEFAULT '1.1.1.1',
+        largest_payload INTEGER,
+        estimated_path_mtu INTEGER,
+        recommended_tcp_mss INTEGER,
+        status TEXT NOT NULL DEFAULT 'unknown',
+        summary TEXT NOT NULL DEFAULT '',
+        results_json TEXT NOT NULL DEFAULT '[]',
+        FOREIGN KEY(router_id) REFERENCES routers(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_router_mtu_router_time
+      ON router_mtu_history(router_id,captured_at DESC,id DESC);
+    """)
+
+
+MIGRATIONS = [_m1, _m2, _m3, _m4, _m5, _m6, _m7, _m8, _m9, _m10, _m11, _m12, _m13, _m14, _m15, _m16, _m17, _m18, _m19, _m20, _m21, _m22, _m23, _m24, _m25]
 
 
 def migrate() -> int:
