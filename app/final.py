@@ -28,11 +28,14 @@ from app import jobs
 from app import lte_monitor
 from app import main as core
 from app import management_script
+from app import object_protection
 from app import operations
 from app import operator_audit
 from app import portal  # noqa: F401
 from app import production  # noqa: F401
+from app import diagnostics
 from app import rescue
+from app import recovery_browser
 from app import reliability
 from app import role_access
 from app import router_exec
@@ -149,9 +152,14 @@ async def normalize_router(router_id: int, request: Request):
             operations.backup_router(router_id, "pre-change", actor, track_job=False)
             change_control.step(tx_id, "backup", "ok", "Pre-change backup completed")
             change_control.step(tx_id, "apply", "info", "Reconciling Tikcentral-owned management firewall rules")
+            normalize_command = management_script.firewall_reconcile_command(include_print=True)
+            protected = object_protection.protected_matches(router_id, normalize_command)
+            if protected:
+                names = ", ".join(f'{p["object_type"]}:{p["selector"]}' for p in protected[:8])
+                raise errors.OperationError("PROTECTED_OBJECT", "Normalization blocked by protected object rule", names, severity="critical")
             output = router_exec.mutate(
                 router["vpn_ip"],
-                management_script.firewall_reconcile_command(include_print=True),
+                normalize_command,
                 timeout=90,
                 label="Tikcentral rule normalization",
             )
@@ -187,6 +195,9 @@ compliance.register(app, ui.page)
 lte_monitor.register(app, ui.page)
 interface_monitor.register(app, ui.page)
 site_metadata.register(app, ui.page)
+object_protection.register(app, ui.page)
+diagnostics.register(app, ui.page)
+recovery_browser.register(app, ui.page)
 enrollment.register(app, ui.page)
 ai_analysis.register(app, ui.page)
 troubleshooting.register(app, ui.page)
