@@ -557,7 +557,7 @@ def validate_source_boundaries():
         if marker not in scheduler_policy_text:
             fail(f"Retention/commissioning scheduler integration missing: {marker}")
     ui_copy_text = (ROOT / "app/ui.py").read_text(encoding="utf-8")
-    for marker in ("window.tcCopy", "tcWriteClipboard", "document.execCommand('copy')", "installCopyButtons"):
+    for marker in ("window.tcCopy", "tcWriteClipboard", "document.execCommand('copy')", "installCopyButtons", "MutationObserver", "input,textarea,select"):
         if marker not in ui_copy_text:
             fail(f"Shared clipboard support missing: {marker}")
     for path_name in ("app/enrollment.py", "app/changes.py"):
