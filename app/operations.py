@@ -791,6 +791,7 @@ def register(app, page_func):
                 (router_id,),
             ).fetchone()
             desired_state_row = conn.execute("SELECT * FROM router_desired_state_status WHERE router_id=?", (router_id,)).fetchone()
+            checklist_row = conn.execute("SELECT * FROM commissioning_checklist_status WHERE router_id=?", (router_id,)).fetchone()
             topology_time = conn.execute("SELECT MAX(captured_at) t FROM router_topology_devices WHERE router_id=?", (router_id,)).fetchone()["t"]
             topology_count = conn.execute(
                 "SELECT COUNT(*) c FROM router_topology_devices WHERE router_id=? AND captured_at=?",
@@ -835,6 +836,7 @@ def register(app, page_func):
         capacity_text = "Not assessed" if not capacity_row else f'{capacity_row["status"]} · {capacity_row["summary"]}'
         wan_probe_text = "No multi-target probe yet" if not wan_probe_latest else f'{wan_probe_latest["classification"]} · {wan_probe_latest["summary"]}'
         desired_text = "Not checked" if not desired_state_row else f'{desired_state_row["status"]} · {desired_state_row["failed"]} fail / {desired_state_row["warnings"]} warning / {desired_state_row["passed"]} pass'
+        checklist_text = "Not evaluated" if not checklist_row else f'{checklist_row["status"]} · {checklist_row["passed"]}/{checklist_row["required"]} required'
         topology_text = f'{topology_count} external switch/AP device(s) observed or inventoried' if topology_time else "No topology evidence yet"
         notes_rows = ''.join(
             f'<tr><td>{html.escape(n["created_at"])}</td><td>{html.escape(n["object_type"])} {("#"+str(n["object_id"])) if n["object_id"] else ""}</td><td>{html.escape(n["ticket_reference"] or "-")}</td><td>{html.escape(n["visibility"])}</td><td>{html.escape(n["note"])}</td></tr>'
@@ -852,6 +854,7 @@ def register(app, page_func):
 <div class="panel pad"><h3>Topology</h3><div>{html.escape(topology_text)}</div></div>
 <div class="panel pad"><h3>WAN probe</h3><div>{html.escape(wan_probe_text)}</div></div>
 <div class="panel pad"><h3>Desired state</h3><div>{html.escape(desired_text)}</div></div>
+<div class="panel pad"><h3>Commissioning checklist</h3><div>{html.escape(checklist_text)}</div><div style="margin-top:10px"><a href="/commissioning-checklist/{router_id}"><button>Open checklist</button></a></div></div>
 <div class="panel pad"><h3>Golden policy</h3><div>{html.escape(compliance_text)}</div></div>
 <div class="panel pad"><h3>LTE</h3><div>{html.escape(lte_text)}</div></div>
 <div class="panel pad"><h3>Access / commissioning</h3><div>{'Healthy' if access and access['management_ok'] else 'Degraded'} · commissioning {html.escape(commissioning)} · config {html.escape(drift_status)}</div><div class="inline" style="margin-top:12px">{_post_button(f'/operations/{router_id}/commission',csrf,'Run commissioning validation')} {_post_button(f'/operations/{router_id}/baseline',csrf,'Accept current baseline')} {_post_button(f'/operations/{router_id}/drift/check',csrf,'Check drift')}</div></div>
