@@ -1,21 +1,28 @@
 """Build a model capability catalog from observed enrolled MikroTik routers."""
 
 import html, re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from fastapi import Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from app import main as core, migrations, router_exec, resource_monitor
 
-def _now(): return datetime.now(timezone.utc).isoformat()
+def _now_dt(): return datetime.now(timezone.utc)
+def _now(): return _now_dt().isoformat()
 def _field(text,name):
     m=re.search(rf"(?mi)^\s*{re.escape(name)}:\s*(.+?)\s*$",text or "")
     return m.group(1).strip() if m else ""
 def _count(lines,pred): return sum(1 for x in lines if pred(x.lower()))
 
-def collect(router_id:int):
+def collect(router_id:int,force=False):
     migrations.migrate()
-    with core.db() as conn:r=conn.execute("SELECT id,site_name,model,vpn_ip,enabled,lifecycle_state FROM routers WHERE id=?",(router_id,)).fetchone()
+    with core.db() as conn:
+        r=conn.execute("SELECT id,site_name,model,vpn_ip,enabled,lifecycle_state FROM routers WHERE id=?",(router_id,)).fetchone()
+        prior=conn.execute("SELECT observed_at,model FROM router_model_capability_observations WHERE router_id=?",(router_id,)).fetchone()
     if not r or not r["enabled"] or (r["lifecycle_state"] or "production")=="retired":return None
+    if prior and not force:
+        try:
+            if (_now_dt()-datetime.fromisoformat(prior["observed_at"])).total_seconds()<20*3600:return prior["model"]
+        except Exception:pass
     resource=router_exec.read(r["vpn_ip"],"/system resource print without-paging",timeout=25,label="Model capability resource")
     try: rb=router_exec.read(r["vpn_ip"],"/system routerboard print without-paging",timeout=20,label="Model capability board")
     except Exception: rb=""
