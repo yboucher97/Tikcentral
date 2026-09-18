@@ -13,6 +13,7 @@ from app import change_control
 from app import errors
 from app import jobs
 from app import operations
+from app import object_protection
 from app import main as core
 from app import router_exec
 from app import ui
@@ -74,6 +75,10 @@ async def ssh_console_run(router_id: int, request: Request):
     command = data.get("command", "").strip()
     if not command:
         raise HTTPException(status_code=400, detail="command required")
+    matches = object_protection.protected_matches(router_id, command)
+    if matches:
+        names = ", ".join(f'{m["object_type"]}:{m["selector"]}' for m in matches[:8])
+        raise HTTPException(status_code=409, detail=f"command blocked by protected object rule(s): {names}")
     with core.db() as conn:
         router = conn.execute(
             "SELECT id,site_name,identity,model,vpn_ip,enabled FROM routers WHERE id=?",
