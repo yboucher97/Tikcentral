@@ -41,9 +41,10 @@ def register(app,page_func):
         for r in rows: grouped.setdefault(r["customer_name"],[]).append(r)
         cards=[]
         for name,sites in grouped.items():
-            production=sum(1 for x in sites if (x["lifecycle_state"] or "production")!="retired")
-            healthy=sum(1 for x in sites if x["management_ok"])
-            alerts=sum(int(x["open_alerts"] or 0) for x in sites)
+            active_sites=[x for x in sites if (x["lifecycle_state"] or "production")!="retired"]
+            production=len(active_sites)
+            healthy=sum(1 for x in active_sites if x["management_ok"])
+            alerts=sum(int(x["open_alerts"] or 0) for x in active_sites)
             cards.append(
                 f'<div class="card"><h3>{html.escape(name)}</h3>'
                 f'<div class="value">{production}</div><div class="muted">active site/router record(s)</div>'
