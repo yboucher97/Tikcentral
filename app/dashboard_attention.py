@@ -130,6 +130,16 @@ def render() -> str:
                  AND m.status='warning'
                ORDER BY m.id DESC LIMIT 30"""
         ).fetchall()
+        public_ip_churn = conn.execute(
+            """SELECT r.id,r.site_name,p.status,p.summary
+               FROM router_public_ip_analysis p JOIN routers r ON r.id=p.router_id
+               WHERE r.enabled=1 AND COALESCE(r.lifecycle_state,'production') NOT IN ('retired','maintenance')
+                 AND p.status='high_churn'
+               ORDER BY p.changes_30d DESC LIMIT 30"""
+        ).fetchall()
+        identity_collisions = conn.execute(
+            "SELECT * FROM router_identity_collisions ORDER BY router_count DESC,identity LIMIT 30"
+        ).fetchall()
         sys = conn.execute("SELECT checked_at,overall_status,checks_json FROM system_health_history ORDER BY id DESC LIMIT 1").fetchone()
         db_health = conn.execute(
             "SELECT * FROM database_health_history ORDER BY id DESC LIMIT 1"
@@ -201,6 +211,10 @@ def render() -> str:
         items.append((r["status"],r["site_name"],f'Time/NTP: {r["summary"]}',f'/time-health/{r["id"]}'))
     for r in mtu_health:
         items.append(("warning",r["site_name"],f'MTU/MSS: {r["summary"]}',f'/mtu/{r["id"]}'))
+    for r in public_ip_churn:
+        items.append(("warning",r["site_name"],f'Public IP churn: {r["summary"]}',f'/public-ip-analysis/{r["id"]}'))
+    for r in identity_collisions:
+        items.append(("warning","Fleet",r["summary"],"/identity-collisions"))
     if sys and sys["overall_status"] != "ok":
         items.append(("critical", "Tikcentral", f'System self-health: {sys["overall_status"]}', "/system-health"))
     if db_health and db_health["status"] in {"warning","critical"}:
