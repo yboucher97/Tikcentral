@@ -72,6 +72,8 @@ REQUIRED_ROUTES = {
     ("POST", "/incidents/{router_id}/analyze"),
     ("GET", "/compliance"), ("GET", "/compliance/{router_id}"),
     ("GET", "/lte/{router_id}"),
+    ("GET", "/interfaces/{router_id}"),
+    ("GET", "/site/{router_id}"), ("POST", "/site/{router_id}"),
 }
 
 FORBIDDEN_FILES = {
@@ -130,6 +132,9 @@ def validate_routes():
         ("GET", "/compliance"): "app.compliance",
         ("GET", "/compliance/{router_id}"): "app.compliance",
         ("GET", "/lte/{router_id}"): "app.lte_monitor",
+        ("GET", "/interfaces/{router_id}"): "app.interface_monitor",
+        ("GET", "/site/{router_id}"): "app.site_metadata",
+        ("POST", "/site/{router_id}"): "app.site_metadata",
     }
     for path in (
         "/operations/{router_id}/telemetry", "/operations/{router_id}/commission",
@@ -287,6 +292,22 @@ def validate_source_boundaries():
     for marker in ("transaction_pre", "transaction_post", "Pre-change configuration snapshot captured", "Post-change configuration snapshot captured"):
         if marker not in cc_text:
             fail(f"Transaction snapshot pairing missing: {marker}")
+    interface_text = (ROOT / "app/interface_monitor.py").read_text(encoding="utf-8")
+    for marker in ("router_interface_history", "rx_errors", "tx_errors", "link_downs", "ETHERNET_MONITOR_COMMAND", "Interface health"):
+        if marker not in interface_text:
+            fail(f"Interface health feature missing: {marker}")
+    outage_text = (ROOT / "app/outage_classifier.py").read_text(encoding="utf-8")
+    for marker in ("likely_isp", "possible_control_plane", "site_wan", "management_path", "router_outage_assessment"):
+        if marker not in outage_text:
+            fail(f"Outage classifier feature missing: {marker}")
+    site_text = (ROOT / "app/site_metadata.py").read_text(encoding="utf-8")
+    for marker in ("router_site_metadata", "customer_name", "circuit_type", "ticket_reference", "support_notes"):
+        if marker not in site_text:
+            fail(f"Site metadata feature missing: {marker}")
+    scheduler_new = (ROOT / "app/scheduler.py").read_text(encoding="utf-8")
+    for marker in ("interface_monitor.collect", "outage_classifier.assess_all"):
+        if marker not in scheduler_new:
+            fail(f"Scheduled monitoring missing: {marker}")
     resource_text = (ROOT / "app/resource_monitor.py").read_text(encoding="utf-8")
     for marker in ("_uptime_seconds", "_memory_bytes", "_record_reboot", "RESOURCE_CPU_WARN", "Unexpected router reboot detected"):
         if marker not in resource_text:
@@ -383,6 +404,7 @@ def validate_persistence_and_jobs():
         "router_access_alert_state", "system_health_history", "backup_verifications",
         "router_resource_alerts", "operator_audit_log", "router_public_ip_history",
         "router_policy_compliance", "router_lte_history",
+        "router_interface_history", "router_outage_assessment", "router_site_metadata",
     }
     with sqlite3.connect(settings.DB_PATH) as conn:
         version = conn.execute("SELECT MAX(version) FROM schema_version").fetchone()[0]
