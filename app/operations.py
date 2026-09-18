@@ -44,7 +44,7 @@ def ensure_schema():
 def _router(router_id: int):
     with core.db() as conn:
         return conn.execute(
-            "SELECT id,site_name,identity,model,routeros_version,routerboot_version,vpn_ip,public_key,enabled FROM routers WHERE id=?",
+            "SELECT id,site_name,identity,model,routeros_version,routerboot_version,vpn_ip,public_key,enabled,lifecycle_state,lifecycle_updated_at,lifecycle_updated_by FROM routers WHERE id=?",
             (router_id,),
         ).fetchone()
 
@@ -100,6 +100,8 @@ def _require_router(router_id: int):
     router = _router(router_id)
     if not router or not router["enabled"]:
         raise errors.OperationError("ROUTER_NOT_FOUND", "Enabled router not found")
+    if (router["lifecycle_state"] or "production") == "retired":
+        raise errors.OperationError("ROUTER_RETIRED", "Retired routers cannot receive operational mutations")
     return router
 
 
@@ -801,7 +803,8 @@ def register(app, page_func):
         outage_text = "No assessment yet" if not outage else f'{outage["summary"]} · confidence {outage["confidence"]}'
         site_text = "No customer/site metadata" if not site_meta else " · ".join(x for x in (site_meta["customer_name"],site_meta["site_code"],site_meta["circuit_type"]) if x) or "Metadata saved"
         interface_text = "No interface samples" if not interface_latest else f'{interface_latest["name"]} · {"up" if interface_latest["running"] else "down"} · {interface_latest["rate"] or "-"}'
-        body = f'''<div class="panel pad"><h2>{html.escape(router['site_name'])}</h2><div class="muted">{html.escape(router['model'] or '')} · <code>{html.escape(router['vpn_ip'])}</code> · capability: {html.escape(cap['mode'] if cap else 'tikcentral_only')}</div><div class="inline" style="margin-top:12px"><a href="/timeline/{router_id}"><button>Full timeline</button></a><a href="/timeline/{router_id}/before"><button>What changed before failure?</button></a><a href="/incidents/{router_id}"><button>Build incident</button></a><a href="/compliance/{router_id}"><button>Compliance</button></a><a href="/lte/{router_id}"><button>LTE</button></a><a href="/interfaces/{router_id}"><button>Interfaces</button></a><a href="/site/{router_id}"><button>Site / customer</button></a><a href="/diagnostics/{router_id}"><button>Safe diagnostics</button></a><a href="/protection/{router_id}"><button>Protected objects</button></a><a href="/recovery/{router_id}"><button>Recovery</button></a></div></div>
+        body = f'''<div class="panel pad"><h2>{html.escape(router['site_name'])}</h2><div class="muted">{html.escape(router['model'] or '')} · <code>{html.escape(router['vpn_ip'])}</code> · capability: {html.escape(cap['mode'] if cap else 'tikcentral_only')}</div><div class="inline" style="margin-top:12px"><a href="/timeline/{router_id}"><button>Full timeline</button></a><a href="/timeline/{router_id}/before"><button>What changed before failure?</button></a><a href="/incidents/{router_id}"><button>Build incident</button></a><a href="/compliance/{router_id}"><button>Compliance</button></a><a href="/lte/{router_id}"><button>LTE</button></a><a href="/interfaces/{router_id}"><button>Interfaces</button></a><a href="/site/{router_id}"><button>Site / customer</button></a><a href="/diagnostics/{router_id}"><button>Safe diagnostics</button></a><a href="/protection/{router_id}"><button>Protected objects</button></a><a href="/recovery/{router_id}"><button>Recovery</button></a><a href="/lifecycle/{router_id}"><button>Lifecycle</button></a><a href="/maintenance-history/{router_id}"><button>Maintenance history</button></a></div></div>
+<div class="panel pad"><h3>Lifecycle</h3><div>{html.escape(router["lifecycle_state"] or "production").title()}</div><div class="muted">{html.escape(router["lifecycle_updated_at"] or "")} {html.escape(router["lifecycle_updated_by"] or "")}</div></div>
 <div class="panel pad"><h3>Site / customer</h3><div>{html.escape(site_text)}</div></div>
 <div class="panel pad"><h3>Outage domain</h3><div>{html.escape(outage_text)}</div><div class="muted">{html.escape(outage["evidence"] if outage else "")}</div></div>
 <div class="panel pad"><h3>Interface health</h3><div>{html.escape(interface_text)}</div></div>
