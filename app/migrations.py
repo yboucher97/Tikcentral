@@ -695,7 +695,67 @@ def _m16(conn):
     """)
 
 
-MIGRATIONS = [_m1, _m2, _m3, _m4, _m5, _m6, _m7, _m8, _m9, _m10, _m11, _m12, _m13, _m14, _m15, _m16]
+def _m17(conn):
+    """Change calendar, hardware inventory and certificate observability."""
+    conn.executescript("""
+    CREATE TABLE IF NOT EXISTS planned_changes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        router_id INTEGER,
+        title TEXT NOT NULL,
+        change_type TEXT NOT NULL DEFAULT 'maintenance',
+        start_at TEXT NOT NULL,
+        end_at TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL DEFAULT 'planned',
+        ticket_reference TEXT NOT NULL DEFAULT '',
+        notes TEXT NOT NULL DEFAULT '',
+        created_by TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL,
+        completed_at TEXT NOT NULL DEFAULT '',
+        FOREIGN KEY(router_id) REFERENCES routers(id) ON DELETE SET NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_planned_changes_start ON planned_changes(start_at,status,id);
+
+    CREATE TABLE IF NOT EXISTS hardware_inventory (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        router_id INTEGER NOT NULL,
+        category TEXT NOT NULL DEFAULT 'other',
+        manufacturer TEXT NOT NULL DEFAULT '',
+        model TEXT NOT NULL DEFAULT '',
+        serial TEXT NOT NULL DEFAULT '',
+        asset_tag TEXT NOT NULL DEFAULT '',
+        location TEXT NOT NULL DEFAULT '',
+        installed_at TEXT NOT NULL DEFAULT '',
+        warranty_until TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL DEFAULT 'installed',
+        notes TEXT NOT NULL DEFAULT '',
+        created_by TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY(router_id) REFERENCES routers(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_hardware_inventory_router ON hardware_inventory(router_id,status,category,id);
+
+    CREATE TABLE IF NOT EXISTS router_certificates (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        router_id INTEGER NOT NULL,
+        captured_at TEXT NOT NULL,
+        name TEXT NOT NULL,
+        common_name TEXT NOT NULL DEFAULT '',
+        issuer TEXT NOT NULL DEFAULT '',
+        fingerprint TEXT NOT NULL DEFAULT '',
+        key_usage TEXT NOT NULL DEFAULT '',
+        trusted INTEGER,
+        expires_at TEXT NOT NULL DEFAULT '',
+        days_remaining INTEGER,
+        status TEXT NOT NULL DEFAULT 'unknown',
+        FOREIGN KEY(router_id) REFERENCES routers(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_router_certificates_router_time
+      ON router_certificates(router_id,captured_at DESC);
+    """)
+
+
+MIGRATIONS = [_m1, _m2, _m3, _m4, _m5, _m6, _m7, _m8, _m9, _m10, _m11, _m12, _m13, _m14, _m15, _m16, _m17]
 
 
 def migrate() -> int:
