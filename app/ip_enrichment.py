@@ -63,7 +63,7 @@ def refresh_all() -> int:
     updates = 0
     with core.db() as conn:
         routers = conn.execute(
-            "SELECT id,site_name,public_key FROM routers WHERE enabled=1 ORDER BY id"
+            "SELECT id,site_name,public_key FROM routers WHERE enabled=1 AND COALESCE(lifecycle_state,'production')<>'retired' ORDER BY id"
         ).fetchall()
     for router in routers:
         public_ip = (peers.get(router["public_key"]) or {}).get("public_ip") or ""
