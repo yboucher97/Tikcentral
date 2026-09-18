@@ -52,8 +52,10 @@ def collect(router_id:int,force=False):
             cat=_category(pattern); sev=_severity(pattern)
             conn.execute("""INSERT INTO router_log_patterns(router_id,captured_at,pattern_hash,category,severity,normalized_pattern,sample,occurrences)
                             VALUES(?,?,?,?,?,?,?,?)""",(router_id,captured,h,cat,sev,pattern,pattern,count))
-            if sev=="warning" and previous.get(h,0)>0 and count>=max(10,previous[h]*3):
-                events.record(router_id,"log-pattern",f"Router log pattern increased: {cat}",f"{count} occurrences · {pattern[:300]}","warning")
+            prior_count=previous.get(h,0)
+            if sev=="warning" and count>=10 and (prior_count==0 or count>=max(10,prior_count*3)):
+                title="Router log pattern detected" if prior_count==0 else "Router log pattern increased"
+                events.record(router_id,"log-pattern",f"{title}: {cat}",f"{count} occurrences · {pattern[:300]}","warning")
         conn.execute("""DELETE FROM router_log_patterns WHERE router_id=? AND id NOT IN
                         (SELECT id FROM router_log_patterns WHERE router_id=? ORDER BY id DESC LIMIT 10000)""",(router_id,router_id))
     return len(counts)
