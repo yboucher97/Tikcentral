@@ -32,11 +32,12 @@ def _window(router_id: int, start: str, end: str):
             items.append((r["created_at"], "info" if r["status"]=="succeeded" else "warning", "job",
                           f'{r["kind"]} · {r["status"]}', f'actor={r["actor"]} target={r["target"] or "-"} {r["error_code"] or ""} {r["error_message"] or ""}'))
         for r in conn.execute(
-            "SELECT checked_at,management_ok,last_error FROM router_access_history WHERE router_id=? AND checked_at>=? AND checked_at<=? ORDER BY id",
+            "SELECT checked_at,wg_online,ssh_open,winbox_open,api_open,management_ok FROM router_access_history WHERE router_id=? AND checked_at>=? AND checked_at<=? ORDER BY id",
             (router_id,start,end),
         ).fetchall():
             if not r["management_ok"]:
-                items.append((r["checked_at"], "warning", "guardian", "Management access degraded", r["last_error"] or ""))
+                detail = f'WG={r["wg_online"]} SSH={r["ssh_open"]} WinBox={r["winbox_open"]} API={r["api_open"]}'
+                items.append((r["checked_at"], "warning", "guardian", "Management access degraded", detail))
         for r in conn.execute(
             "SELECT captured_at,active_default_routes,dhcp_bound,pppoe_running,internet_ping,dns_ok FROM router_wan_history WHERE router_id=? AND captured_at>=? AND captured_at<=?",
             (router_id,start,end),
