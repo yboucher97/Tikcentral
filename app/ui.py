@@ -14,6 +14,7 @@ NAV = [
     ("guardian", "/guardian", "Guardian"),
     ("reliability", "/reliability", "Reliability"),
     ("operations", "/operations", "Operations"),
+    ("customers", "/customers", "Customers"),
     ("alerts", "/alerts", "Alerts"),
     ("replacements", "/replacements", "Replacements"),
     ("maintenance-automation", "/maintenance-automation", "Post-change"),
@@ -29,6 +30,7 @@ NAV = [
     ("audit", "/audit", "Audit"),
     ("operator-audit", "/operator-audit", "Operator Audit"),
     ("system-health", "/system-health", "System"),
+    ("database-health", "/database-health", "DB Health"),
     ("users", "/admin/users", "Users"),
     ("settings", "/settings", "Settings"),
 ]
