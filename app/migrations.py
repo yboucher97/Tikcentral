@@ -1249,7 +1249,26 @@ def _m27(conn):
         conn.execute("ALTER TABLE retention_settings ADD COLUMN log_pattern_days INTEGER NOT NULL DEFAULT 180")
 
 
-MIGRATIONS = [_m1, _m2, _m3, _m4, _m5, _m6, _m7, _m8, _m9, _m10, _m11, _m12, _m13, _m14, _m15, _m16, _m17, _m18, _m19, _m20, _m21, _m22, _m23, _m24, _m25, _m26, _m27]
+def _m28(conn):
+    """Record actual public-IP transitions for churn analysis."""
+    conn.executescript("""
+    CREATE TABLE IF NOT EXISTS router_public_ip_sightings (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        router_id INTEGER NOT NULL,
+        observed_at TEXT NOT NULL,
+        public_ip TEXT NOT NULL,
+        changed INTEGER NOT NULL DEFAULT 0,
+        previous_ip TEXT NOT NULL DEFAULT '',
+        FOREIGN KEY(router_id) REFERENCES routers(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_router_public_ip_sightings_time
+      ON router_public_ip_sightings(router_id,observed_at DESC,id DESC);
+    """)
+    if not _has_column(conn,"retention_settings","public_ip_sighting_days"):
+        conn.execute("ALTER TABLE retention_settings ADD COLUMN public_ip_sighting_days INTEGER NOT NULL DEFAULT 365")
+
+
+MIGRATIONS = [_m1, _m2, _m3, _m4, _m5, _m6, _m7, _m8, _m9, _m10, _m11, _m12, _m13, _m14, _m15, _m16, _m17, _m18, _m19, _m20, _m21, _m22, _m23, _m24, _m25, _m26, _m27, _m28]
 
 
 def migrate() -> int:
