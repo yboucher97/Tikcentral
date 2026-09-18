@@ -91,6 +91,10 @@ REQUIRED_ROUTES = {
     ("GET", "/security-audit/{router_id}"),
     ("GET", "/automation-inventory/{router_id}"),
     ("GET", "/traffic/{router_id}"),
+    ("GET", "/capacity/{router_id}"),
+    ("GET", "/notes/{router_id}"), ("POST", "/notes/{router_id}"),
+    ("GET", "/customer-report/{router_id}"),
+    ("POST", "/customer-report/{router_id}/record"),
 }
 
 FORBIDDEN_FILES = {
@@ -179,6 +183,11 @@ def validate_routes():
         ("GET", "/security-audit/{router_id}"): "app.security_audit",
         ("GET", "/automation-inventory/{router_id}"): "app.automation_inventory",
         ("GET", "/traffic/{router_id}"): "app.traffic_monitor",
+        ("GET", "/capacity/{router_id}"): "app.capacity_forecast",
+        ("GET", "/notes/{router_id}"): "app.operator_notes",
+        ("POST", "/notes/{router_id}"): "app.operator_notes",
+        ("GET", "/customer-report/{router_id}"): "app.customer_reports",
+        ("POST", "/customer-report/{router_id}/record"): "app.customer_reports",
     }
     for path in (
         "/operations/{router_id}/telemetry", "/operations/{router_id}/commission",
@@ -427,6 +436,21 @@ def validate_source_boundaries():
     for marker in ("security_audit.collect", "automation_inventory.collect", "traffic_monitor.collect"):
         if marker not in scheduler_security:
             fail(f"Scheduled security/traffic observability missing: {marker}")
+    capacity_text = (ROOT / "app/capacity_forecast.py").read_text(encoding="utf-8")
+    for marker in ("router_capacity_forecast", "HORIZON_DAYS", "insufficient_data", "Trend projection only", "projected_30d"):
+        if marker not in capacity_text:
+            fail(f"Capacity forecasting feature missing: {marker}")
+    notes_text = (ROOT / "app/operator_notes.py").read_text(encoding="utf-8")
+    for marker in ("operator_notes", "ticket_reference", "visibility", "customer", "Operator notes"):
+        if marker not in notes_text:
+            fail(f"Operator notes feature missing: {marker}")
+    report_text = (ROOT / "app/customer_reports.py").read_text(encoding="utf-8")
+    for marker in ("customer_report_history", "Print / Save PDF", "visibility='customer'", "excludes management IPs", "AI analysis"):
+        if marker not in report_text:
+            fail(f"Customer report feature missing: {marker}")
+    scheduler_capacity = (ROOT / "app/scheduler.py").read_text(encoding="utf-8")
+    if "capacity_forecast.assess" not in scheduler_capacity:
+        fail("Capacity forecasting is not scheduled after observability")
     resource_text = (ROOT / "app/resource_monitor.py").read_text(encoding="utf-8")
     for marker in ("_uptime_seconds", "_memory_bytes", "_record_reboot", "RESOURCE_CPU_WARN", "Unexpected router reboot detected"):
         if marker not in resource_text:
@@ -528,6 +552,7 @@ def validate_persistence_and_jobs():
         "router_maintenance_history", "upgrade_campaigns", "upgrade_campaign_members",
         "planned_changes", "hardware_inventory", "router_certificates",
         "router_security_audit", "router_automation_inventory", "router_traffic_history",
+        "router_capacity_forecast", "operator_notes", "customer_report_history",
     }
     with sqlite3.connect(settings.DB_PATH) as conn:
         version = conn.execute("SELECT MAX(version) FROM schema_version").fetchone()[0]
