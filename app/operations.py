@@ -763,6 +763,12 @@ def register(app, page_func):
             backups = conn.execute("SELECT * FROM router_backup_records WHERE router_id=? ORDER BY id DESC LIMIT 12", (router_id,)).fetchall()
             compliance_row = conn.execute("SELECT * FROM router_policy_compliance WHERE router_id=?", (router_id,)).fetchone()
             lte_latest = conn.execute("SELECT * FROM router_lte_history WHERE router_id=? ORDER BY id DESC LIMIT 1", (router_id,)).fetchone()
+            outage = conn.execute("SELECT * FROM router_outage_assessment WHERE router_id=?", (router_id,)).fetchone()
+            site_meta = conn.execute("SELECT * FROM router_site_metadata WHERE router_id=?", (router_id,)).fetchone()
+            interface_latest = conn.execute(
+                "SELECT captured_at,name,running,disabled,rx_errors,tx_errors,rx_drops,tx_drops,link_downs,rate,full_duplex,poe_out FROM router_interface_history WHERE router_id=? ORDER BY id DESC LIMIT 1",
+                (router_id,),
+            ).fetchone()
         recent_jobs = jobs.latest(router_id, 15)
         txs = change_control.latest(router_id, 15)
         tx_by_job = {int(t["job_id"]): t for t in txs if t["job_id"] is not None}
@@ -792,7 +798,13 @@ def register(app, page_func):
         event_rows = ''.join(f"<tr><td>{html.escape(e['event_at'])}</td><td>{html.escape(e['severity'])}</td><td>{html.escape(e['category'])}</td><td>{html.escape(e['summary'])}<div class=\"muted\">{html.escape((e['details'] or '')[-600:])}</div></td></tr>" for e in evs) or '<tr><td colspan="4">No events.</td></tr>'
         compliance_text = "Not checked" if not compliance_row else f'{compliance_row["status"]} · {compliance_row["passed"]} pass / {compliance_row["warnings"]} warn / {compliance_row["failed"]} fail'
         lte_text = "No LTE history" if not lte_latest else f'{lte_latest["band"] or "-"} · RSRP {lte_latest["rsrp"] if lte_latest["rsrp"] is not None else "—"} dBm · SINR {lte_latest["sinr"] if lte_latest["sinr"] is not None else "—"} dB'
-        body = f'''<div class="panel pad"><h2>{html.escape(router['site_name'])}</h2><div class="muted">{html.escape(router['model'] or '')} · <code>{html.escape(router['vpn_ip'])}</code> · capability: {html.escape(cap['mode'] if cap else 'tikcentral_only')}</div><div class="inline" style="margin-top:12px"><a href="/timeline/{router_id}"><button>Full timeline</button></a><a href="/timeline/{router_id}/before"><button>What changed before failure?</button></a><a href="/incidents/{router_id}"><button>Build incident</button></a><a href="/compliance/{router_id}"><button>Compliance</button></a><a href="/lte/{router_id}"><button>LTE</button></a></div></div>
+        outage_text = "No assessment yet" if not outage else f'{outage["summary"]} · confidence {outage["confidence"]}'
+        site_text = "No customer/site metadata" if not site_meta else " · ".join(x for x in (site_meta["customer_name"],site_meta["site_code"],site_meta["circuit_type"]) if x) or "Metadata saved"
+        interface_text = "No interface samples" if not interface_latest else f'{interface_latest["name"]} · {"up" if interface_latest["running"] else "down"} · {interface_latest["rate"] or "-"}'
+        body = f'''<div class="panel pad"><h2>{html.escape(router['site_name'])}</h2><div class="muted">{html.escape(router['model'] or '')} · <code>{html.escape(router['vpn_ip'])}</code> · capability: {html.escape(cap['mode'] if cap else 'tikcentral_only')}</div><div class="inline" style="margin-top:12px"><a href="/timeline/{router_id}"><button>Full timeline</button></a><a href="/timeline/{router_id}/before"><button>What changed before failure?</button></a><a href="/incidents/{router_id}"><button>Build incident</button></a><a href="/compliance/{router_id}"><button>Compliance</button></a><a href="/lte/{router_id}"><button>LTE</button></a><a href="/interfaces/{router_id}"><button>Interfaces</button></a><a href="/site/{router_id}"><button>Site / customer</button></a></div></div>
+<div class="panel pad"><h3>Site / customer</h3><div>{html.escape(site_text)}</div></div>
+<div class="panel pad"><h3>Outage domain</h3><div>{html.escape(outage_text)}</div><div class="muted">{html.escape(outage["evidence"] if outage else "")}</div></div>
+<div class="panel pad"><h3>Interface health</h3><div>{html.escape(interface_text)}</div></div>
 <div class="panel pad"><h3>Golden policy</h3><div>{html.escape(compliance_text)}</div></div>
 <div class="panel pad"><h3>LTE</h3><div>{html.escape(lte_text)}</div></div>
 <div class="panel pad"><h3>Access / commissioning</h3><div>{'Healthy' if access and access['management_ok'] else 'Degraded'} · commissioning {html.escape(commissioning)} · config {html.escape(drift_status)}</div><div class="inline" style="margin-top:12px">{_post_button(f'/operations/{router_id}/commission',csrf,'Run commissioning validation')} {_post_button(f'/operations/{router_id}/baseline',csrf,'Accept current baseline')} {_post_button(f'/operations/{router_id}/drift/check',csrf,'Check drift')}</div></div>
