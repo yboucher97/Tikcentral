@@ -14,6 +14,7 @@ NUM_RE=re.compile(r"\b\d{2,}\b")
 def _now():return datetime.now(timezone.utc).isoformat()
 def _normalize(line):
     s=router_exec.sanitize(line,1200)
+    s=re.sub(r'(?i)\b(secret|community|preshared[-_ ]?key|api[-_ ]?key)\s*[=:]\s*("[^"]*"|[^\s;]+)',r'\1=<redacted>',s)
     s=re.sub(r"^\s*(?:[a-z]{3}/\d{1,2}/\d{4}\s+)?\d{1,2}:\d{2}:\d{2}\s+","",s,flags=re.I)
     s=re.sub(r"^\s*[a-z]{3}/\d{1,2}\s+\d{1,2}:\d{2}:\d{2}\s+","",s,flags=re.I)
     s=IP_RE.sub("<ip>",s); s=MAC_RE.sub("<mac>",s); s=NUM_RE.sub("<n>",s)
