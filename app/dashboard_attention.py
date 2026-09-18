@@ -73,6 +73,22 @@ def render() -> str:
                ORDER BY p.start_at LIMIT 20""",
             (now.isoformat(), (now + timedelta(days=7)).isoformat()),
         ).fetchall()
+        security = conn.execute(
+            """SELECT r.id,r.site_name,s.status,s.critical_count,s.warning_count
+               FROM router_security_audit s JOIN routers r ON r.id=s.router_id
+               WHERE r.enabled=1 AND COALESCE(r.lifecycle_state,'production')<>'retired'
+                 AND s.status IN ('critical','warning')
+               ORDER BY s.critical_count DESC,s.warning_count DESC LIMIT 30"""
+        ).fetchall()
+        unmanaged = conn.execute(
+            """SELECT r.id,r.site_name,COUNT(*) unmanaged_count
+               FROM router_automation_inventory a JOIN routers r ON r.id=a.router_id
+               WHERE r.enabled=1 AND COALESCE(r.lifecycle_state,'production')<>'retired'
+                 AND a.enabled=1 AND a.managed=0
+                 AND a.captured_at=(SELECT MAX(a2.captured_at) FROM router_automation_inventory a2 WHERE a2.router_id=a.router_id)
+               GROUP BY r.id,r.site_name HAVING COUNT(*)>0
+               ORDER BY unmanaged_count DESC LIMIT 30"""
+        ).fetchall()
         sys = conn.execute("SELECT checked_at,overall_status,checks_json FROM system_health_history ORDER BY id DESC LIMIT 1").fetchone()
 
     items = []
@@ -110,6 +126,15 @@ def render() -> str:
         items.append((level,r["site_name"],f'Certificate {r["name"] or "-"}: {r["status"]} · {r["days_remaining"]} days',f'/certificates/{r["id"]}'))
     for p in upcoming:
         items.append(("warning",p["site_name"],f'Planned {p["change_type"]}: {p["title"]} · {p["start_at"]}',f'/change-calendar/{p["id"]}'))
+    for r in security:
+        level="critical" if r["critical_count"] else "warning"
+        items.append((level,r["site_name"],
+                      f'Security exposure audit: {r["critical_count"]} critical / {r["warning_count"]} warning',
+                      f'/security-audit/{r["id"]}'))
+    for r in unmanaged:
+        items.append(("warning",r["site_name"],
+                      f'{r["unmanaged_count"]} enabled unmanaged RouterOS automation object(s)',
+                      f'/automation-inventory/{r["id"]}'))
     if sys and sys["overall_status"] != "ok":
         items.append(("critical", "Tikcentral", f'System self-health: {sys["overall_status"]}', "/system-health"))
 
