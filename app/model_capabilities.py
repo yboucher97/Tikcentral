@@ -24,6 +24,11 @@ def collect(router_id:int,force=False):
             if (_now_dt()-datetime.fromisoformat(prior["observed_at"])).total_seconds()<20*3600:return prior["model"]
         except Exception:pass
     resource=router_exec.read(r["vpn_ip"],"/system resource print without-paging",timeout=25,label="Model capability resource")
+    try:
+        identity_raw=router_exec.read(r["vpn_ip"],"/system identity print",timeout=15,label="Router identity observation")
+        identity=_field(identity_raw,"name")
+    except Exception:
+        identity=""
     try: rb=router_exec.read(r["vpn_ip"],"/system routerboard print without-paging",timeout=20,label="Model capability board")
     except Exception: rb=""
     interfaces=router_exec.read(r["vpn_ip"],"/interface print detail as-value without-paging",timeout=30,label="Model capability interfaces")
@@ -41,6 +46,8 @@ def collect(router_id:int,force=False):
     wg=_count(lines,lambda s:"type=wireguard" in s or "wireguard" in s)
     now=_now()
     with core.db() as conn:
+        if identity:
+            conn.execute("UPDATE routers SET identity=? WHERE id=?",(identity,router_id))
         conn.execute("""INSERT INTO router_model_capability_observations(router_id,observed_at,model,architecture,cpu,cpu_count,total_memory_bytes,total_storage_bytes,ethernet_ports,sfp_ports,lte_interfaces,wifi_interfaces,wireguard_interfaces)
                         VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
                         ON CONFLICT(router_id) DO UPDATE SET observed_at=excluded.observed_at,model=excluded.model,architecture=excluded.architecture,cpu=excluded.cpu,cpu_count=excluded.cpu_count,total_memory_bytes=excluded.total_memory_bytes,total_storage_bytes=excluded.total_storage_bytes,ethernet_ports=excluded.ethernet_ports,sfp_ports=excluded.sfp_ports,lte_interfaces=excluded.lte_interfaces,wifi_interfaces=excluded.wifi_interfaces,wireguard_interfaces=excluded.wireguard_interfaces""",
