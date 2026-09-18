@@ -57,6 +57,21 @@ def render() -> str:
                WHERE r.enabled=1 AND COALESCE(r.lifecycle_state,'production') NOT IN ('retired','maintenance') AND o.classification<>'healthy'
                ORDER BY o.assessed_at DESC LIMIT 30"""
         ).fetchall()
+        certs = conn.execute(
+            """SELECT r.id,r.site_name,c.name,c.days_remaining,c.status
+               FROM router_certificates c JOIN routers r ON r.id=c.router_id
+               WHERE r.enabled=1 AND COALESCE(r.lifecycle_state,'production')<>'retired'
+                 AND c.captured_at=(SELECT MAX(c2.captured_at) FROM router_certificates c2 WHERE c2.router_id=c.router_id)
+                 AND c.status IN ('warning','critical','expired')
+               ORDER BY c.days_remaining ASC LIMIT 30"""
+        ).fetchall()
+        upcoming = conn.execute(
+            """SELECT p.id,p.title,p.start_at,p.change_type,COALESCE(r.site_name,'Fleet') site_name
+               FROM planned_changes p LEFT JOIN routers r ON r.id=p.router_id
+               WHERE p.status='planned' AND p.start_at>=? AND p.start_at<=?
+               ORDER BY p.start_at LIMIT 20""",
+            (now.isoformat(), (now + timedelta(days=7)).isoformat()),
+        ).fetchall()
         sys = conn.execute("SELECT checked_at,overall_status,checks_json FROM system_health_history ORDER BY id DESC LIMIT 1").fetchone()
 
     items = []
@@ -90,6 +105,11 @@ def render() -> str:
     for r in outages:
         level = "critical" if r["classification"] in {"likely_isp","possible_control_plane","site_wan"} else "warning"
         items.append((level,r["site_name"],f'{r["summary"]} · confidence {r["confidence"]}',f'/operations/{r["id"]}'))
+    for r in certs:
+        level = "critical" if r["status"] in {"critical","expired"} else "warning"
+        items.append((level,r["site_name"],f'Certificate {r["name"] or "-"}: {r["status"]} · {r["days_remaining"]} days',f'/certificates/{r["id"]}'))
+    for p in upcoming:
+        items.append(("warning",p["site_name"],f'Planned {p["change_type"]}: {p["title"]} · {p["start_at"]}',f'/change-calendar/{p["id"]}'))
     if sys and sys["overall_status"] != "ok":
         items.append(("critical", "Tikcentral", f'System self-health: {sys["overall_status"]}', "/system-health"))
 
