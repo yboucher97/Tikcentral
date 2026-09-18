@@ -14,6 +14,7 @@ NAV = [
     ("guardian", "/guardian", "Guardian"),
     ("reliability", "/reliability", "Reliability"),
     ("operations", "/operations", "Operations"),
+    ("compliance", "/compliance", "Compliance"),
     ("rescue", "/rescue", "Rescue"),
     ("automation", "/automation", "Automation"),
     ("ssh", "/ssh", "SSH"),
