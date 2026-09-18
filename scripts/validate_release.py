@@ -79,6 +79,10 @@ REQUIRED_ROUTES = {
     ("GET", "/diagnostics/{router_id}"), ("POST", "/diagnostics/{router_id}"),
     ("GET", "/recovery/{router_id}"),
     ("GET", "/recovery/{router_id}/snapshot/{snapshot_id}"),
+    ("GET", "/lifecycle"), ("GET", "/lifecycle/{router_id}"), ("POST", "/lifecycle/{router_id}"),
+    ("GET", "/maintenance-history/{router_id}"), ("POST", "/maintenance-history/{router_id}"),
+    ("GET", "/upgrade-campaigns"), ("POST", "/upgrade-campaigns"),
+    ("GET", "/upgrade-campaigns/{campaign_id}"), ("POST", "/upgrade-campaigns/{campaign_id}/approve"),
 }
 
 FORBIDDEN_FILES = {
@@ -147,6 +151,15 @@ def validate_routes():
         ("POST", "/diagnostics/{router_id}"): "app.diagnostics",
         ("GET", "/recovery/{router_id}"): "app.recovery_browser",
         ("GET", "/recovery/{router_id}/snapshot/{snapshot_id}"): "app.recovery_browser",
+        ("GET", "/lifecycle"): "app.lifecycle",
+        ("GET", "/lifecycle/{router_id}"): "app.lifecycle",
+        ("POST", "/lifecycle/{router_id}"): "app.lifecycle",
+        ("GET", "/maintenance-history/{router_id}"): "app.maintenance_history",
+        ("POST", "/maintenance-history/{router_id}"): "app.maintenance_history",
+        ("GET", "/upgrade-campaigns"): "app.upgrade_campaigns",
+        ("POST", "/upgrade-campaigns"): "app.upgrade_campaigns",
+        ("GET", "/upgrade-campaigns/{campaign_id}"): "app.upgrade_campaigns",
+        ("POST", "/upgrade-campaigns/{campaign_id}/approve"): "app.upgrade_campaigns",
     }
     for path in (
         "/operations/{router_id}/telemetry", "/operations/{router_id}/commission",
@@ -345,6 +358,25 @@ def validate_source_boundaries():
     final_guard = (ROOT / "app/final.py").read_text(encoding="utf-8")
     if "Normalization blocked by protected object rule" not in final_guard:
         fail("Normalization does not enforce protected-object policy")
+    lifecycle_text = (ROOT / "app/lifecycle.py").read_text(encoding="utf-8")
+    for marker in ("STATES", "commissioning", "production", "maintenance", "retired", "Lifecycle changed"):
+        if marker not in lifecycle_text:
+            fail(f"Router lifecycle feature missing: {marker}")
+    maintenance_text = (ROOT / "app/maintenance_history.py").read_text(encoding="utf-8")
+    for marker in ("router_maintenance_history", "ticket_reference", "work_performed", "follow_up", "Maintenance history"):
+        if marker not in maintenance_text:
+            fail(f"Maintenance history feature missing: {marker}")
+    campaign_text = (ROOT / "app/upgrade_campaigns.py").read_text(encoding="utf-8")
+    for marker in ("upgrade_campaigns", "upgrade_campaign_members", "canary", "Approve rollout", "sync_all", "campaign_stage"):
+        if marker not in campaign_text:
+            fail(f"Upgrade campaign feature missing: {marker}")
+    scheduler_lifecycle = (ROOT / "app/scheduler.py").read_text(encoding="utf-8")
+    for marker in ("lifecycle_state", "upgrade_campaigns.sync_all"):
+        if marker not in scheduler_lifecycle:
+            fail(f"Lifecycle/campaign scheduler integration missing: {marker}")
+    main_lifecycle = (ROOT / "app/main.py").read_text(encoding="utf-8")
+    if '"new", iso(now), "enrollment"' not in main_lifecycle:
+        fail("New enrollments do not start in New lifecycle state")
     resource_text = (ROOT / "app/resource_monitor.py").read_text(encoding="utf-8")
     for marker in ("_uptime_seconds", "_memory_bytes", "_record_reboot", "RESOURCE_CPU_WARN", "Unexpected router reboot detected"):
         if marker not in resource_text:
@@ -443,18 +475,22 @@ def validate_persistence_and_jobs():
         "router_policy_compliance", "router_lte_history",
         "router_interface_history", "router_outage_assessment", "router_site_metadata",
         "router_object_protection",
+        "router_maintenance_history", "upgrade_campaigns", "upgrade_campaign_members",
     }
     with sqlite3.connect(settings.DB_PATH) as conn:
         version = conn.execute("SELECT MAX(version) FROM schema_version").fetchone()[0]
         tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         snapshot_columns = {r[1] for r in conn.execute("PRAGMA table_info(router_snapshots)")}
         ai_columns = {r[1] for r in conn.execute("PRAGMA table_info(router_ai_analyses)")}
+        router_columns = {r[1] for r in conn.execute("PRAGMA table_info(routers)")}
     if version != expected or not required.issubset(tables):
         fail("Fresh migration schema validation failed")
     if not {"source_kind", "source_id", "source_actor"}.issubset(snapshot_columns):
         fail("Attributed snapshot schema validation failed")
     if not {"focus_start", "focus_end", "focus_note"}.issubset(ai_columns):
         fail("Incident AI schema validation failed")
+    if not {"lifecycle_state", "lifecycle_updated_at", "lifecycle_updated_by"}.issubset(router_columns):
+        fail("Router lifecycle schema validation failed")
 
     capabilities.set_mode(9001, capabilities.OPTICABLE_DEFAULT, "2026-01-01T00:00:00+00:00", "smoke")
     cap = capabilities.get(9001)
