@@ -116,6 +116,9 @@ def render() -> str:
                ORDER BY d.failed DESC,d.warnings DESC LIMIT 30"""
         ).fetchall()
         sys = conn.execute("SELECT checked_at,overall_status,checks_json FROM system_health_history ORDER BY id DESC LIMIT 1").fetchone()
+        db_health = conn.execute(
+            "SELECT * FROM database_health_history ORDER BY id DESC LIMIT 1"
+        ).fetchone()
         queue_counts = conn.execute(
             """SELECT
                  SUM(CASE WHEN status='new' THEN 1 ELSE 0 END) new_count,
@@ -181,6 +184,8 @@ def render() -> str:
                       f'/desired-state/{r["id"]}'))
     if sys and sys["overall_status"] != "ok":
         items.append(("critical", "Tikcentral", f'System self-health: {sys["overall_status"]}', "/system-health"))
+    if db_health and db_health["status"] in {"warning","critical"}:
+        items.append((db_health["status"],"Tikcentral",f'Database/storage: {db_health["summary"]}',"/database-health"))
 
     queue_total=sum(int(queue_counts[k] or 0) for k in ("new_count","acknowledged_count","assigned_count","investigating_count")) if queue_counts else 0
     queue_banner=f'<div class="panel pad"><h2>Alert workflow</h2><div><strong>{queue_total} open alert(s)</strong> · {int(queue_counts["new_count"] or 0) if queue_counts else 0} new · {int(queue_counts["assigned_count"] or 0) if queue_counts else 0} assigned · {int(queue_counts["investigating_count"] or 0) if queue_counts else 0} investigating</div><div style="margin-top:10px"><a href="/alerts"><button class="primary">Open alert queue</button></a></div></div>'
