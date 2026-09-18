@@ -24,9 +24,11 @@ from app import fleet_explorer
 from app import fleet_web  # noqa: F401
 from app import guardian
 from app import interface_monitor
+from app import lifecycle
 from app import jobs
 from app import lte_monitor
 from app import main as core
+from app import maintenance_history
 from app import management_script
 from app import object_protection
 from app import operations
@@ -42,6 +44,7 @@ from app import router_exec
 from app import site_metadata
 from app import system_health
 from app import troubleshooting
+from app import upgrade_campaigns
 from app import ui
 
 app = core.app
@@ -195,6 +198,9 @@ compliance.register(app, ui.page)
 lte_monitor.register(app, ui.page)
 interface_monitor.register(app, ui.page)
 site_metadata.register(app, ui.page)
+lifecycle.register(app, ui.page)
+maintenance_history.register(app, ui.page)
+upgrade_campaigns.register(app, ui.page)
 object_protection.register(app, ui.page)
 diagnostics.register(app, ui.page)
 recovery_browser.register(app, ui.page)
