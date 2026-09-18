@@ -102,6 +102,8 @@ def collect_snapshot(router_id: int, focus_start: str = "", focus_end: str = "",
         site_metadata = conn.execute("SELECT * FROM router_site_metadata WHERE router_id=?", (router_id,)).fetchone()
         outage_assessment = conn.execute("SELECT * FROM router_outage_assessment WHERE router_id=?", (router_id,)).fetchone()
         capacity_forecast = conn.execute("SELECT * FROM router_capacity_forecast WHERE router_id=?", (router_id,)).fetchone()
+        time_health = conn.execute("SELECT * FROM router_time_health WHERE router_id=?", (router_id,)).fetchone()
+        mtu_health = conn.execute("SELECT * FROM router_mtu_history WHERE router_id=? ORDER BY id DESC LIMIT 1",(router_id,)).fetchone()
         wan_probe = conn.execute("SELECT * FROM router_wan_probe_history WHERE router_id=? ORDER BY id DESC LIMIT 1",(router_id,)).fetchone()
         desired_state = conn.execute("SELECT * FROM router_desired_state_status WHERE router_id=?",(router_id,)).fetchone()
         topology_time = conn.execute("SELECT MAX(captured_at) t FROM router_topology_devices WHERE router_id=?",(router_id,)).fetchone()["t"]
@@ -202,6 +204,8 @@ def collect_snapshot(router_id: int, focus_start: str = "", focus_end: str = "",
         ),
         "outage_assessment": row_dict(outage_assessment),
         "capacity_forecast": row_dict(capacity_forecast),
+        "time_health": row_dict(time_health),
+        "mtu_health": row_dict(mtu_health),
         "wan_probe": row_dict(wan_probe),
         "desired_state": row_dict(desired_state),
         "site_topology": [dict(r) for r in topology_devices],
@@ -255,7 +259,7 @@ Return concise Markdown with these headings exactly:
 # Improvements to Consider
 # Data Gaps
 
-Prioritize management access, multi-target WAN probe evidence, outage-domain evidence, ISP correlation, desired-state results, external UniFi/Omada topology context, capacity-trend evidence, security exposure findings, RouterOS automation changes, traffic-rate/usage anomalies, interface errors/drops/link flaps, LTE signal/band/cell changes when present, routes, DHCP/PPPoE, CPU/memory, versions, golden-policy compliance, configuration drift, recent jobs/events, operator notes/tickets, and suspicious log patterns. Treat operator notes as human context, not measured evidence. Treat topology as dependency context only; do not assume Tikcentral manages external switches or APs. Use site/customer metadata only as operational context.
+Prioritize management access, multi-target WAN probe evidence, time/NTP health, MTU/path-MSS evidence, outage-domain evidence, ISP correlation, desired-state results, external UniFi/Omada topology context, capacity-trend evidence, security exposure findings, RouterOS automation changes, traffic-rate/usage anomalies, interface errors/drops/link flaps, LTE signal/band/cell changes when present, routes, DHCP/PPPoE, CPU/memory, versions, golden-policy compliance, configuration drift, recent jobs/events, operator notes/tickets, and suspicious log patterns. Treat operator notes as human context, not measured evidence. Treat topology as dependency context only; do not assume Tikcentral manages external switches or APs. Use site/customer metadata only as operational context.
 If incident_focus contains a time window or operator note, treat that as the primary investigation scope and distinguish evidence inside that window from current live state.
 Use access-history timing, maintenance windows, correlated incidents, configuration diffs and change transactions to explain what likely changed and when. Distinguish a Tikcentral-attributed change from a change that has no matching Tikcentral job. Treat previous AI reports only as historical context, not as authoritative evidence.
 End with: **No action was taken.**
