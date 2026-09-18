@@ -82,6 +82,8 @@ def _preview_page(request: Request, router_id: int, title: str, touch: str, fiel
     protection_text = f"{protected_count} protected object rule(s) configured"
     if protected_hits:
         protection_text += " · BLOCKED: " + ", ".join(f'{x["object_type"]}:{x["selector"]}' for x in protected_hits[:8])
+    blocked_banner = '<div class="warn"><strong>Blocked by protected object policy.</strong></div>' if protected_hits else ""
+    button_disabled = "disabled" if protected_hits else ""
     hidden = "".join(
         f'<input type="hidden" name="{html.escape(k)}" value="{html.escape(v)}">'
         for k, v in fields.items() if k != "preview_ack"
@@ -108,8 +110,8 @@ a{{color:#58cf8a}}code{{background:#1b2520;padding:2px 5px;border-radius:4px}}
 <div class="card warn"><strong>Recovery path</strong>
 <div>For managed changes Tikcentral creates/uses a retained pre-change backup where supported, records the transaction, verifies management access afterward, and records failure/recovery evidence in Reliability. Guardian repair remains limited to Tikcentral-owned management access.</div>
 </div>
-<div class="card">{('<div class="warn"><strong>Blocked by protected object policy.</strong></div>' if protected_hits else '')}<form method="post" action="{html.escape(request.url.path)}">{hidden}
-<button type="submit" {'disabled' if protected_hits else ''}>Confirm and continue</button> <a href="{html.escape(request.headers.get("referer") or "/")}">Cancel</a>
+<div class="card">{blocked_banner}<form method="post" action="{html.escape(request.url.path)}">{hidden}
+<button type="submit" {button_disabled}>Confirm and continue</button> <a href="{html.escape(request.headers.get("referer") or "/")}">Cancel</a>
 </form></div></div></body></html>"""
     return HTMLResponse(body, status_code=200, headers={"Cache-Control": "no-store"})
 
