@@ -808,7 +808,57 @@ def _m18(conn):
     """)
 
 
-MIGRATIONS = [_m1, _m2, _m3, _m4, _m5, _m6, _m7, _m8, _m9, _m10, _m11, _m12, _m13, _m14, _m15, _m16, _m17, _m18]
+def _m19(conn):
+    """Capacity trends, customer reports and cross-object operator notes."""
+    conn.executescript("""
+    CREATE TABLE IF NOT EXISTS router_capacity_forecast (
+        router_id INTEGER PRIMARY KEY,
+        assessed_at TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'insufficient_data',
+        cpu_trend_per_day REAL,
+        memory_free_trend_per_day REAL,
+        traffic_trend_per_day REAL,
+        interface_error_trend_per_day REAL,
+        lte_rsrp_trend_per_day REAL,
+        horizon_days INTEGER NOT NULL DEFAULT 30,
+        summary TEXT NOT NULL DEFAULT '',
+        details_json TEXT NOT NULL DEFAULT '{}',
+        FOREIGN KEY(router_id) REFERENCES routers(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS operator_notes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        router_id INTEGER,
+        object_type TEXT NOT NULL,
+        object_id INTEGER,
+        ticket_reference TEXT NOT NULL DEFAULT '',
+        visibility TEXT NOT NULL DEFAULT 'internal',
+        note TEXT NOT NULL,
+        created_by TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL,
+        FOREIGN KEY(router_id) REFERENCES routers(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_operator_notes_router_time
+      ON operator_notes(router_id,created_at DESC,id DESC);
+    CREATE INDEX IF NOT EXISTS idx_operator_notes_object
+      ON operator_notes(object_type,object_id,id DESC);
+
+    CREATE TABLE IF NOT EXISTS customer_report_history (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        router_id INTEGER NOT NULL,
+        period_start TEXT NOT NULL,
+        period_end TEXT NOT NULL,
+        generated_at TEXT NOT NULL,
+        generated_by TEXT NOT NULL DEFAULT '',
+        title TEXT NOT NULL DEFAULT '',
+        FOREIGN KEY(router_id) REFERENCES routers(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_customer_reports_router_time
+      ON customer_report_history(router_id,generated_at DESC,id DESC);
+    """)
+
+
+MIGRATIONS = [_m1, _m2, _m3, _m4, _m5, _m6, _m7, _m8, _m9, _m10, _m11, _m12, _m13, _m14, _m15, _m16, _m17, _m18, _m19]
 
 
 def migrate() -> int:
