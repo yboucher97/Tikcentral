@@ -1145,7 +1145,13 @@ def _m25(conn):
     """)
 
 
-MIGRATIONS = [_m1, _m2, _m3, _m4, _m5, _m6, _m7, _m8, _m9, _m10, _m11, _m12, _m13, _m14, _m15, _m16, _m17, _m18, _m19, _m20, _m21, _m22, _m23, _m24, _m25]
+def _m26(conn):
+    """Add MTU diagnostic history to configurable retention."""
+    if not _has_column(conn,"retention_settings","mtu_days"):
+        conn.execute("ALTER TABLE retention_settings ADD COLUMN mtu_days INTEGER NOT NULL DEFAULT 365")
+
+
+MIGRATIONS = [_m1, _m2, _m3, _m4, _m5, _m6, _m7, _m8, _m9, _m10, _m11, _m12, _m13, _m14, _m15, _m16, _m17, _m18, _m19, _m20, _m21, _m22, _m23, _m24, _m25, _m26]
 
 
 def migrate() -> int:
