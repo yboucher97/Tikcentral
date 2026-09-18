@@ -42,6 +42,7 @@ from app import operator_notes
 from app import portal  # noqa: F401
 from app import production  # noqa: F401
 from app import diagnostics
+from app import desired_state
 from app import customer_reports
 from app import rescue
 from app import security_audit
@@ -51,9 +52,11 @@ from app import role_access
 from app import router_exec
 from app import site_metadata
 from app import system_health
+from app import topology
 from app import traffic_monitor
 from app import troubleshooting
 from app import upgrade_campaigns
+from app import wan_probe
 from app import ui
 
 app = core.app
@@ -211,6 +214,9 @@ customer_reports.register(app, ui.page)
 security_audit.register(app, ui.page)
 automation_inventory.register(app, ui.page)
 traffic_monitor.register(app, ui.page)
+topology.register(app, ui.page)
+wan_probe.register(app, ui.page)
+desired_state.register(app, ui.page)
 hardware_inventory.register(app, ui.page)
 compliance.register(app, ui.page)
 lte_monitor.register(app, ui.page)
