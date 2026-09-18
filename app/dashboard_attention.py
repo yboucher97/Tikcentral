@@ -51,6 +51,12 @@ def render() -> str:
                WHERE r.enabled=1 AND c.status<>'pass'
                ORDER BY c.failed DESC,c.warnings DESC LIMIT 30"""
         ).fetchall()
+        outages = conn.execute(
+            """SELECT r.id,r.site_name,o.classification,o.confidence,o.summary
+               FROM router_outage_assessment o JOIN routers r ON r.id=o.router_id
+               WHERE r.enabled=1 AND o.classification<>'healthy'
+               ORDER BY o.assessed_at DESC LIMIT 30"""
+        ).fetchall()
         sys = conn.execute("SELECT checked_at,overall_status,checks_json FROM system_health_history ORDER BY id DESC LIMIT 1").fetchone()
 
     items = []
@@ -81,6 +87,9 @@ def render() -> str:
         items.append((level, r["site_name"],
                       f'Golden policy: {r["failed"]} failed / {r["warnings"]} warnings',
                       f'/compliance/{r["id"]}'))
+    for r in outages:
+        level = "critical" if r["classification"] in {"likely_isp","possible_control_plane","site_wan"} else "warning"
+        items.append((level,r["site_name"],f'{r["summary"]} · confidence {r["confidence"]}',f'/operations/{r["id"]}'))
     if sys and sys["overall_status"] != "ok":
         items.append(("critical", "Tikcentral", f'System self-health: {sys["overall_status"]}', "/system-health"))
 
