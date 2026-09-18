@@ -81,7 +81,11 @@ def register(app,page_func):
                    ORDER BY x.id DESC LIMIT 100"""
             ).fetchall()
         csrf=core.csrf_token(request)
-        opts="".join(f'<option value="{r["id"]}">#{r["id"]} {html.escape(r["site_name"])} · {html.escape(r["model"] or "")} · {html.escape(r["lifecycle_state"] or "production")}</option>' for r in routers)
+        source_hint=request.query_params.get("source","")
+        opts="".join(
+            f'<option value="{r["id"]}" {"selected" if str(r["id"])==source_hint else ""}>#{r["id"]} {html.escape(r["site_name"])} · {html.escape(r["model"] or "")} · {html.escape(r["lifecycle_state"] or "production")}</option>'
+            for r in routers
+        )
         rendered="".join(
             f'<tr><td>#{x["id"]}</td><td>{html.escape(x["source_name"])}</td><td>{html.escape(x["target_name"])}</td><td>{html.escape(x["status"])}</td><td>{html.escape(x["created_by"])}</td><td><a href="/replacements/{x["id"]}">Open</a></td></tr>'
             for x in rows
@@ -110,6 +114,12 @@ def register(app,page_func):
         src=int(data.get("source_router_id")); dst=int(data.get("target_router_id"))
         if src==dst:return RedirectResponse("/replacements",303)
         with core.db() as conn:
+            source=conn.execute("SELECT lifecycle_state FROM routers WHERE id=?",(src,)).fetchone()
+            target=conn.execute("SELECT lifecycle_state FROM routers WHERE id=?",(dst,)).fetchone()
+            if not source or not target:
+                return RedirectResponse("/replacements",303)
+            if (source["lifecycle_state"] or "production")=="retired" or (target["lifecycle_state"] or "production") not in {"new","commissioning"}:
+                return RedirectResponse("/replacements",303)
             cur=conn.execute(
                 """INSERT INTO router_replacements(source_router_id,target_router_id,status,copy_site_metadata,copy_protection,copy_desired_state,copy_wan_profile,move_hardware,move_future_changes,created_by,created_at,notes)
                    VALUES(?,?,'planned',?,?,?,?,?,?,?,?,?)""",
