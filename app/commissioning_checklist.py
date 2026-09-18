@@ -38,7 +38,7 @@ def evaluate(router_id:int):
     add("site_metadata","Site metadata entered",cfg["require_site_metadata"],site_ok,"Site code/address/circuit information" if site_ok else "Add at least site code, address, or circuit type")
     customer_ok=bool(site and (site["customer_name"] or "").strip())
     add("customer","Customer assigned",cfg["require_customer"],customer_ok,(site["customer_name"] if customer_ok else "Customer name missing"))
-    wan_ok=bool(wan and wan["classification"] in {"healthy","degraded_quality"})
+    wan_ok=bool(wan and wan["classification"]=="healthy")
     add("wan","WAN verified",cfg["require_wan"],wan_ok,(wan["summary"] if wan else "No WAN probe yet"))
     desired_ok=bool(desired and desired["status"]=="pass")
     add("desired","Desired state passing",cfg["require_desired_state"],desired_ok,(f'{desired["failed"]} failed / {desired["warnings"]} warning' if desired else "Not checked"))
@@ -100,15 +100,23 @@ def register(app,page_func):
             for x in result["checks"]
         )
         csrf=core.csrf_token(request)
+        setting_defs=(
+            ("require_site_metadata","Require site metadata"),("require_customer","Require customer assignment"),("require_management","Require healthy management"),
+            ("require_wan","Require fully healthy WAN verification"),("require_desired_state","Require desired-state pass"),("require_security","Require no critical security findings"),
+            ("require_backup","Require commissioning backup"),("require_hardware","Require hardware inventory"),("require_baseline","Require accepted baseline"),
+            ("auto_promote","Automatically promote complete routers to Production"),
+        )
+        setting_rows=[]
+        for key,label in setting_defs:
+            checked="checked" if cfg[key] else ""
+            setting_rows.append(f'<label style="display:block"><input type="checkbox" name="{key}" value="1" {checked}> {html.escape(label)}</label>')
+        settings_html="".join(setting_rows)
         body=f'''<div class="panel pad"><h2>Commissioning checklist · {html.escape(r["site_name"])}</h2>
 <div><strong>{result["passed"]}/{result["required"]} required checks passed</strong> · lifecycle {html.escape(r["lifecycle_state"] or "")}</div>
 <div class="muted">With the standard enabled, a New/Commissioning router moves to Production automatically only when every required item passes. Existing Production routers are never demoted.</div></div>
 <div class="panel"><table><thead><tr><th>Requirement</th><th>Check</th><th>Status</th><th>Detail</th></tr></thead><tbody>{rows}</tbody></table></div>
 <div class="panel pad"><h3>Checklist standard</h3><form method="post" action="/commissioning-checklist/settings"><input type="hidden" name="csrf" value="{csrf}">
-{''.join(f'<label style="display:block"><input type="checkbox" name="{key}" value="1" {"checked" if cfg[key] else ""}> {label}</label>' for key,label in (
-("require_site_metadata","Require site metadata"),("require_customer","Require customer assignment"),("require_management","Require healthy management"),
-("require_wan","Require WAN verification"),("require_desired_state","Require desired-state pass"),("require_security","Require no critical security findings"),
-("require_backup","Require commissioning backup"),("require_hardware","Require hardware inventory"),("require_baseline","Require accepted baseline"),("auto_promote","Automatically promote complete routers to Production"))) }
+{settings_html}
 <button class="primary">Save checklist standard</button></form></div>'''
         return page_func("Commissioning Checklist",body,user,"operations")
 
