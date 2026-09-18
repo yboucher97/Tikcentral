@@ -35,6 +35,17 @@ def _sync(campaign_id:int):
             conn.execute("UPDATE upgrade_campaigns SET status='failed' WHERE id=?",(campaign_id,))
 
 
+def sync_all():
+    migrations.migrate()
+    with core.db() as conn:
+        ids=[int(r["id"]) for r in conn.execute(
+            "SELECT id FROM upgrade_campaigns WHERE status NOT IN ('completed','cancelled') ORDER BY id"
+        ).fetchall()]
+    for cid in ids:
+        _sync(cid)
+    return len(ids)
+
+
 def _queue_stage(campaign_id:int,stage:str,actor:str):
     with core.db() as conn:
         campaign=conn.execute("SELECT * FROM upgrade_campaigns WHERE id=?",(campaign_id,)).fetchone()
