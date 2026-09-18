@@ -41,10 +41,14 @@ def assess(router_id:int):
             "SELECT captured_at,cpu_load,free_memory,total_memory FROM router_telemetry WHERE router_id=? AND captured_at>=? ORDER BY captured_at",
             (router_id,cutoff)).fetchall()
         traffic=conn.execute(
-            "SELECT captured_at,rx_bps,tx_bps FROM router_traffic_history WHERE router_id=? AND captured_at>=? AND rx_bps IS NOT NULL ORDER BY captured_at",
+            """SELECT captured_at,SUM(COALESCE(rx_bps,0)+COALESCE(tx_bps,0)) total_bps
+               FROM router_traffic_history WHERE router_id=? AND captured_at>=? AND rx_bps IS NOT NULL
+               GROUP BY captured_at ORDER BY captured_at""",
             (router_id,cutoff)).fetchall()
         iface=conn.execute(
-            "SELECT captured_at,rx_errors,tx_errors,rx_drops,tx_drops FROM router_interface_history WHERE router_id=? AND captured_at>=? ORDER BY captured_at",
+            """SELECT captured_at,SUM(COALESCE(rx_errors,0)+COALESCE(tx_errors,0)+COALESCE(rx_drops,0)+COALESCE(tx_drops,0)) total_errors
+               FROM router_interface_history WHERE router_id=? AND captured_at>=?
+               GROUP BY captured_at ORDER BY captured_at""",
             (router_id,cutoff)).fetchall()
         lte=conn.execute(
             "SELECT captured_at,rsrp FROM router_lte_history WHERE router_id=? AND captured_at>=? AND rsrp IS NOT NULL ORDER BY captured_at",
@@ -56,8 +60,8 @@ def assess(router_id:int):
     for x in telem:
         free=resource_monitor._memory_bytes(x["free_memory"]); total=resource_monitor._memory_bytes(x["total_memory"])
         mem_pts.append((x["captured_at"],(free*100/total) if free is not None and total else None))
-    traffic_pts=[(x["captured_at"],float(x["rx_bps"] or 0)+float(x["tx_bps"] or 0)) for x in traffic]
-    err_pts=[(x["captured_at"],sum(int(x[k] or 0) for k in ("rx_errors","tx_errors","rx_drops","tx_drops"))) for x in iface]
+    traffic_pts=[(x["captured_at"],float(x["total_bps"] or 0)) for x in traffic]
+    err_pts=[(x["captured_at"],int(x["total_errors"] or 0)) for x in iface]
     lte_pts=[(x["captured_at"],x["rsrp"]) for x in lte]
 
     cpu_s=_slope_per_day(cpu_pts); mem_s=_slope_per_day(mem_pts); tr_s=_slope_per_day(traffic_pts)
