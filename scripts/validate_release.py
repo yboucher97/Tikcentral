@@ -66,6 +66,10 @@ REQUIRED_ROUTES = {
     ("GET", "/audit"), ("GET", "/audit/{router_id}"),
     ("POST", "/audit/{router_id}/normalize"),
     ("GET", "/ai/{router_id}"), ("POST", "/ai/{router_id}/analyze"),
+    ("GET", "/timeline/{router_id}"),
+    ("GET", "/timeline/{router_id}/before"),
+    ("GET", "/incidents/{router_id}"),
+    ("POST", "/incidents/{router_id}/analyze"),
 }
 
 FORBIDDEN_FILES = {
@@ -117,6 +121,10 @@ def validate_routes():
         ("POST", "/ai/{router_id}/analyze"): "app.ai_analysis",
         ("GET", "/fleet-search"): "app.fleet_explorer",
         ("GET", "/operator-audit"): "app.operator_audit",
+        ("GET", "/timeline/{router_id}"): "app.troubleshooting",
+        ("GET", "/timeline/{router_id}/before"): "app.troubleshooting",
+        ("GET", "/incidents/{router_id}"): "app.troubleshooting",
+        ("POST", "/incidents/{router_id}/analyze"): "app.troubleshooting",
     }
     for path in (
         "/operations/{router_id}/telemetry", "/operations/{router_id}/commission",
@@ -245,6 +253,19 @@ def validate_source_boundaries():
     for token in ("change_preview.install_middleware", "role_access.install_middleware"):
         if token not in final_policy:
             fail(f"Production policy middleware missing: {token}")
+    ip_text = (ROOT / "app/ip_enrichment.py").read_text(encoding="utf-8")
+    for marker in ("ipwho.is", "router_public_ip_history", "IP_LOOKUP_REFRESH_DAYS", "Public IP changed"):
+        if marker not in ip_text and marker not in (ROOT / "app/settings.py").read_text(encoding="utf-8"):
+            fail(f"Public-IP enrichment feature missing: {marker}")
+    troubleshooting_text = (ROOT / "app/troubleshooting.py").read_text(encoding="utf-8")
+    for marker in ("Router timeline", "What changed before failure?", "Incident builder", "router_public_ip_history", "queue_analysis"):
+        if marker not in troubleshooting_text:
+            fail(f"Troubleshooting timeline feature missing: {marker}")
+    scheduler_ip = (ROOT / "app/scheduler.py").read_text(encoding="utf-8")
+    if 'ip_enrichment.refresh_all' not in scheduler_ip:
+        fail("Public-IP enrichment is not scheduled")
+    if "troubleshooting.register(app, ui.page)" not in final_text:
+        fail("Troubleshooting routes are not registered")
     resource_text = (ROOT / "app/resource_monitor.py").read_text(encoding="utf-8")
     for marker in ("_uptime_seconds", "_memory_bytes", "_record_reboot", "RESOURCE_CPU_WARN", "Unexpected router reboot detected"):
         if marker not in resource_text:
@@ -339,7 +360,7 @@ def validate_persistence_and_jobs():
         "router_ai_analyses", "change_transactions", "change_transaction_steps",
         "router_maintenance", "fleet_incidents", "router_management_known_good", "router_wan_history",
         "router_access_alert_state", "system_health_history", "backup_verifications",
-        "router_resource_alerts", "operator_audit_log",
+        "router_resource_alerts", "operator_audit_log", "router_public_ip_history",
     }
     with sqlite3.connect(settings.DB_PATH) as conn:
         version = conn.execute("SELECT MAX(version) FROM schema_version").fetchone()[0]
