@@ -48,7 +48,7 @@ def register(app,page_func):
                 f'<div class="card"><h3>{html.escape(name)}</h3>'
                 f'<div class="value">{production}</div><div class="muted">active site/router record(s)</div>'
                 f'<div style="margin-top:8px">{healthy}/{production} management healthy · {alerts} open alert(s)</div>'
-                f'<div style="margin-top:12px"><a href="/customer?name={quote(name)}"><button class="primary">Open customer</button></a></div></div>'
+                f'<div style="margin-top:12px"><a href="/customer?name={quote(name,safe="")}"><button class="primary">Open customer</button></a></div></div>'
             )
         body=f'''<div class="panel pad"><h2>Customers / sites</h2>
 <div class="muted">Aggregated from existing site metadata. Sites without a customer name automatically appear under <strong>{UNASSIGNED}</strong>.</div></div>
