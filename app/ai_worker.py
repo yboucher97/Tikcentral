@@ -65,7 +65,12 @@ def run_once() -> int:
     job_id = int(job["id"])
     router_id = int(job["router_id"])
     try:
-        snapshot = ai_analysis.collect_snapshot(router_id)
+        snapshot = ai_analysis.collect_snapshot(
+            router_id,
+            job.get("focus_start", ""),
+            job.get("focus_end", ""),
+            job.get("focus_note", ""),
+        )
         report = ai_analysis.run_codex(snapshot)
         finished = _now()
         with core.db() as conn:
