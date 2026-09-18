@@ -98,6 +98,15 @@ def collect_snapshot(router_id: int, focus_start: str = "", focus_end: str = "",
             window_args,
         ).fetchall()
         maintenance = conn.execute("SELECT * FROM router_maintenance WHERE router_id=?", (router_id,)).fetchone()
+        compliance = conn.execute("SELECT * FROM router_policy_compliance WHERE router_id=?", (router_id,)).fetchone()
+        lte_history = conn.execute(
+            """SELECT captured_at,interface,registered,operator,access_technology,band,ca_band,
+                      cell_id,enb_id,sector_id,phy_cell_id,rsrp,rsrq,sinr,rssi
+               FROM router_lte_history WHERE router_id=?
+                 AND (?='' OR captured_at>=?) AND (?='' OR captured_at<=?)
+               ORDER BY id DESC LIMIT 500""",
+            window_args,
+        ).fetchall()
         incidents = conn.execute(
             "SELECT * FROM fleet_incidents ORDER BY id DESC LIMIT 30"
         ).fetchall()
@@ -142,6 +151,8 @@ def collect_snapshot(router_id: int, focus_start: str = "", focus_end: str = "",
         "recent_events": [dict(r) for r in recent_events],
         "recent_jobs": [dict(r) for r in recent_jobs],
         "maintenance": row_dict(maintenance),
+        "golden_policy_compliance": row_dict(compliance),
+        "lte_history": [dict(r) for r in lte_history],
         "recent_incidents": [dict(r) for r in incidents],
         "change_transactions": [dict(r) for r in transactions],
         "configuration_history": {
@@ -186,7 +197,7 @@ Return concise Markdown with these headings exactly:
 # Improvements to Consider
 # Data Gaps
 
-Prioritize management access, WAN, interface errors/flaps, routes, DHCP/PPPoE, CPU/memory, versions, configuration drift, recent jobs/events, and suspicious log patterns.
+Prioritize management access, WAN, LTE signal/band/cell changes when present, interface errors/flaps, routes, DHCP/PPPoE, CPU/memory, versions, golden-policy compliance, configuration drift, recent jobs/events, and suspicious log patterns.
 If incident_focus contains a time window or operator note, treat that as the primary investigation scope and distinguish evidence inside that window from current live state.
 Use access-history timing, maintenance windows, correlated incidents, configuration diffs and change transactions to explain what likely changed and when. Distinguish a Tikcentral-attributed change from a change that has no matching Tikcentral job. Treat previous AI reports only as historical context, not as authoritative evidence.
 End with: **No action was taken.**
