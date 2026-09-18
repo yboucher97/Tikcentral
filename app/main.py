@@ -150,13 +150,22 @@ def session_user(request: Request):
         return row
 
 
-def require_web_admin(request: Request):
+ROLE_RANK = {"viewer": 10, "technician": 20, "admin": 30}
+
+
+def require_web_role(request: Request, minimum_role: str = "viewer"):
     user = session_user(request)
     if not user:
         return None
-    if user["role"] != "admin":
-        raise HTTPException(status_code=403, detail="admin access required")
+    role = user["role"] if user["role"] in ROLE_RANK else "viewer"
+    if ROLE_RANK[role] < ROLE_RANK.get(minimum_role, 10):
+        raise HTTPException(status_code=403, detail=f"{minimum_role} access required")
     return user
+
+
+def require_web_admin(request: Request):
+    """Compatibility helper: authenticated web access; mutation policy is centralized."""
+    return require_web_role(request, "viewer")
 
 
 def csrf_token(request: Request) -> str:
@@ -372,7 +381,9 @@ def dashboard(request: Request):
     if not access_html:
         access_html.append('<tr><td colspan="5" class="muted">No authorized public IPs.</td></tr>')
 
-    body = f'''<div class="panel pad"><div class="inline" style="justify-content:space-between"><div><h2>Remote WinBox access</h2><div>Your current public IP: <code>{html.escape(current_ip or 'Unknown')}</code></div><div class="muted">Temporary authorization lasts {TEMP_ACCESS_DAYS} days.</div></div><form method="post" action="/dashboard/access/current"><input type="hidden" name="csrf" value="{csrf}"><button class="primary">Authorize my current IP for {TEMP_ACCESS_DAYS} days</button></form></div></div><div class="panel"><table><thead><tr><th>Status</th><th>Identity</th><th>Model</th><th>Serial</th><th>RouterOS</th><th>RouterBOOT</th><th>Public IP</th><th>VPN IP</th><th>Remote WinBox</th><th>VPN WinBox</th><th>Last handshake UTC</th></tr></thead><tbody>{''.join(router_rows)}</tbody></table></div><div class="panel pad"><h2>Always Authorized IPs</h2><form class="inline" method="post" action="/dashboard/access/always"><input type="hidden" name="csrf" value="{csrf}"><input name="ip_address" placeholder="203.0.113.10" required><input name="label" placeholder="Office / Home / Technician"><button>Add</button></form></div><div class="panel"><table><thead><tr><th>IP address</th><th>Label</th><th>Type</th><th>Expires</th><th></th></tr></thead><tbody>{''.join(access_html)}</tbody></table></div>'''
+    from app import dashboard_attention
+    attention_html = dashboard_attention.render()
+    body = f'''{attention_html}<div class="panel pad"><div class="inline" style="justify-content:space-between"><div><h2>Remote WinBox access</h2><div>Your current public IP: <code>{html.escape(current_ip or 'Unknown')}</code></div><div class="muted">Temporary authorization lasts {TEMP_ACCESS_DAYS} days.</div></div><form method="post" action="/dashboard/access/current"><input type="hidden" name="csrf" value="{csrf}"><button class="primary">Authorize my current IP for {TEMP_ACCESS_DAYS} days</button></form></div></div><div class="panel"><table><thead><tr><th>Status</th><th>Identity</th><th>Model</th><th>Serial</th><th>RouterOS</th><th>RouterBOOT</th><th>Public IP</th><th>VPN IP</th><th>Remote WinBox</th><th>VPN WinBox</th><th>Last handshake UTC</th></tr></thead><tbody>{''.join(router_rows)}</tbody></table></div><div class="panel pad"><h2>Always Authorized IPs</h2><form class="inline" method="post" action="/dashboard/access/always"><input type="hidden" name="csrf" value="{csrf}"><input name="ip_address" placeholder="203.0.113.10" required><input name="label" placeholder="Office / Home / Technician"><button>Add</button></form></div><div class="panel"><table><thead><tr><th>IP address</th><th>Label</th><th>Type</th><th>Expires</th><th></th></tr></thead><tbody>{''.join(access_html)}</tbody></table></div>'''
     return page("Dashboard", body, user, "dashboard")
 
 
@@ -467,7 +478,7 @@ async def change_password(request: Request):
 
 @app.get("/admin/users", response_class=HTMLResponse)
 def users_page(request: Request):
-    user = require_web_admin(request)
+    user = require_web_role(request, "admin")
     if not user:
         return RedirectResponse("/login", status_code=303)
     csrf = csrf_token(request)
@@ -480,21 +491,24 @@ def users_page(request: Request):
         else:
             action = f'''<form method="post" action="/admin/users/{row['id']}/toggle"><input type="hidden" name="csrf" value="{csrf}"><button>{'Disable' if row['enabled'] else 'Enable'}</button></form>'''
         rendered.append(
-            f'''<tr><td>{html.escape(row['email'])}</td><td>{html.escape(row['role'])}</td><td>{'Active' if row['enabled'] else 'Disabled'}</td><td>{action}</td></tr>'''
+            f'''<tr><td>{html.escape(row['email'])}</td><td><form class="inline" method="post" action="/admin/users/{row['id']}/role"><input type="hidden" name="csrf" value="{csrf}"><select name="role"><option value="viewer" {'selected' if row['role']=='viewer' else ''}>Viewer</option><option value="technician" {'selected' if row['role']=='technician' else ''}>Technician</option><option value="admin" {'selected' if row['role']=='admin' else ''}>Admin</option></select><button {'disabled' if row['id']==user['id'] else ''}>Save</button></form></td><td>{'Active' if row['enabled'] else 'Disabled'}</td><td>{action}</td></tr>'''
         )
-    body = f'''<div class="panel pad"><h2>Add user</h2><form class="inline" method="post" action="/admin/users"><input type="hidden" name="csrf" value="{csrf}"><input type="email" name="email" placeholder="user@example.com" required><input type="password" name="password" placeholder="Temporary password (12+)" minlength="12" required><select name="role"><option value="admin">Admin</option></select><button>Add user</button></form></div><div class="panel"><table><thead><tr><th>Email</th><th>Role</th><th>Status</th><th></th></tr></thead><tbody>{''.join(rendered)}</tbody></table></div>'''
+    body = f'''<div class="panel pad"><h2>Add user</h2><form class="inline" method="post" action="/admin/users"><input type="hidden" name="csrf" value="{csrf}"><input type="email" name="email" placeholder="user@example.com" required><input type="password" name="password" placeholder="Temporary password (12+)" minlength="12" required><select name="role"><option value="viewer">Viewer</option><option value="technician">Technician</option><option value="admin">Admin</option></select><button>Add user</button></form></div><div class="panel"><table><thead><tr><th>Email</th><th>Role</th><th>Status</th><th></th></tr></thead><tbody>{''.join(rendered)}</tbody></table></div>'''
     return page("Users", body, user, "users")
 
 
 @app.post("/admin/users")
 async def add_user(request: Request):
-    user = require_web_admin(request)
+    user = require_web_role(request, "admin")
     if not user:
         return RedirectResponse("/login", status_code=303)
     data = await form_data(request)
     require_csrf(request, data.get("csrf", ""))
     email = data.get("email", "").strip().lower()
     password = data.get("password", "")
+    role = data.get("role", "viewer").strip().lower()
+    if role not in ROLE_RANK:
+        raise HTTPException(status_code=400, detail="invalid role")
     if not valid_email(email):
         raise HTTPException(status_code=400, detail="invalid email")
     if len(password) < 12:
@@ -503,17 +517,38 @@ async def add_user(request: Request):
     try:
         with db() as conn:
             conn.execute(
-                "INSERT INTO users(email,password_hash,role,enabled,created_at,updated_at) VALUES(?,?, 'admin',1,?,?)",
-                (email, hash_password(password), now, now),
+                "INSERT INTO users(email,password_hash,role,enabled,created_at,updated_at) VALUES(?,?,?,1,?,?)",
+                (email, hash_password(password), role, now, now),
             )
     except sqlite3.IntegrityError:
         raise HTTPException(status_code=409, detail="email already exists")
     return RedirectResponse("/admin/users", status_code=303)
 
 
+@app.post("/admin/users/{user_id}/role")
+async def change_user_role(user_id: int, request: Request):
+    user = require_web_role(request, "admin")
+    if not user:
+        return RedirectResponse("/login", status_code=303)
+    data = await form_data(request)
+    require_csrf(request, data.get("csrf", ""))
+    if user_id == user["id"]:
+        raise HTTPException(status_code=400, detail="cannot change your own role")
+    role = data.get("role", "").strip().lower()
+    if role not in ROLE_RANK:
+        raise HTTPException(status_code=400, detail="invalid role")
+    with db() as conn:
+        row = conn.execute("SELECT id FROM users WHERE id=?", (user_id,)).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="user not found")
+        conn.execute("UPDATE users SET role=?,updated_at=? WHERE id=?", (role, iso(utcnow()), user_id))
+        conn.execute("DELETE FROM sessions WHERE user_id=?", (user_id,))
+    return RedirectResponse("/admin/users", status_code=303)
+
+
 @app.post("/admin/users/{user_id}/toggle")
 async def toggle_user(user_id: int, request: Request):
-    user = require_web_admin(request)
+    user = require_web_role(request, "admin")
     if not user:
         return RedirectResponse("/login", status_code=303)
     data = await form_data(request)
