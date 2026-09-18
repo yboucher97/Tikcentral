@@ -11,7 +11,7 @@ import html
 import json
 import re
 import subprocess
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -50,7 +50,7 @@ def _safe_read(ip: str, command: str, label: str) -> dict:
         return {"ok": False, "error": errors.short(exc)}
 
 
-def collect_snapshot(router_id: int) -> dict:
+def collect_snapshot(router_id: int, focus_start: str = "", focus_end: str = "", focus_note: str = "") -> dict:
     """Collect a fresh, sanitized, read-only router snapshot."""
     migrations.migrate()
     router = _router(router_id)
@@ -67,26 +67,45 @@ def collect_snapshot(router_id: int) -> dict:
         access = conn.execute("SELECT * FROM router_access_state WHERE router_id=?", (router_id,)).fetchone()
         expected = conn.execute("SELECT * FROM router_expected_state WHERE router_id=?", (router_id,)).fetchone()
         update = conn.execute("SELECT * FROM router_update_status WHERE router_id=?", (router_id,)).fetchone()
-        telemetry = conn.execute("SELECT * FROM router_telemetry WHERE router_id=? ORDER BY id DESC LIMIT 24", (router_id,)).fetchall()
-        recent_events = conn.execute("SELECT * FROM router_events WHERE router_id=? ORDER BY id DESC LIMIT 100", (router_id,)).fetchall()
-        recent_jobs = conn.execute("SELECT * FROM router_jobs WHERE router_id=? ORDER BY id DESC LIMIT 30", (router_id,)).fetchall()
+        window_args = (router_id, focus_start, focus_start, focus_end, focus_end)
+        telemetry = conn.execute(
+            """SELECT * FROM router_telemetry WHERE router_id=?
+               AND (?='' OR captured_at>=?) AND (?='' OR captured_at<=?)
+               ORDER BY id DESC LIMIT 500""", window_args
+        ).fetchall()
+        recent_events = conn.execute(
+            """SELECT * FROM router_events WHERE router_id=?
+               AND (?='' OR event_at>=?) AND (?='' OR event_at<=?)
+               ORDER BY id DESC LIMIT 500""", window_args
+        ).fetchall()
+        recent_jobs = conn.execute(
+            """SELECT * FROM router_jobs WHERE router_id=?
+               AND (?='' OR created_at>=?) AND (?='' OR created_at<=?)
+               ORDER BY id DESC LIMIT 200""", window_args
+        ).fetchall()
         access_history = conn.execute(
             """SELECT checked_at,wg_online,ssh_open,winbox_open,api_open,management_ok,
                       ssh_latency_ms,winbox_latency_ms,api_latency_ms
-               FROM router_access_history WHERE router_id=? ORDER BY id DESC LIMIT 120""",
-            (router_id,),
+               FROM router_access_history WHERE router_id=?
+                 AND (?='' OR checked_at>=?) AND (?='' OR checked_at<=?)
+               ORDER BY id DESC LIMIT 1000""",
+            window_args,
         ).fetchall()
         snapshots = conn.execute(
-            "SELECT id,captured_at,sha256,content FROM router_snapshots WHERE router_id=? ORDER BY id DESC LIMIT 3",
-            (router_id,),
+            """SELECT id,captured_at,sha256,content FROM router_snapshots WHERE router_id=?
+               AND (?='' OR captured_at>=?) AND (?='' OR captured_at<=?)
+               ORDER BY id DESC LIMIT 5""",
+            window_args,
         ).fetchall()
         maintenance = conn.execute("SELECT * FROM router_maintenance WHERE router_id=?", (router_id,)).fetchone()
         incidents = conn.execute(
             "SELECT * FROM fleet_incidents ORDER BY id DESC LIMIT 30"
         ).fetchall()
         transactions = conn.execute(
-            "SELECT * FROM change_transactions WHERE router_id=? ORDER BY id DESC LIMIT 20",
-            (router_id,),
+            """SELECT * FROM change_transactions WHERE router_id=?
+               AND (?='' OR created_at>=?) AND (?='' OR created_at<=?)
+               ORDER BY id DESC LIMIT 100""",
+            window_args,
         ).fetchall()
         prior_ai = conn.execute(
             """SELECT id,status,created_at,finished_at,report,error_code,error_detail
@@ -110,8 +129,9 @@ def collect_snapshot(router_id: int) -> dict:
         return dict(row) if row else None
 
     return {
-        "snapshot_version": 1,
+        "snapshot_version": 2,
         "captured_at": _now(),
+        "incident_focus": {"start": focus_start, "end": focus_end, "note": _sanitize(focus_note)},
         "router": dict(router),
         "access": row_dict(access),
         "expected_state": row_dict(expected),
@@ -167,6 +187,7 @@ Return concise Markdown with these headings exactly:
 # Data Gaps
 
 Prioritize management access, WAN, interface errors/flaps, routes, DHCP/PPPoE, CPU/memory, versions, configuration drift, recent jobs/events, and suspicious log patterns.
+If incident_focus contains a time window or operator note, treat that as the primary investigation scope and distinguish evidence inside that window from current live state.
 Use access-history timing, maintenance windows, correlated incidents, configuration diffs and change transactions to explain what likely changed and when. Distinguish a Tikcentral-attributed change from a change that has no matching Tikcentral job. Treat previous AI reports only as historical context, not as authoritative evidence.
 End with: **No action was taken.**
 
@@ -193,7 +214,7 @@ def run_codex(snapshot: dict) -> str:
     return report
 
 
-def queue_analysis(router_id: int, actor: str) -> int:
+def queue_analysis(router_id: int, actor: str, focus_start: str = "", focus_end: str = "", focus_note: str = "") -> int:
     """Queue at most one pending/running analysis per router."""
     migrations.migrate()
     router = _router(router_id)
@@ -207,8 +228,10 @@ def queue_analysis(router_id: int, actor: str) -> int:
         if existing:
             return int(existing["id"])
         cur = conn.execute(
-            "INSERT INTO router_ai_analyses(router_id,status,requested_by,created_at) VALUES(?, 'queued', ?, ?)",
-            (router_id, actor, _now()),
+            """INSERT INTO router_ai_analyses
+               (router_id,status,requested_by,created_at,focus_start,focus_end,focus_note)
+               VALUES(?, 'queued', ?, ?, ?, ?, ?)""",
+            (router_id, actor, _now(), focus_start, focus_end, focus_note[:1000]),
         )
         return int(cur.lastrowid)
 
@@ -240,7 +263,7 @@ def register(app, page_func):
         csrf = core.csrf_token(request)
         with core.db() as conn:
             rows = conn.execute(
-                "SELECT id,status,requested_by,created_at,started_at,finished_at,report,error_code,error_detail FROM router_ai_analyses WHERE router_id=? ORDER BY id DESC LIMIT 20",
+                "SELECT id,status,requested_by,created_at,started_at,finished_at,report,error_code,error_detail,focus_start,focus_end,focus_note FROM router_ai_analyses WHERE router_id=? ORDER BY id DESC LIMIT 20",
                 (router_id,),
             ).fetchall()
         requested = request.query_params.get("report", "")
@@ -270,11 +293,11 @@ def register(app, page_func):
                 detail = f'<div class="error"><strong>{html.escape(r["error_code"] or "AI_ANALYSIS_FAILED")}</strong> {html.escape(r["error_detail"] or "")}</div>'
             link = f'<a href="/ai/{router_id}?report={r["id"]}">View report</a>' if r["report"] else ""
             history_rows.append(
-                f'''<tr><td>#{r['id']}</td><td>{html.escape(r['created_at'] or '')}</td><td>{html.escape(r['status'])}</td><td>{html.escape(r['requested_by'] or '-')}</td><td>{link}{detail}</td></tr>'''
+                f'''<tr><td>#{r['id']}</td><td>{html.escape(r['created_at'] or '')}<div class="muted">{html.escape((r['focus_start'] or '') + (' → ' + r['focus_end'] if r['focus_end'] else ''))}</div></td><td>{html.escape(r['status'])}</td><td>{html.escape(r['requested_by'] or '-')}<div class="muted">{html.escape(r['focus_note'] or '')}</div></td><td>{link}{detail}</td></tr>'''
             )
         history = "".join(history_rows) or '<tr><td colspan="5">No AI analysis history.</td></tr>'
 
-        body = f'''<div class="panel pad"><h2>AI analysis · {html.escape(router['site_name'])}</h2><div class="muted">Read-only. Tikcentral collects live RouterOS data, sanitizes sensitive values, and sends only that snapshot to an isolated Codex CLI identity. Codex cannot apply RouterOS changes.</div><div class="inline" style="margin-top:12px"><form method="post" action="/ai/{router_id}/analyze"><input type="hidden" name="csrf" value="{csrf}">{button}</form><a href="/operations/{router_id}"><button>Back to router</button></a></div></div>{status_notice}<div class="panel pad">{report_html}</div><div class="panel"><table><thead><tr><th>Job</th><th>Requested</th><th>Status</th><th>By</th><th>Result</th></tr></thead><tbody>{history}</tbody></table></div>'''
+        body = f'''<div class="panel pad"><h2>AI analysis · {html.escape(router['site_name'])}</h2><div class="muted">Read-only. Tikcentral collects live RouterOS data, sanitizes sensitive values, and sends only that snapshot to an isolated Codex CLI identity. Codex cannot apply RouterOS changes.</div><div class="inline" style="margin-top:12px"><form method="post" action="/ai/{router_id}/analyze"><input type="hidden" name="csrf" value="{csrf}"><select name="focus_hours"><option value="0">General analysis</option><option value="2">Incident · last 2h</option><option value="6">Incident · last 6h</option><option value="24">Incident · last 24h</option><option value="168">Incident · last 7d</option></select><input name="focus_note" maxlength="500" placeholder="Optional incident note / symptom">{button}</form><a href="/operations/{router_id}"><button>Back to router</button></a></div></div>{status_notice}<div class="panel pad">{report_html}</div><div class="panel"><table><thead><tr><th>Job</th><th>Requested</th><th>Status</th><th>By</th><th>Result</th></tr></thead><tbody>{history}</tbody></table></div>'''
         return page_func("AI Analysis", body, user, "operations")
 
     @app.post("/ai/{router_id}/analyze", response_class=HTMLResponse)
@@ -286,7 +309,15 @@ def register(app, page_func):
         core.require_csrf(request, data.get("csrf", ""))
         actor = user["email"] if "email" in user.keys() else "admin"
         try:
-            queue_analysis(router_id, actor)
+            hours = int(data.get("focus_hours", "0") or 0)
+        except ValueError:
+            hours = 0
+        hours = hours if hours in {0, 2, 6, 24, 168} else 0
+        focus_end = _now() if hours else ""
+        focus_start = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat() if hours else ""
+        focus_note = data.get("focus_note", "").strip()[:500]
+        try:
+            queue_analysis(router_id, actor, focus_start, focus_end, focus_note)
         except Exception:
             pass
         return RedirectResponse(f"/ai/{router_id}", status_code=303)
