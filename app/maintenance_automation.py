@@ -2,7 +2,7 @@
 
 from datetime import datetime, timezone
 
-from app import compliance, desired_state, events, interface_monitor, main as core, migrations, operations, security_audit, wan_probe
+from app import compliance, desired_state, events, interface_monitor, main as core, migrations, operations, security_audit, state_capture, wan_probe
 
 
 def _now(): return datetime.now(timezone.utc).isoformat()
@@ -39,6 +39,7 @@ def process():
             except Exception as exc:
                 results.append(f"{label}=failed:{str(exc)[:180]}")
         if s["capture_backup"]: run("backup",lambda: operations.backup_router(j["router_id"],"post-change","maintenance-automation",track_job=False))
+        if s["capture_backup"]: run("snapshot",lambda: state_capture.capture_config_snapshot(j["router_id"],source_kind="post_change",source_id=j["id"],actor="maintenance-automation"))
         if s["run_compliance"]: run("compliance",lambda: compliance.evaluate(j["router_id"]))
         if s["run_security"]: run("security",lambda: security_audit.collect(j["router_id"]))
         if s["run_wan_probe"]: run("wan_probe",lambda: wan_probe.collect(j["router_id"]))
