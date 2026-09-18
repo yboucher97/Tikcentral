@@ -86,6 +86,7 @@ REQUIRED_ROUTES = {
     ("GET", "/change-calendar"), ("POST", "/change-calendar"),
     ("GET", "/change-calendar/{change_id}"), ("POST", "/change-calendar/{change_id}/status"),
     ("GET", "/hardware/{router_id}"), ("POST", "/hardware/{router_id}"),
+    ("POST", "/hardware/{router_id}/{item_id}/status"),
     ("GET", "/certificates/{router_id}"),
 }
 
@@ -170,6 +171,7 @@ def validate_routes():
         ("POST", "/change-calendar/{change_id}/status"): "app.change_calendar",
         ("GET", "/hardware/{router_id}"): "app.hardware_inventory",
         ("POST", "/hardware/{router_id}"): "app.hardware_inventory",
+        ("POST", "/hardware/{router_id}/{item_id}/status"): "app.hardware_inventory",
         ("GET", "/certificates/{router_id}"): "app.certificate_monitor",
     }
     for path in (
@@ -389,15 +391,15 @@ def validate_source_boundaries():
     if '"new", iso(now), "enrollment"' not in main_lifecycle:
         fail("New enrollments do not start in New lifecycle state")
     calendar_text = (ROOT / "app/change_calendar.py").read_text(encoding="utf-8")
-    for marker in ("planned_changes", "Plan a change", "Recorded changes this month", "change_transactions"):
+    for marker in ("planned_changes", "Plan a change", "Recorded changes this month", "change_transactions", "_normalize_datetime", "datetime-local"):
         if marker not in calendar_text:
             fail(f"Change calendar feature missing: {marker}")
     hardware_text = (ROOT / "app/hardware_inventory.py").read_text(encoding="utf-8")
-    for marker in ("hardware_inventory", "warranty_until", "asset_tag", "Hardware inventory"):
+    for marker in ("hardware_inventory", "warranty_until", "asset_tag", "Hardware inventory", "hardware_status"):
         if marker not in hardware_text:
             fail(f"Hardware inventory feature missing: {marker}")
     cert_text = (ROOT / "app/certificate_monitor.py").read_text(encoding="utf-8")
-    for marker in ("router_certificates", "invalid-after", "days_remaining", "critical", "warning"):
+    for marker in ("router_certificates", "invalid-after", "days_remaining", "critical", "warning", "transitions", "events.record"):
         if marker not in cert_text:
             fail(f"Certificate inventory feature missing: {marker}")
     scheduler_cert = (ROOT / "app/scheduler.py").read_text(encoding="utf-8")
