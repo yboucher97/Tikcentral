@@ -111,7 +111,11 @@ def assess_all():
                      summary=excluded.summary,evidence=excluded.evidence""",
                 (rid,assessed,classification,confidence,summary,detail),
             )
-        if previous and previous["classification"] != classification and classification != "healthy":
-            events.record(rid,"outage_classification",summary,detail,"warning")
+        if not previous or previous["classification"] != classification:
+            if classification not in {"healthy","unknown"}:
+                events.record(rid,"outage_classification",summary,detail,"warning")
+            elif previous and previous["classification"] not in {"healthy","unknown"} and classification == "healthy":
+                events.record(rid,"outage_classification","Outage-domain assessment cleared",
+                              f'previous={previous["classification"]}; Guardian management path recovered',"info")
         results.append((rid,classification))
     return results
