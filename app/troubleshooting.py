@@ -74,6 +74,25 @@ def _window(router_id: int, start: str, end: str):
         ).fetchall():
             items.append((r["created_at"], "info", "ai", f'AI analysis · {r["status"]}',
                           f'by={r["requested_by"] or "-"} focus={r["focus_start"] or "-"}→{r["focus_end"] or "-"} {r["focus_note"] or ""}'))
+        lte_rows = conn.execute(
+            """SELECT captured_at,interface,operator,access_technology,band,ca_band,cell_id,enb_id,
+                      phy_cell_id,rsrp,rsrq,sinr,rssi
+               FROM router_lte_history WHERE router_id=? AND captured_at>=? AND captured_at<=?
+               ORDER BY id""",
+            (router_id,start,end),
+        ).fetchall()
+        previous_lte = None
+        for r in lte_rows:
+            changed = previous_lte is None or any(
+                r[k] != previous_lte[k] for k in ("band","ca_band","cell_id","operator","access_technology")
+            )
+            weak = (r["rsrp"] is not None and float(r["rsrp"]) <= -110) or (r["sinr"] is not None and float(r["sinr"]) < 0)
+            if changed or weak:
+                sev = "warning" if weak else "info"
+                summary = "LTE signal weak" if weak else "LTE serving cell / band changed"
+                detail = f'if={r["interface"]} operator={r["operator"] or "-"} access={r["access_technology"] or "-"} band={r["band"] or "-"} CA={r["ca_band"] or "-"} cell={r["cell_id"] or "-"} RSRP={r["rsrp"]} RSRQ={r["rsrq"]} SINR={r["sinr"]}'
+                items.append((r["captured_at"], sev, "lte", summary, detail))
+            previous_lte = r
         like_path = f"%/{router_id}%"
         for r in conn.execute(
             "SELECT event_at,actor,action,path,status_code,details FROM operator_audit_log WHERE event_at>=? AND event_at<=? AND path LIKE ?",
