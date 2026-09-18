@@ -1151,7 +1151,105 @@ def _m26(conn):
         conn.execute("ALTER TABLE retention_settings ADD COLUMN mtu_days INTEGER NOT NULL DEFAULT 365")
 
 
-MIGRATIONS = [_m1, _m2, _m3, _m4, _m5, _m6, _m7, _m8, _m9, _m10, _m11, _m12, _m13, _m14, _m15, _m16, _m17, _m18, _m19, _m20, _m21, _m22, _m23, _m24, _m25, _m26]
+def _m27(conn):
+    """Fleet/network intelligence: public-IP churn, identity collisions, LAN utilization, model capabilities and log patterns."""
+    conn.executescript("""
+    CREATE TABLE IF NOT EXISTS router_public_ip_analysis (
+        router_id INTEGER PRIMARY KEY,
+        assessed_at TEXT NOT NULL,
+        current_ip TEXT NOT NULL DEFAULT '',
+        unique_ips_30d INTEGER NOT NULL DEFAULT 0,
+        changes_7d INTEGER NOT NULL DEFAULT 0,
+        changes_30d INTEGER NOT NULL DEFAULT 0,
+        changes_90d INTEGER NOT NULL DEFAULT 0,
+        avg_days_between_changes REAL,
+        status TEXT NOT NULL DEFAULT 'stable',
+        summary TEXT NOT NULL DEFAULT '',
+        FOREIGN KEY(router_id) REFERENCES routers(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS router_identity_collisions (
+        identity TEXT PRIMARY KEY,
+        checked_at TEXT NOT NULL,
+        router_count INTEGER NOT NULL DEFAULT 0,
+        router_ids_json TEXT NOT NULL DEFAULT '[]',
+        status TEXT NOT NULL DEFAULT 'collision',
+        summary TEXT NOT NULL DEFAULT ''
+    );
+
+    CREATE TABLE IF NOT EXISTS router_local_utilization (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        router_id INTEGER NOT NULL,
+        captured_at TEXT NOT NULL,
+        confidence TEXT NOT NULL DEFAULT 'low',
+        wan_interfaces TEXT NOT NULL DEFAULT '',
+        lan_interfaces TEXT NOT NULL DEFAULT '',
+        estimated_rx_bps REAL,
+        estimated_tx_bps REAL,
+        estimated_total_bps REAL,
+        summary TEXT NOT NULL DEFAULT '',
+        FOREIGN KEY(router_id) REFERENCES routers(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_router_local_utilization_time
+      ON router_local_utilization(router_id,captured_at DESC,id DESC);
+
+    CREATE TABLE IF NOT EXISTS router_model_capability_observations (
+        router_id INTEGER PRIMARY KEY,
+        observed_at TEXT NOT NULL,
+        model TEXT NOT NULL DEFAULT '',
+        architecture TEXT NOT NULL DEFAULT '',
+        cpu TEXT NOT NULL DEFAULT '',
+        cpu_count INTEGER,
+        total_memory_bytes INTEGER,
+        total_storage_bytes INTEGER,
+        ethernet_ports INTEGER,
+        sfp_ports INTEGER,
+        lte_interfaces INTEGER,
+        wifi_interfaces INTEGER,
+        wireguard_interfaces INTEGER,
+        FOREIGN KEY(router_id) REFERENCES routers(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS router_model_capability_catalog (
+        model TEXT PRIMARY KEY,
+        updated_at TEXT NOT NULL,
+        observed_routers INTEGER NOT NULL DEFAULT 0,
+        architecture TEXT NOT NULL DEFAULT '',
+        cpu TEXT NOT NULL DEFAULT '',
+        max_cpu_count INTEGER,
+        max_memory_bytes INTEGER,
+        max_storage_bytes INTEGER,
+        max_ethernet_ports INTEGER,
+        max_sfp_ports INTEGER,
+        max_lte_interfaces INTEGER,
+        max_wifi_interfaces INTEGER,
+        wireguard_observed INTEGER NOT NULL DEFAULT 0
+    );
+
+    CREATE TABLE IF NOT EXISTS router_log_patterns (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        router_id INTEGER NOT NULL,
+        captured_at TEXT NOT NULL,
+        pattern_hash TEXT NOT NULL,
+        category TEXT NOT NULL DEFAULT 'other',
+        severity TEXT NOT NULL DEFAULT 'info',
+        normalized_pattern TEXT NOT NULL,
+        sample TEXT NOT NULL DEFAULT '',
+        occurrences INTEGER NOT NULL DEFAULT 1,
+        FOREIGN KEY(router_id) REFERENCES routers(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_router_log_patterns_router_time
+      ON router_log_patterns(router_id,captured_at DESC,id DESC);
+    CREATE INDEX IF NOT EXISTS idx_router_log_patterns_hash
+      ON router_log_patterns(router_id,pattern_hash,captured_at DESC);
+    """)
+    if not _has_column(conn,"retention_settings","local_utilization_days"):
+        conn.execute("ALTER TABLE retention_settings ADD COLUMN local_utilization_days INTEGER NOT NULL DEFAULT 180")
+    if not _has_column(conn,"retention_settings","log_pattern_days"):
+        conn.execute("ALTER TABLE retention_settings ADD COLUMN log_pattern_days INTEGER NOT NULL DEFAULT 180")
+
+
+MIGRATIONS = [_m1, _m2, _m3, _m4, _m5, _m6, _m7, _m8, _m9, _m10, _m11, _m12, _m13, _m14, _m15, _m16, _m17, _m18, _m19, _m20, _m21, _m22, _m23, _m24, _m25, _m26, _m27]
 
 
 def migrate() -> int:
