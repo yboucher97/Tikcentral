@@ -82,7 +82,7 @@ def page(title: str, body: str, user=None, active: str = "") -> HTMLResponse:
             email, role = "admin", "admin"
         links = []
         for key, href, label in NAV:
-            if role != "admin" and key in {"users", "settings"}:
+            if role != "admin" and key in {"users", "settings", "ssh"}:
                 continue
             cls = "active" if key == active else ""
             links.append(f'<a class="{cls}" href="{href}">{html.escape(label)}</a>')
