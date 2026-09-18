@@ -125,12 +125,15 @@ def register(app,page_func):
             page_count=conn.execute("PRAGMA page_count").fetchone()[0]
             page_size=conn.execute("PRAGMA page_size").fetchone()[0]
             freelist=conn.execute("PRAGMA freelist_count").fetchone()[0]
-        history="".join(
-            f'<tr><td>{html.escape(x["checked_at"])}</td><td>{html.escape(x["status"])}</td><td>{_human(x["total_sqlite_bytes"])}</td>'
-            f'<td>{_human(x["growth_bytes_per_day"]) if x["growth_bytes_per_day"] is not None else "—"}</td>'
-            f'<td>{f"{x["estimated_days_to_80_percent"]:.0f}" if x["estimated_days_to_80_percent"] is not None else "—"}</td>'
-            f'<td>{_human(x["filesystem_free_bytes"])}</td></tr>' for x in rows
-        ) or '<tr><td colspan="6">No history.</td></tr>'
+        history_parts=[]
+        for x in rows:
+            runway=f'{x["estimated_days_to_80_percent"]:.0f}' if x["estimated_days_to_80_percent"] is not None else "—"
+            growth=_human(x["growth_bytes_per_day"]) if x["growth_bytes_per_day"] is not None else "—"
+            history_parts.append(
+                f'<tr><td>{html.escape(x["checked_at"])}</td><td>{html.escape(x["status"])}</td><td>{_human(x["total_sqlite_bytes"])}</td>'
+                f'<td>{growth}</td><td>{runway}</td><td>{_human(x["filesystem_free_bytes"])}</td></tr>'
+            )
+        history="".join(history_parts) or '<tr><td colspan="6">No history.</td></tr>'
         body=f'''<div class="panel pad"><h2>Database / storage health</h2>
 <div><strong>{html.escape(current["status"])}</strong> · {html.escape(current["summary"])}</div>
 <div class="muted">Standard thresholds: warning at ≤20% filesystem free or ≤30 forecast days to 80% use; critical at ≤10% free or ≤7 days.</div></div>
