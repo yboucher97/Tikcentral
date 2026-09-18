@@ -4,11 +4,15 @@ import html
 import json
 from datetime import datetime, timedelta, timezone
 
-from app import main as core, migrations, settings
+from app import alert_queue, main as core, migrations, settings
 
 
 def render() -> str:
     migrations.migrate()
+    try:
+        alert_queue.sync()
+    except Exception:
+        pass
     now = datetime.now(timezone.utc)
     cutoff = (now - timedelta(hours=24)).isoformat()
     with core.db() as conn:
@@ -112,6 +116,14 @@ def render() -> str:
                ORDER BY d.failed DESC,d.warnings DESC LIMIT 30"""
         ).fetchall()
         sys = conn.execute("SELECT checked_at,overall_status,checks_json FROM system_health_history ORDER BY id DESC LIMIT 1").fetchone()
+        queue_counts = conn.execute(
+            """SELECT
+                 SUM(CASE WHEN status='new' THEN 1 ELSE 0 END) new_count,
+                 SUM(CASE WHEN status='acknowledged' THEN 1 ELSE 0 END) acknowledged_count,
+                 SUM(CASE WHEN status='assigned' THEN 1 ELSE 0 END) assigned_count,
+                 SUM(CASE WHEN status='investigating' THEN 1 ELSE 0 END) investigating_count
+               FROM alert_queue WHERE status<>'resolved'"""
+        ).fetchone()
 
     items = []
     for r in stale:
@@ -170,11 +182,13 @@ def render() -> str:
     if sys and sys["overall_status"] != "ok":
         items.append(("critical", "Tikcentral", f'System self-health: {sys["overall_status"]}', "/system-health"))
 
+    queue_total=sum(int(queue_counts[k] or 0) for k in ("new_count","acknowledged_count","assigned_count","investigating_count")) if queue_counts else 0
+    queue_banner=f'<div class="panel pad"><h2>Alert workflow</h2><div><strong>{queue_total} open alert(s)</strong> · {int(queue_counts["new_count"] or 0) if queue_counts else 0} new · {int(queue_counts["assigned_count"] or 0) if queue_counts else 0} assigned · {int(queue_counts["investigating_count"] or 0) if queue_counts else 0} investigating</div><div style="margin-top:10px"><a href="/alerts"><button class="primary">Open alert queue</button></a></div></div>'
     if not items:
-        return '<div class="panel pad"><h2>Attention</h2><div class="muted">No current fleet items require attention.</div></div>'
+        return queue_banner+'<div class="panel pad"><h2>Attention</h2><div class="muted">No current fleet items require attention.</div></div>'
     rows = "".join(
         f'<tr><td><span class="tc-status {"bad" if sev=="critical" else "warn"}"><span class="tc-status-dot"></span>{html.escape(sev.title())}</span></td>'
         f'<td><strong>{html.escape(site)}</strong></td><td>{html.escape(msg)}</td><td><a href="{html.escape(link)}">Open</a></td></tr>'
         for sev,site,msg,link in items[:50]
     )
-    return f'<div class="panel"><div class="pad"><h2>Attention</h2><div class="muted">Only actionable reliability, backup, drift, reboot, resource and Tikcentral self-health items.</div></div><table><thead><tr><th>Level</th><th>Site</th><th>Issue</th><th></th></tr></thead><tbody>{rows}</tbody></table></div>'
+    return queue_banner+f'<div class="panel"><div class="pad"><h2>Attention</h2><div class="muted">Actionable fleet findings remain visible here; acknowledge, assign and resolve persistent events in the alert queue.</div></div><table><thead><tr><th>Level</th><th>Site</th><th>Issue</th><th></th></tr></thead><tbody>{rows}</tbody></table></div>'
