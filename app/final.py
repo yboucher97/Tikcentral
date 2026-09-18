@@ -34,6 +34,7 @@ from app import reliability
 from app import role_access
 from app import router_exec
 from app import system_health
+from app import troubleshooting
 from app import ui
 
 app = core.app
@@ -180,6 +181,7 @@ operator_audit.register(app, ui.page)
 changes.register(app, ui.page)
 enrollment.register(app, ui.page)
 ai_analysis.register(app, ui.page)
+troubleshooting.register(app, ui.page)
 operator_audit.install_middleware(app)
 change_preview.install_middleware(app)
 role_access.install_middleware(app)
