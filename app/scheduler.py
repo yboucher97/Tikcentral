@@ -7,7 +7,7 @@ next timer tick.
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from app import alert_queue, automation_inventory, capacity_forecast, certificate_monitor, compliance, desired_state, errors, events, fleet_health, interface_monitor, ip_enrichment, jobs, lte_monitor, main as core, maintenance_automation, operations, outage_classifier, security_audit, settings, state_capture, system_health, topology, traffic_monitor, upgrade_campaigns, wan_probe
+from app import alert_queue, automation_inventory, capacity_forecast, certificate_monitor, compliance, database_health, desired_state, errors, events, fleet_health, interface_monitor, ip_enrichment, jobs, lte_monitor, main as core, maintenance_automation, operations, outage_classifier, security_audit, settings, state_capture, system_health, topology, traffic_monitor, upgrade_campaigns, wan_probe
 
 
 def _eligible_healthy_router_ids() -> list[int]:
@@ -149,5 +149,6 @@ def scheduled_tick():
     _optional("public_ip_enrichment", ip_enrichment.refresh_all)
     _optional("outage_classification", outage_classifier.assess_all)
     _optional("fleet_health", fleet_health.counts)
+    _optional("database_health", database_health.collect)
     _optional("system_health", system_health.scheduled_tick)
     _optional("event_maintenance", events.maintenance)
