@@ -7,7 +7,7 @@ next timer tick.
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from app import automation_inventory, capacity_forecast, certificate_monitor, compliance, errors, events, fleet_health, interface_monitor, ip_enrichment, jobs, lte_monitor, main as core, operations, outage_classifier, security_audit, settings, state_capture, system_health, traffic_monitor, upgrade_campaigns
+from app import automation_inventory, capacity_forecast, certificate_monitor, compliance, desired_state, errors, events, fleet_health, interface_monitor, ip_enrichment, jobs, lte_monitor, main as core, operations, outage_classifier, security_audit, settings, state_capture, system_health, topology, traffic_monitor, upgrade_campaigns, wan_probe
 
 
 def _eligible_healthy_router_ids() -> list[int]:
@@ -59,7 +59,7 @@ def _change_lane():
 
 def _collect_router_observability(router_id: int):
     """Collect optional router state without allowing one probe family to hide another."""
-    result = {"telemetry": None, "wan": None, "known_good": None, "compliance": None, "lte": None, "interfaces": None, "certificates": None, "security": None, "automation": None, "traffic": None, "errors": []}
+    result = {"telemetry": None, "wan": None, "known_good": None, "compliance": None, "lte": None, "interfaces": None, "certificates": None, "security": None, "automation": None, "traffic": None, "topology": None, "wan_probe": None, "desired_state": None, "errors": []}
     for key, fn in (
         ("telemetry", lambda: operations.collect_telemetry(router_id, False)),
         ("wan", lambda: state_capture.collect_wan_state(router_id)),
@@ -71,6 +71,9 @@ def _collect_router_observability(router_id: int):
         ("security", lambda: security_audit.collect(router_id)),
         ("automation", lambda: automation_inventory.collect(router_id)),
         ("traffic", lambda: traffic_monitor.collect(router_id)),
+        ("topology", lambda: topology.collect(router_id)),
+        ("wan_probe", lambda: wan_probe.collect(router_id)),
+        ("desired_state", lambda: desired_state.check(router_id)),
     ):
         try:
             result[key] = fn()
