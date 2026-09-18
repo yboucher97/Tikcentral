@@ -62,14 +62,19 @@ def collect(router_id:int):
     if not r or not r["enabled"] or (r["lifecycle_state"] or "production")=="retired": return None
 
     raw={}
+    errors_by_key={}
     for key,cmd in COMMANDS:
         try: raw[key]=router_exec.read(r["vpn_ip"],cmd,timeout=30,label=f"Security audit: {key}")
-        except Exception as exc: raw[key]=f"ERROR: {exc}"
+        except Exception as exc:
+            raw[key]=""
+            errors_by_key[key]=str(exc)
 
     findings=[]
     def add(title,status,evidence):
         findings.append({"title":title,"status":status,"evidence":evidence})
 
+    if "services" in errors_by_key:
+        add("IP service inventory unavailable","warning",errors_by_key["services"][:300])
     services=_parse_rows(raw["services"])
     for s in services:
         name=s.get("name","")
@@ -88,19 +93,31 @@ def collect(router_id:int):
             add(f"IP service {name} enabled with non-Tikcentral restriction","warning",f"address={address}")
 
     for key,label in (("mac_server","MAC server"),("mac_winbox","MAC WinBox")):
+        if key in errors_by_key:
+            add(f"{label} audit unavailable","warning",errors_by_key[key][:300])
+            continue
         kv=_kv(raw[key]); allowed=kv.get("allowed-interface-list","")
         if allowed.lower() in {"none","!none"}:
             add(f"{label} disabled/restricted","pass",f"allowed-interface-list={allowed}")
         else:
             add(f"{label} review","warning",f"allowed-interface-list={allowed or 'unknown'}")
 
-    kv=_kv(raw["neighbor"]); discover=kv.get("discover-interface-list","")
-    add("Neighbor discovery interface scope","pass" if discover.lower() in {"none","!none"} else "warning",f"discover-interface-list={discover or 'unknown'}")
+    if "neighbor" in errors_by_key:
+        add("Neighbor discovery audit unavailable","warning",errors_by_key["neighbor"][:300])
+    else:
+        kv=_kv(raw["neighbor"]); discover=kv.get("discover-interface-list","")
+        add("Neighbor discovery interface scope","pass" if discover.lower() in {"none","!none"} else "warning",f"discover-interface-list={discover or 'unknown'}")
 
-    kv=_kv(raw["bandwidth"]); enabled=_yes(kv.get("enabled"))
-    add("Bandwidth server","warning" if enabled else "pass",f"enabled={kv.get('enabled','unknown')}")
+    if "bandwidth" in errors_by_key:
+        add("Bandwidth server audit unavailable","warning",errors_by_key["bandwidth"][:300])
+    else:
+        kv=_kv(raw["bandwidth"]); enabled=_yes(kv.get("enabled"))
+        add("Bandwidth server","warning" if enabled else "pass",f"enabled={kv.get('enabled','unknown')}")
 
     for key,label in (("socks","SOCKS proxy"),("proxy","Web proxy"),("snmp","SNMP")):
+        if key in errors_by_key:
+            add(f"{label} audit unavailable","warning",errors_by_key[key][:300])
+            continue
         kv=_kv(raw[key]); enabled=_yes(kv.get("enabled"))
         add(label,"warning" if enabled else "pass",f"enabled={kv.get('enabled','unknown')}")
 
