@@ -1,7 +1,7 @@
 """Estimate LAN-side traffic using known WAN and topology-facing interfaces."""
 
 import html
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from fastapi import Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from app import main as core, migrations, router_exec
@@ -67,6 +67,11 @@ def register(app,page_func):
         with core.db() as conn:
             r=conn.execute("SELECT site_name FROM routers WHERE id=?",(router_id,)).fetchone()
             x=conn.execute("SELECT * FROM router_local_utilization WHERE router_id=? ORDER BY id DESC LIMIT 1",(router_id,)).fetchone()
+            cutoff=(datetime.now(timezone.utc)-timedelta(hours=24)).isoformat()
+            hist=conn.execute("SELECT estimated_total_bps FROM router_local_utilization WHERE router_id=? AND captured_at>=? ORDER BY id",(router_id,cutoff)).fetchall()
+        vals=[float(v["estimated_total_bps"] or 0) for v in hist]
+        avg24=sum(vals)/len(vals) if vals else 0
+        peak24=max(vals) if vals else 0
         if not r:return RedirectResponse("/operations",303)
         body=f'''<div class="panel pad"><h2>Local network utilization · {html.escape(r["site_name"])}</h2>
 <div><strong>{html.escape(x["confidence"] if x else "unknown")} confidence</strong> · {html.escape(x["summary"] if x else "No estimate yet")}</div>
@@ -74,5 +79,7 @@ def register(app,page_func):
 <div class="cards"><div class="card"><h3>Estimated RX</h3><div class="value">{((x["estimated_rx_bps"] or 0)/1e6 if x else 0):.2f} Mbps</div></div>
 <div class="card"><h3>Estimated TX</h3><div class="value">{((x["estimated_tx_bps"] or 0)/1e6 if x else 0):.2f} Mbps</div></div>
 <div class="card"><h3>LAN interfaces</h3><div>{html.escape(x["lan_interfaces"] if x else "-")}</div></div>
-<div class="card"><h3>WAN excluded</h3><div>{html.escape(x["wan_interfaces"] if x else "-")}</div></div></div>'''
+<div class="card"><h3>WAN excluded</h3><div>{html.escape(x["wan_interfaces"] if x else "-")}</div></div>
+<div class="card"><h3>24h average</h3><div class="value">{avg24/1e6:.2f} Mbps</div></div>
+<div class="card"><h3>24h peak</h3><div class="value">{peak24/1e6:.2f} Mbps</div></div></div>'''
         return page_func("Local Utilization",body,user,"operations")
