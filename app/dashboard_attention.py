@@ -27,11 +27,11 @@ def render() -> str:
         ).fetchall()
         alerts = conn.execute(
             """SELECT r.id,r.site_name,x.metric,x.last_value FROM router_resource_alerts x
-               JOIN routers r ON r.id=x.router_id WHERE x.active=1 ORDER BY x.last_seen_at DESC LIMIT 25"""
+               JOIN routers r ON r.id=x.router_id WHERE x.active=1 AND COALESCE(r.lifecycle_state,'production')<>'retired' ORDER BY x.last_seen_at DESC LIMIT 25"""
         ).fetchall()
         reboots = conn.execute(
             """SELECT r.id,r.site_name,e.event_at,e.summary FROM router_events e
-               JOIN routers r ON r.id=e.router_id WHERE e.category='reboot' AND e.event_at>=?
+               JOIN routers r ON r.id=e.router_id WHERE COALESCE(r.lifecycle_state,'production') NOT IN ('retired','maintenance') AND e.category='reboot' AND e.event_at>=?
                ORDER BY e.id DESC LIMIT 20""", (cutoff,)
         ).fetchall()
         failed = conn.execute(
@@ -42,7 +42,7 @@ def render() -> str:
         ).fetchall()
         flaps = conn.execute(
             """SELECT r.id,r.site_name,s.last_flap_count FROM router_access_alert_state s
-               JOIN routers r ON r.id=s.router_id WHERE s.last_flap_count>=?
+               JOIN routers r ON r.id=s.router_id WHERE COALESCE(r.lifecycle_state,'production') NOT IN ('retired','maintenance') AND s.last_flap_count>=?
                ORDER BY s.last_flap_count DESC LIMIT 20""", (settings.GUARDIAN_FLAP_THRESHOLD,)
         ).fetchall()
         compliance = conn.execute(
