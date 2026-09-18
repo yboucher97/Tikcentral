@@ -111,9 +111,14 @@ def collect(router_id:int):
 
         if any(x[0]=="critical" for x in findings):status="critical"
         elif findings:status="warning"
-        elif drift is not None and enabled!=0:status="ok"
+        elif drift is not None and enabled==1:status="ok"
         else:status="unknown"
-        summary="; ".join(x[1] for x in findings) if findings else "Clock/NTP health is within the standard"
+        if findings:
+            summary="; ".join(x[1] for x in findings)
+        elif status=="ok":
+            summary="Clock/NTP health is within the standard"
+        else:
+            summary="Clock is readable but NTP synchronization state is not confirmed"
         details={
             "expected_timezone":settings.TIMEZONE,
             "drift_warn_seconds":DRIFT_WARN_SECONDS,
