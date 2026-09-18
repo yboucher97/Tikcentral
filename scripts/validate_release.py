@@ -88,6 +88,9 @@ REQUIRED_ROUTES = {
     ("GET", "/hardware/{router_id}"), ("POST", "/hardware/{router_id}"),
     ("POST", "/hardware/{router_id}/{item_id}/status"),
     ("GET", "/certificates/{router_id}"),
+    ("GET", "/security-audit/{router_id}"),
+    ("GET", "/automation-inventory/{router_id}"),
+    ("GET", "/traffic/{router_id}"),
 }
 
 FORBIDDEN_FILES = {
@@ -173,6 +176,9 @@ def validate_routes():
         ("POST", "/hardware/{router_id}"): "app.hardware_inventory",
         ("POST", "/hardware/{router_id}/{item_id}/status"): "app.hardware_inventory",
         ("GET", "/certificates/{router_id}"): "app.certificate_monitor",
+        ("GET", "/security-audit/{router_id}"): "app.security_audit",
+        ("GET", "/automation-inventory/{router_id}"): "app.automation_inventory",
+        ("GET", "/traffic/{router_id}"): "app.traffic_monitor",
     }
     for path in (
         "/operations/{router_id}/telemetry", "/operations/{router_id}/commission",
@@ -405,6 +411,22 @@ def validate_source_boundaries():
     scheduler_cert = (ROOT / "app/scheduler.py").read_text(encoding="utf-8")
     if "certificate_monitor.collect" not in scheduler_cert:
         fail("Certificate inventory is not scheduled")
+    security_text = (ROOT / "app/security_audit.py").read_text(encoding="utf-8")
+    for marker in ("router_security_audit", "IP service", "MAC WinBox", "Bandwidth server", "SOCKS proxy", "SNMP"):
+        if marker not in security_text:
+            fail(f"Security exposure audit missing: {marker}")
+    automation_inv_text = (ROOT / "app/automation_inventory.py").read_text(encoding="utf-8")
+    for marker in ("router_automation_inventory", "system script", "system scheduler", "tool netwatch", "Script bodies", "managed"):
+        if marker not in automation_inv_text:
+            fail(f"RouterOS automation inventory missing: {marker}")
+    traffic_text = (ROOT / "app/traffic_monitor.py").read_text(encoding="utf-8")
+    for marker in ("router_traffic_history", "95th", "rx_bps", "tx_bps", "Traffic surge", "counter resets"):
+        if marker not in traffic_text:
+            fail(f"Traffic history feature missing: {marker}")
+    scheduler_security = (ROOT / "app/scheduler.py").read_text(encoding="utf-8")
+    for marker in ("security_audit.collect", "automation_inventory.collect", "traffic_monitor.collect"):
+        if marker not in scheduler_security:
+            fail(f"Scheduled security/traffic observability missing: {marker}")
     resource_text = (ROOT / "app/resource_monitor.py").read_text(encoding="utf-8")
     for marker in ("_uptime_seconds", "_memory_bytes", "_record_reboot", "RESOURCE_CPU_WARN", "Unexpected router reboot detected"):
         if marker not in resource_text:
@@ -505,6 +527,7 @@ def validate_persistence_and_jobs():
         "router_object_protection",
         "router_maintenance_history", "upgrade_campaigns", "upgrade_campaign_members",
         "planned_changes", "hardware_inventory", "router_certificates",
+        "router_security_audit", "router_automation_inventory", "router_traffic_history",
     }
     with sqlite3.connect(settings.DB_PATH) as conn:
         version = conn.execute("SELECT MAX(version) FROM schema_version").fetchone()[0]
