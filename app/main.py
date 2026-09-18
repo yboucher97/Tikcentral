@@ -351,6 +351,7 @@ def dashboard(request: Request):
         access_rows = conn.execute(
             "SELECT id,ip_address,label,always_allow,expires_at FROM authorized_ips ORDER BY always_allow DESC,ip_address"
         ).fetchall()
+    from app import ip_enrichment
     router_rows = []
     for row in rows:
         live = peers.get(row["public_key"], {})
@@ -360,11 +361,17 @@ def dashboard(request: Request):
         last_seen = datetime.fromtimestamp(latest, timezone.utc).strftime("%Y-%m-%d %H:%M:%S") if latest else "Never"
         remote_winbox = f'{PUBLIC_HOSTNAME}:{row["public_winbox_port"]}'
         direct_winbox = f'{row["vpn_ip"]}:8291'
+        enrichment = ip_enrichment.current_for_router(row["id"])
+        isp = enrichment["isp"] if enrichment and enrichment["isp"] else "-"
+        asn = enrichment["asn"] if enrichment and enrichment["asn"] else "-"
+        location = ""
+        if enrichment:
+            location = ", ".join(x for x in (enrichment["city"], enrichment["region"], enrichment["country"]) if x)
         router_rows.append(
-            f'''<tr><td><span class="dot {'online' if online else 'offline'}"></span>{'Online' if online else 'Offline'}</td><td>{html.escape(row['identity'] or '-')}</td><td>{html.escape(row['model'] or '-')}</td><td>{html.escape(row['serial'] or '-')}</td><td>{html.escape(row['routeros_version'] or '-')}</td><td>{html.escape(row['routerboot_version'] or '-')}</td><td><code>{html.escape(public_ip)}</code></td><td><code>{html.escape(row['vpn_ip'])}</code></td><td><code>{html.escape(remote_winbox)}</code></td><td><code>{html.escape(direct_winbox)}</code></td><td class="muted">{html.escape(last_seen)}</td></tr>'''
+            f'''<tr><td><span class="dot {'online' if online else 'offline'}"></span>{'Online' if online else 'Offline'}</td><td>{html.escape(row['identity'] or '-')}</td><td>{html.escape(row['model'] or '-')}</td><td>{html.escape(row['serial'] or '-')}</td><td>{html.escape(row['routeros_version'] or '-')}</td><td>{html.escape(row['routerboot_version'] or '-')}</td><td><code>{html.escape(public_ip)}</code></td><td>{html.escape(isp)}<div class="muted">{html.escape(asn)}{(' · '+html.escape(location)) if location else ''}</div></td><td><code>{html.escape(row['vpn_ip'])}</code></td><td><code>{html.escape(remote_winbox)}</code></td><td><code>{html.escape(direct_winbox)}</code></td><td class="muted">{html.escape(last_seen)}</td><td><a href="/timeline/{row['id']}">Timeline</a></td></tr>'''
         )
     if not router_rows:
-        router_rows.append('<tr><td colspan="11" class="muted">No MikroTik routers enrolled yet.</td></tr>')
+        router_rows.append('<tr><td colspan="13" class="muted">No MikroTik routers enrolled yet.</td></tr>')
 
     access_html = []
     for item in access_rows:
@@ -383,7 +390,7 @@ def dashboard(request: Request):
 
     from app import dashboard_attention
     attention_html = dashboard_attention.render()
-    body = f'''{attention_html}<div class="panel pad"><div class="inline" style="justify-content:space-between"><div><h2>Remote WinBox access</h2><div>Your current public IP: <code>{html.escape(current_ip or 'Unknown')}</code></div><div class="muted">Temporary authorization lasts {TEMP_ACCESS_DAYS} days.</div></div><form method="post" action="/dashboard/access/current"><input type="hidden" name="csrf" value="{csrf}"><button class="primary">Authorize my current IP for {TEMP_ACCESS_DAYS} days</button></form></div></div><div class="panel"><table><thead><tr><th>Status</th><th>Identity</th><th>Model</th><th>Serial</th><th>RouterOS</th><th>RouterBOOT</th><th>Public IP</th><th>VPN IP</th><th>Remote WinBox</th><th>VPN WinBox</th><th>Last handshake UTC</th></tr></thead><tbody>{''.join(router_rows)}</tbody></table></div><div class="panel pad"><h2>Always Authorized IPs</h2><form class="inline" method="post" action="/dashboard/access/always"><input type="hidden" name="csrf" value="{csrf}"><input name="ip_address" placeholder="203.0.113.10" required><input name="label" placeholder="Office / Home / Technician"><button>Add</button></form></div><div class="panel"><table><thead><tr><th>IP address</th><th>Label</th><th>Type</th><th>Expires</th><th></th></tr></thead><tbody>{''.join(access_html)}</tbody></table></div>'''
+    body = f'''{attention_html}<div class="panel pad"><div class="inline" style="justify-content:space-between"><div><h2>Remote WinBox access</h2><div>Your current public IP: <code>{html.escape(current_ip or 'Unknown')}</code></div><div class="muted">Temporary authorization lasts {TEMP_ACCESS_DAYS} days.</div></div><form method="post" action="/dashboard/access/current"><input type="hidden" name="csrf" value="{csrf}"><button class="primary">Authorize my current IP for {TEMP_ACCESS_DAYS} days</button></form></div></div><div class="panel"><table><thead><tr><th>Status</th><th>Identity</th><th>Model</th><th>Serial</th><th>RouterOS</th><th>RouterBOOT</th><th>Public IP</th><th>ISP / ASN</th><th>VPN IP</th><th>Remote WinBox</th><th>VPN WinBox</th><th>Last handshake UTC</th><th>Troubleshooting</th></tr></thead><tbody>{''.join(router_rows)}</tbody></table></div><div class="panel pad"><h2>Always Authorized IPs</h2><form class="inline" method="post" action="/dashboard/access/always"><input type="hidden" name="csrf" value="{csrf}"><input name="ip_address" placeholder="203.0.113.10" required><input name="label" placeholder="Office / Home / Technician"><button>Add</button></form></div><div class="panel"><table><thead><tr><th>IP address</th><th>Label</th><th>Type</th><th>Expires</th><th></th></tr></thead><tbody>{''.join(access_html)}</tbody></table></div>'''
     return page("Dashboard", body, user, "dashboard")
 
 
