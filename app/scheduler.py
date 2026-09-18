@@ -7,7 +7,7 @@ next timer tick.
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from app import alert_queue, automation_inventory, capacity_forecast, certificate_monitor, commissioning_checklist, compliance, database_health, desired_state, errors, events, fleet_health, interface_monitor, ip_enrichment, jobs, lte_monitor, main as core, maintenance_automation, operations, outage_classifier, retention_policy, security_audit, settings, state_capture, system_health, topology, traffic_monitor, upgrade_campaigns, wan_probe
+from app import alert_queue, automation_inventory, capacity_forecast, certificate_monitor, commissioning_checklist, compliance, database_health, desired_state, errors, events, fleet_health, interface_monitor, ip_enrichment, jobs, lte_monitor, main as core, maintenance_automation, mtu_diagnostics, operations, outage_classifier, retention_policy, security_audit, settings, state_capture, system_health, time_health, topology, traffic_monitor, upgrade_campaigns, wan_probe
 
 
 def _eligible_healthy_router_ids() -> list[int]:
@@ -59,7 +59,7 @@ def _change_lane():
 
 def _collect_router_observability(router_id: int):
     """Collect optional router state without allowing one probe family to hide another."""
-    result = {"telemetry": None, "wan": None, "known_good": None, "compliance": None, "lte": None, "interfaces": None, "certificates": None, "security": None, "automation": None, "traffic": None, "topology": None, "wan_probe": None, "desired_state": None, "errors": []}
+    result = {"telemetry": None, "wan": None, "known_good": None, "compliance": None, "lte": None, "interfaces": None, "certificates": None, "security": None, "automation": None, "traffic": None, "topology": None, "wan_probe": None, "desired_state": None, "time_health": None, "mtu": None, "errors": []}
     for key, fn in (
         ("telemetry", lambda: operations.collect_telemetry(router_id, False)),
         ("wan", lambda: state_capture.collect_wan_state(router_id)),
@@ -74,6 +74,8 @@ def _collect_router_observability(router_id: int):
         ("topology", lambda: topology.collect(router_id)),
         ("wan_probe", lambda: wan_probe.collect(router_id)),
         ("desired_state", lambda: desired_state.check(router_id)),
+        ("time_health", lambda: time_health.collect(router_id)),
+        ("mtu", lambda: mtu_diagnostics.collect(router_id)),
     ):
         try:
             result[key] = fn()
