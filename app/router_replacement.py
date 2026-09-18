@@ -54,7 +54,25 @@ def execute(replacement_id:int,actor:str):
                     (dst["id"],r["object_type"],r["selector"],r["ownership"],r["protected"],r["notes"],actor,now,now),
                 )
         if rep["move_hardware"]:
-            conn.execute("UPDATE hardware_inventory SET router_id=?,updated_at=? WHERE router_id=? AND status<>'retired'",(dst["id"],now,src["id"]))
+            conn.execute(
+                "UPDATE hardware_inventory SET status='retired',updated_at=? WHERE router_id=? AND category='router' AND status<>'retired'",
+                (now,src["id"]),
+            )
+            conn.execute(
+                "UPDATE hardware_inventory SET router_id=?,updated_at=? WHERE router_id=? AND category<>'router' AND status<>'retired'",
+                (dst["id"],now,src["id"]),
+            )
+            existing_router=conn.execute(
+                "SELECT id FROM hardware_inventory WHERE router_id=? AND category='router' AND status<>'retired' LIMIT 1",
+                (dst["id"],),
+            ).fetchone()
+            if not existing_router:
+                conn.execute(
+                    """INSERT INTO hardware_inventory
+                       (router_id,category,manufacturer,model,serial,asset_tag,location,installed_at,warranty_until,status,notes,created_by,created_at,updated_at)
+                       VALUES(?,'router','MikroTik',?,?,?,'','', '','installed','Replacement router','router-replacement',?,?)""",
+                    (dst["id"],dst["model"] or "",dst["serial"] or "",f"router-{dst['id']}",now,now),
+                )
         if rep["move_future_changes"]:
             conn.execute("UPDATE planned_changes SET router_id=? WHERE router_id=? AND status IN ('planned','in_progress')",(dst["id"],src["id"]))
 
