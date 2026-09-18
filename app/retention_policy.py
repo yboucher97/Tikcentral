@@ -113,12 +113,12 @@ def register(app,page_func):
         )
         runs="".join(f'<tr><td>{html.escape(x["ran_at"])}</td><td>{x["deleted_rows"]}</td></tr>' for x in recent) or '<tr><td colspan="2">No cleanup runs yet.</td></tr>'
         body=f'''<div class="panel pad"><h2>Retention policy</h2>
-<div class="muted">0 days means keep forever. Configuration snapshots default to forever. Cleanup runs at most once per day.</div>
+<div class="muted">0 days means keep forever. Configuration snapshots default to forever. Cleanup runs at most once per day. Saving applies the new cleanup policy immediately.</div>
 <div style="margin-top:8px"><strong>Currently eligible rows:</strong> {sum(x[4] for x in stats)} · <strong>rough possible DB reclaim:</strong> {_human(rough)}</div>
 <div class="muted">The reclaim estimate is intentionally rough because SQLite pages are shared and VACUUM is not run automatically.</div></div>
 <form id="retention-form" method="post" action="/retention"><input type="hidden" name="csrf" value="{csrf}"></form>
 <div class="panel"><table><thead><tr><th>Data</th><th>Keep days</th><th>Current rows</th><th>Eligible now</th></tr></thead><tbody>{rows}</tbody></table>
-<div class="pad"><button form="retention-form" class="primary">Save retention policy</button></div></div>
+<div class="pad"><button form="retention-form" class="primary" onclick="return confirm('Save this retention policy and immediately delete data older than the selected limits?')">Save retention policy</button></div></div>
 <div class="panel"><div class="pad"><h3>Cleanup history</h3></div><table><thead><tr><th>Run</th><th>Deleted rows</th></tr></thead><tbody>{runs}</tbody></table></div>'''
         return page_func("Retention Policy",body,user,"retention")
 
