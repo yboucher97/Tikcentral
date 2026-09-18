@@ -45,10 +45,12 @@ def collect(router_id:int):
         r=conn.execute("SELECT id,site_name,vpn_ip,enabled,lifecycle_state FROM routers WHERE id=?",(router_id,)).fetchone()
     if not r or not r["enabled"] or (r["lifecycle_state"] or "production")=="retired": return []
 
-    captured=_now(); items=[]
+    captured=_now(); items=[]; failures=[]
     for typ,cmd in COMMANDS.items():
         try: rows=_parse(router_exec.read(r["vpn_ip"],cmd,timeout=40,label=f"Automation inventory: {typ}"))
-        except Exception: rows=[]
+        except Exception as exc:
+            failures.append(f"{typ}: {exc}")
+            continue
         for x in rows:
             name=x.get("name") or x.get("host") or x.get("comment") or "(unnamed)"
             comment=x.get("comment","")
@@ -59,6 +61,8 @@ def collect(router_id:int):
             fp=hashlib.sha256(json.dumps(metadata,sort_keys=True).encode()).hexdigest()
             items.append((typ,name,enabled,_managed(name,comment),schedule,target,json.dumps(metadata,ensure_ascii=False),fp))
 
+    if failures:
+        raise RuntimeError("automation inventory incomplete: " + "; ".join(failures))
     overall_fp=hashlib.sha256(json.dumps([(x[0],x[1],x[2],x[3],x[7]) for x in items],sort_keys=True).encode()).hexdigest()
     with core.db() as conn:
         prev=conn.execute(
