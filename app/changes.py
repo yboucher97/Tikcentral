@@ -184,7 +184,7 @@ def register(app, page_func):
         rendered_diff = _render_diff(diff_text)
         body = f'''<div class="panel pad"><h2>{html.escape(router['site_name'])}</h2><div class="muted">{html.escape(router['model'] or '')} · <code>{html.escape(router['vpn_ip'])}</code></div><div style="margin-top:12px">{selector}</div></div>
 <div class="panel pad"><h2>Configuration diff</h2>
-<div class="inline" style="margin-bottom:10px"><span class="tc-status ok">+{added} added</span><span class="tc-status bad">-{removed} removed</span><button type="button" onclick="navigator.clipboard.writeText(document.getElementById('config-diff').innerText)">Copy diff</button><a href="/reliability/{router_id}/support"><button>Download support package</button></a></div>
+<div class="inline" style="margin-bottom:10px"><span class="tc-status ok">+{added} added</span><span class="tc-status bad">-{removed} removed</span><button type="button" onclick="tcCopy(document.getElementById('config-diff'),this)">Copy diff</button><a href="/reliability/{router_id}/support"><button>Download support package</button></a></div>
 <div id="config-diff" class="tc-diff" style="max-height:62vh;overflow:auto;border:1px solid var(--line);border-radius:8px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;user-select:text">{rendered_diff}</div></div>
 <div class="panel pad"><h2>Change attribution</h2>{attribution}</div>
 <div class="panel"><table><thead><tr><th>Snapshot</th><th>Captured</th><th>Hash</th><th>Source</th><th>Actor</th><th></th></tr></thead><tbody>{history}</tbody></table></div>'''
