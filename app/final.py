@@ -20,6 +20,7 @@ from app import change_calendar
 from app import capacity_forecast
 from app import certificate_monitor
 from app import compliance
+from app import commissioning_checklist
 from app import change_control
 from app import change_preview
 from app import enrollment
@@ -48,7 +49,9 @@ from app import database_health
 from app import desired_state
 from app import customer_overview
 from app import customer_reports
+from app import config_search
 from app import rescue
+from app import retention_policy
 from app import router_replacement
 from app import security_audit
 from app import recovery_browser
@@ -218,6 +221,9 @@ operator_notes.register(app, ui.page)
 alert_queue.register(app, ui.page)
 customer_reports.register(app, ui.page)
 customer_overview.register(app, ui.page)
+config_search.register(app, ui.page)
+retention_policy.register(app, ui.page)
+commissioning_checklist.register(app, ui.page)
 database_health.register(app, ui.page)
 security_audit.register(app, ui.page)
 automation_inventory.register(app, ui.page)
