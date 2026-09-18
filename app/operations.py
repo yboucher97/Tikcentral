@@ -781,6 +781,11 @@ def register(app, page_func):
                 "SELECT interface,rx_bps,tx_bps,captured_at FROM router_traffic_history WHERE router_id=? AND rx_bps IS NOT NULL ORDER BY id DESC LIMIT 1",
                 (router_id,),
             ).fetchone()
+            capacity_row = conn.execute("SELECT * FROM router_capacity_forecast WHERE router_id=?", (router_id,)).fetchone()
+            recent_notes = conn.execute(
+                "SELECT * FROM operator_notes WHERE router_id=? ORDER BY id DESC LIMIT 8",
+                (router_id,),
+            ).fetchall()
         recent_jobs = jobs.latest(router_id, 15)
         txs = change_control.latest(router_id, 15)
         tx_by_job = {int(t["job_id"]): t for t in txs if t["job_id"] is not None}
@@ -805,7 +810,8 @@ def register(app, page_func):
         for j in recent_jobs:
             tx = tx_by_job.get(int(j["id"]))
             transcript = f'<div><a href="/reliability#tx-{tx["id"]}">Transaction #{tx["id"]}</a></div>' if tx else ""
-            job_rows_parts.append(f"<tr><td>{html.escape(j['created_at'])}</td><td>{html.escape(j['kind'])}{transcript}</td><td>{html.escape(j['status'])}</td><td>{html.escape(j['target'] or '-')}</td><td>{html.escape(j['error_code'] or '')} {html.escape(j['error_message'] or '')}</td></tr>")
+            note_link = f'<div><a href="/notes/{router_id}?type=job&id={j["id"]}">Add note</a></div>'
+            job_rows_parts.append(f"<tr><td>{html.escape(j['created_at'])}</td><td>{html.escape(j['kind'])}{transcript}{note_link}</td><td>{html.escape(j['status'])}</td><td>{html.escape(j['target'] or '-')}</td><td>{html.escape(j['error_code'] or '')} {html.escape(j['error_message'] or '')}</td></tr>")
         job_rows = ''.join(job_rows_parts) or '<tr><td colspan="5">No jobs.</td></tr>'
         event_rows = ''.join(f"<tr><td>{html.escape(e['event_at'])}</td><td>{html.escape(e['severity'])}</td><td>{html.escape(e['category'])}</td><td>{html.escape(e['summary'])}<div class=\"muted\">{html.escape((e['details'] or '')[-600:])}</div></td></tr>" for e in evs) or '<tr><td colspan="4">No events.</td></tr>'
         compliance_text = "Not checked" if not compliance_row else f'{compliance_row["status"]} · {compliance_row["passed"]} pass / {compliance_row["warnings"]} warn / {compliance_row["failed"]} fail'
@@ -816,7 +822,12 @@ def register(app, page_func):
         security_text = "Not checked" if not security_row else f'{security_row["status"]} · {security_row["critical_count"]} critical / {security_row["warning_count"]} warning'
         automation_text = f'{unmanaged_count} enabled unmanaged object(s)' if automation_time else "Not inventoried"
         traffic_text = "No traffic rate yet" if not traffic_latest else f'{traffic_latest["interface"]} · RX {(traffic_latest["rx_bps"] or 0)/1e6:.2f} Mbps / TX {(traffic_latest["tx_bps"] or 0)/1e6:.2f} Mbps'
-        body = f'''<div class="panel pad"><h2>{html.escape(router['site_name'])}</h2><div class="muted">{html.escape(router['model'] or '')} · <code>{html.escape(router['vpn_ip'])}</code> · capability: {html.escape(cap['mode'] if cap else 'tikcentral_only')}</div><div class="inline" style="margin-top:12px"><a href="/timeline/{router_id}"><button>Full timeline</button></a><a href="/timeline/{router_id}/before"><button>What changed before failure?</button></a><a href="/incidents/{router_id}"><button>Build incident</button></a><a href="/compliance/{router_id}"><button>Compliance</button></a><a href="/lte/{router_id}"><button>LTE</button></a><a href="/interfaces/{router_id}"><button>Interfaces</button></a><a href="/site/{router_id}"><button>Site / customer</button></a><a href="/diagnostics/{router_id}"><button>Safe diagnostics</button></a><a href="/protection/{router_id}"><button>Protected objects</button></a><a href="/recovery/{router_id}"><button>Recovery</button></a><a href="/lifecycle/{router_id}"><button>Lifecycle</button></a><a href="/maintenance-history/{router_id}"><button>Maintenance history</button></a><a href="/hardware/{router_id}"><button>Hardware</button></a><a href="/certificates/{router_id}"><button>Certificates</button></a><a href="/change-calendar"><button>Calendar</button></a><a href="/security-audit/{router_id}"><button>Security exposure</button></a><a href="/automation-inventory/{router_id}"><button>RouterOS automation</button></a><a href="/traffic/{router_id}"><button>Traffic</button></a></div></div>
+        capacity_text = "Not assessed" if not capacity_row else f'{capacity_row["status"]} · {capacity_row["summary"]}'
+        notes_rows = ''.join(
+            f'<tr><td>{html.escape(n["created_at"])}</td><td>{html.escape(n["object_type"])} {("#"+str(n["object_id"])) if n["object_id"] else ""}</td><td>{html.escape(n["ticket_reference"] or "-")}</td><td>{html.escape(n["visibility"])}</td><td>{html.escape(n["note"])}</td></tr>'
+            for n in recent_notes
+        ) or '<tr><td colspan="5">No operator notes.</td></tr>'
+        body = f'''<div class="panel pad"><h2>{html.escape(router['site_name'])}</h2><div class="muted">{html.escape(router['model'] or '')} · <code>{html.escape(router['vpn_ip'])}</code> · capability: {html.escape(cap['mode'] if cap else 'tikcentral_only')}</div><div class="inline" style="margin-top:12px"><a href="/timeline/{router_id}"><button>Full timeline</button></a><a href="/timeline/{router_id}/before"><button>What changed before failure?</button></a><a href="/incidents/{router_id}"><button>Build incident</button></a><a href="/compliance/{router_id}"><button>Compliance</button></a><a href="/lte/{router_id}"><button>LTE</button></a><a href="/interfaces/{router_id}"><button>Interfaces</button></a><a href="/site/{router_id}"><button>Site / customer</button></a><a href="/diagnostics/{router_id}"><button>Safe diagnostics</button></a><a href="/protection/{router_id}"><button>Protected objects</button></a><a href="/recovery/{router_id}"><button>Recovery</button></a><a href="/lifecycle/{router_id}"><button>Lifecycle</button></a><a href="/maintenance-history/{router_id}"><button>Maintenance history</button></a><a href="/hardware/{router_id}"><button>Hardware</button></a><a href="/certificates/{router_id}"><button>Certificates</button></a><a href="/change-calendar"><button>Calendar</button></a><a href="/security-audit/{router_id}"><button>Security exposure</button></a><a href="/automation-inventory/{router_id}"><button>RouterOS automation</button></a><a href="/traffic/{router_id}"><button>Traffic</button></a><a href="/capacity/{router_id}"><button>Capacity trends</button></a><a href="/notes/{router_id}"><button>Operator notes</button></a><a href="/customer-report/{router_id}"><button>Customer report</button></a></div></div>
 <div class="panel pad"><h3>Lifecycle</h3><div>{html.escape(router["lifecycle_state"] or "production").title()}</div><div class="muted">{html.escape(router["lifecycle_updated_at"] or "")} {html.escape(router["lifecycle_updated_by"] or "")}</div></div>
 <div class="panel pad"><h3>Site / customer</h3><div>{html.escape(site_text)}</div></div>
 <div class="panel pad"><h3>Outage domain</h3><div>{html.escape(outage_text)}</div><div class="muted">{html.escape(outage["evidence"] if outage else "")}</div></div>
@@ -824,6 +835,7 @@ def register(app, page_func):
 <div class="panel pad"><h3>Security exposure</h3><div>{html.escape(security_text)}</div></div>
 <div class="panel pad"><h3>RouterOS automation</h3><div>{html.escape(automation_text)}</div></div>
 <div class="panel pad"><h3>Traffic</h3><div>{html.escape(traffic_text)}</div></div>
+<div class="panel pad"><h3>Capacity trends</h3><div>{html.escape(capacity_text)}</div></div>
 <div class="panel pad"><h3>Golden policy</h3><div>{html.escape(compliance_text)}</div></div>
 <div class="panel pad"><h3>LTE</h3><div>{html.escape(lte_text)}</div></div>
 <div class="panel pad"><h3>Access / commissioning</h3><div>{'Healthy' if access and access['management_ok'] else 'Degraded'} · commissioning {html.escape(commissioning)} · config {html.escape(drift_status)}</div><div class="inline" style="margin-top:12px">{_post_button(f'/operations/{router_id}/commission',csrf,'Run commissioning validation')} {_post_button(f'/operations/{router_id}/baseline',csrf,'Accept current baseline')} {_post_button(f'/operations/{router_id}/drift/check',csrf,'Check drift')}</div></div>
@@ -832,6 +844,7 @@ def register(app, page_func):
 <div class="panel pad"><h3>RouterOS / RouterBOOT</h3><div class="inline">{upgrade_buttons} {approve}</div></div>
 <div class="panel"><table><thead><tr><th>Backup tier</th><th>Time</th><th>By</th><th>Result</th></tr></thead><tbody>{backup_rows}</tbody></table></div>
 <div class="panel"><table><thead><tr><th>Time</th><th>Job</th><th>Status</th><th>Target</th><th>Error</th></tr></thead><tbody>{job_rows}</tbody></table></div>
+<div class="panel"><div class="pad"><h3>Recent operator notes</h3></div><table><thead><tr><th>Time</th><th>Attached</th><th>Ticket</th><th>Visibility</th><th>Note</th></tr></thead><tbody>{notes_rows}</tbody></table></div>
 <div class="panel"><table><thead><tr><th>Time</th><th>Severity</th><th>Category</th><th>Event</th></tr></thead><tbody>{event_rows}</tbody></table></div>'''
         return page_func("Router Operations", body, user, "operations")
 
