@@ -74,16 +74,19 @@ def page(title: str, body: str, user=None, active: str = "") -> HTMLResponse:
     nav = ""
     account = ""
     if user:
+        try:
+            email = user["email"]
+            role = user["role"] if user["role"] in {"viewer", "technician", "admin"} else "viewer"
+        except Exception:
+            email, role = "admin", "admin"
         links = []
         for key, href, label in NAV:
+            if role != "admin" and key in {"users", "settings"}:
+                continue
             cls = "active" if key == active else ""
             links.append(f'<a class="{cls}" href="{href}">{html.escape(label)}</a>')
         nav = '<nav class="tc-nav">' + ''.join(links) + '</nav>'
-        try:
-            email = user["email"]
-        except Exception:
-            email = "admin"
-        account = f'<div class="tc-account"><span>{html.escape(email)}</span><a href="/account/password"><button type="button">Account</button></a><form method="post" action="/logout" style="display:inline"><button>Logout</button></form></div>'
+        account = f'<div class="tc-account"><span>{html.escape(email)} · {html.escape(role.title())}</span><a href="/account/password"><button type="button">Account</button></a><form method="post" action="/logout" style="display:inline"><button>Logout</button></form></div>'
     light = settings.ASSETS["logo_light"]
     dark = settings.ASSETS["logo_dark"]
     icon = settings.ASSETS["icon"]
