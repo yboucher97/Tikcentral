@@ -44,7 +44,9 @@ from app import operator_notes
 from app import portal  # noqa: F401
 from app import production  # noqa: F401
 from app import diagnostics
+from app import database_health
 from app import desired_state
+from app import customer_overview
 from app import customer_reports
 from app import rescue
 from app import router_replacement
@@ -215,6 +217,8 @@ capacity_forecast.register(app, ui.page)
 operator_notes.register(app, ui.page)
 alert_queue.register(app, ui.page)
 customer_reports.register(app, ui.page)
+customer_overview.register(app, ui.page)
+database_health.register(app, ui.page)
 security_audit.register(app, ui.page)
 automation_inventory.register(app, ui.page)
 traffic_monitor.register(app, ui.page)
