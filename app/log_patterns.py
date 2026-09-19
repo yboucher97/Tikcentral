@@ -46,6 +46,7 @@ def collect(router_id:int,force=False):
         n=_normalize(line)
         if n:patterns.append(n)
     counts=Counter(patterns); captured=_now()
+    event_records=[]
     with core.db() as conn:
         previous={x["pattern_hash"]:x["occurrences"] for x in conn.execute("SELECT pattern_hash,occurrences FROM router_log_patterns WHERE router_id=? AND captured_at=(SELECT MAX(captured_at) FROM router_log_patterns WHERE router_id=?)",(router_id,router_id)).fetchall()}
         for pattern,count in counts.most_common(100):
@@ -56,9 +57,11 @@ def collect(router_id:int,force=False):
             prior_count=previous.get(h,0)
             if sev=="warning" and count>=10 and (prior_count==0 or count>=max(10,prior_count*3)):
                 title="Router log pattern detected" if prior_count==0 else "Router log pattern increased"
-                events.record(router_id,"log-pattern",f"{title}: {cat}",f"{count} occurrences · {pattern[:300]}","warning")
+                event_records.append((f"{title}: {cat}",f"{count} occurrences · {pattern[:300]}"))
         conn.execute("""DELETE FROM router_log_patterns WHERE router_id=? AND id NOT IN
                         (SELECT id FROM router_log_patterns WHERE router_id=? ORDER BY id DESC LIMIT 10000)""",(router_id,router_id))
+    for title,detail in event_records:
+        events.record(router_id,"log-pattern",title,detail,"warning")
     return len(counts)
 
 def register(app,page_func):
