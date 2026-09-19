@@ -282,6 +282,7 @@ def guardian_tick():
 
     # Correlate simultaneous failures so a central outage is visible as one incident.
     degraded_ids = [rid for rid, summary, _, _, in_maintenance in transitions if "degraded" in summary.lower() and not in_maintenance]
+    incident_open_event = None
     if len(degraded_ids) >= 2:
         cutoff = (datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat()
         with core.db() as conn:
@@ -298,10 +299,16 @@ def guardian_tick():
                      f"Correlated management outage affecting {len(degraded_ids)} routers",
                      ", ".join(names)),
                 )
-                events.record(None, "incident", f"Correlated access incident: {len(degraded_ids)} routers degraded", ", ".join(names), "critical")
+                incident_open_event = (
+                    f"Correlated access incident: {len(degraded_ids)} routers degraded",
+                    ", ".join(names),
+                )
+        if incident_open_event:
+            events.record(None, "incident", incident_open_event[0], incident_open_event[1], "critical")
 
     # Automatically resolve correlated incidents once every affected router is healthy.
     result_map = {int(x["router_id"]): bool(x["management_ok"]) for x in results}
+    resolved_events = []
     with core.db() as conn:
         open_incidents = conn.execute("SELECT * FROM fleet_incidents WHERE status='open' ORDER BY id").fetchall()
         for incident in open_incidents:
@@ -314,7 +321,9 @@ def guardian_tick():
                     "UPDATE fleet_incidents SET status='resolved',resolved_at=? WHERE id=?",
                     (checked, incident["id"]),
                 )
-                events.record(None, "incident", f"Incident #{incident['id']} resolved", incident["summary"], "info")
+                resolved_events.append((incident["id"], incident["summary"]))
+    for incident_id, summary in resolved_events:
+        events.record(None, "incident", f"Incident #{incident_id} resolved", summary, "info")
     return results
 
 
