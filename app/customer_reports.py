@@ -3,7 +3,7 @@
 import html
 from datetime import datetime, timedelta, timezone
 
-from fastapi import Request
+from fastapi import HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app import main as core, migrations
@@ -92,6 +92,8 @@ def register(app,page_func):
         days=days if days in {7,30,90,365} else 30
         end=_now(); start=end-timedelta(days=days)
         with core.db() as conn:
+            if not conn.execute("SELECT 1 FROM routers WHERE id=?",(router_id,)).fetchone():
+                raise HTTPException(status_code=404,detail="router not found")
             conn.execute(
                 """INSERT INTO customer_report_history(router_id,period_start,period_end,generated_at,generated_by,title)
                    VALUES(?,?,?,?,?,?)""",
