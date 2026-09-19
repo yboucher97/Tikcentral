@@ -2,12 +2,15 @@
 
 import html
 from datetime import datetime, timezone
-from fastapi import Request
+from fastapi import HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from app import main as core, migrations
 
 
 def _now(): return datetime.now(timezone.utc).isoformat()
+
+CATEGORIES={"router","switch","access-point","lte-modem","ups","camera","access-control","other"}
+STATUSES={"installed","spare","repair","retired"}
 
 
 def register(app,page_func):
@@ -46,7 +49,12 @@ def register(app,page_func):
         data=await core.form_data(request); core.require_csrf(request,data.get("csrf",""))
         now=_now()
         vals=[str(data.get(k,"")).strip() for k in ("category","manufacturer","model","serial","asset_tag","location","installed_at","warranty_until","status","notes")]
+        category,status=vals[0],vals[8]
+        if category not in CATEGORIES or status not in STATUSES:
+            raise HTTPException(status_code=400,detail="invalid hardware category or status")
         with core.db() as conn:
+            if not conn.execute("SELECT 1 FROM routers WHERE id=?",(router_id,)).fetchone():
+                raise HTTPException(status_code=404,detail="router not found")
             conn.execute(
                 """INSERT INTO hardware_inventory(router_id,category,manufacturer,model,serial,asset_tag,location,installed_at,warranty_until,status,notes,created_by,created_at,updated_at)
                    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
