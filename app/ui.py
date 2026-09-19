@@ -303,6 +303,13 @@ JS = r'''
 
 def page(title: str, body: str, user=None, active: str = "") -> HTMLResponse:
     active = active or _infer_active(title)
+    light = settings.ASSETS["logo_light"]
+    dark = settings.ASSETS["logo_dark"]
+    icon = settings.ASSETS["icon"]
+    localized = localize_html_iso_timestamps(body or "").replace(" UTC", " Montréal")
+    if not user:
+        html_doc = f'''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{html.escape(title)} - Tikcentral</title><link rel="icon" href="{icon}"><script>(function(){{try{{document.documentElement.dataset.theme=localStorage.getItem('tikcentral:theme')||(matchMedia('(prefers-color-scheme: light)').matches?'light':'dark')}}catch(e){{document.documentElement.dataset.theme='dark'}}}})();</script><style>{CSS}</style></head><body><main class="tc-content" style="max-width:520px;margin:auto;padding-top:7vh"><div class="tc-brand" style="justify-content:center;border:0"><img class="tc-logo tc-logo-light" src="{light}" alt="Opticable"><img class="tc-logo tc-logo-dark" src="{dark}" alt="Opticable"></div>{localized}</main><script>{JS}</script></body></html>'''
+        return HTMLResponse(html_doc)
     sidebar = ""
     account = ""
     palette_items = ""
@@ -328,10 +335,6 @@ def page(title: str, body: str, user=None, active: str = "") -> HTMLResponse:
         sidebar = "".join(groups)
         palette_items = "".join(palette)
         account = f'''<div class="tc-account"><button type="button" id="tcAccountBtn"><span>{html.escape(email)}</span> ▾</button><div class="tc-account-menu"><div style="padding:8px 10px"><strong>{html.escape(email)}</strong><div class="muted">{html.escape(role.title())}</div></div><a href="/account/password"><button type="button">Account & password</button></a><form method="post" action="/logout"><button>Sign out</button></form></div></div>'''
-    light = settings.ASSETS["logo_light"]
-    dark = settings.ASSETS["logo_dark"]
-    icon = settings.ASSETS["icon"]
-    localized = localize_html_iso_timestamps(body or "").replace(" UTC", " Montréal")
     page_tools = '<div class="tc-page-tools"><input id="tcGlobalSearch" data-no-copy placeholder="Search within this page…"><button type="button" id="tcPageSearchClear">Clear</button><span class="hint">Use Ctrl/⌘ K for navigation</span></div>' if user else ''
     shell = f'''<div class="tc-shell">
 <aside class="tc-sidebar" id="tcSidebar"><div class="tc-brand"><a href="/"><img class="tc-logo tc-logo-light" src="{light}" alt="Opticable"><img class="tc-logo tc-logo-dark" src="{dark}" alt="Opticable"><img class="tc-icon" src="{icon}" alt="Opticable"></a></div>{sidebar}<div class="tc-sidebar-foot">Tikcentral · Opticable<br>Management plane</div></aside>
