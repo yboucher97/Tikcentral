@@ -413,6 +413,17 @@ async def update_ui_preference(request: Request):
             encoded = json.dumps(value, separators=(",", ":"), ensure_ascii=False)
             if len(encoded) > 20000:
                 raise HTTPException(status_code=413, detail="preference value too large")
+            existing = conn.execute(
+                "SELECT 1 FROM user_ui_preferences WHERE user_id=? AND preference_key=?",
+                (user["id"], key),
+            ).fetchone()
+            if not existing:
+                count = int(conn.execute(
+                    "SELECT COUNT(*) FROM user_ui_preferences WHERE user_id=?",
+                    (user["id"],),
+                ).fetchone()[0])
+                if count >= 500:
+                    raise HTTPException(status_code=413, detail="too many saved UI preferences")
             conn.execute(
                 """INSERT INTO user_ui_preferences(user_id,preference_key,value_json,updated_at)
                    VALUES(?,?,?,?)
