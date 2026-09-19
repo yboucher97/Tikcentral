@@ -53,13 +53,16 @@ def check(router_id:int):
     def add(name,status,evidence): details.append({"name":name,"status":status,"evidence":evidence})
 
     if intent.get("management_services_restricted"):
-        exposed=[]
-        for line in raw["services"].splitlines():
-            low=line.lower()
-            if any(f"name={x}" in low for x in ("ssh","winbox","api")) and "disabled=true" not in low and "disabled=yes" not in low:
-                if "address=" not in low or "address=0.0.0.0/0" in low or "address=::/0" in low:
-                    exposed.append(line[:180])
-        add("Management services restricted","fail" if exposed else "pass","; ".join(exposed) if exposed else "SSH/WinBox/API restrictions present or services disabled")
+        if raw["services"].startswith("ERROR:"):
+            add("Management services restricted","warning","Service exposure audit unavailable")
+        else:
+            exposed=[]
+            for line in raw["services"].splitlines():
+                low=line.lower()
+                if any(f"name={x}" in low for x in ("ssh","winbox","api")) and "disabled=true" not in low and "disabled=yes" not in low:
+                    if "address=" not in low or "address=0.0.0.0/0" in low or "address=::/0" in low:
+                        exposed.append(line[:180])
+            add("Management services restricted","fail" if exposed else "pass","; ".join(exposed) if exposed else "SSH/WinBox/API restrictions present or services disabled")
 
     if intent.get("default_route_required"):
         active=sum(1 for line in raw["routes"].splitlines() if "active=true" in line.lower() or "active=yes" in line.lower())
