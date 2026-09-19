@@ -122,6 +122,10 @@ REQUIRED_ROUTES = {
     ("POST", "/network-quality/{router_id}/run"),
     ("GET", "/cross-site-anomalies"),
     ("GET", "/change-impact/{transaction_id}"),
+    ("GET", "/training"),
+    ("GET", "/training/{lesson_id}"),
+    ("POST", "/training/{lesson_id}/status"),
+    ("POST", "/training/reset"),
 }
 
 FORBIDDEN_FILES = {
@@ -251,6 +255,10 @@ def validate_routes():
         ("POST", "/network-quality/{router_id}/run"): "app.network_quality",
         ("GET", "/cross-site-anomalies"): "app.cross_site_anomaly",
         ("GET", "/change-impact/{transaction_id}"): "app.change_impact",
+        ("GET", "/training"): "app.training",
+        ("GET", "/training/{lesson_id}"): "app.training",
+        ("POST", "/training/{lesson_id}/status"): "app.training",
+        ("POST", "/training/reset"): "app.training",
     }
     for path in (
         "/operations/{router_id}/telemetry", "/operations/{router_id}/commission",
@@ -703,6 +711,16 @@ def validate_source_boundaries():
     for marker in ("router_wan_quality", "router_interface_negotiation", "router_dns_health", "router_isp_gateway_history", "fleet_cross_site_anomalies"):
         if marker not in attention_quality:
             fail(f"Network quality attention integration missing: {marker}")
+    training_text = (ROOT / "app/training.py").read_text(encoding="utf-8")
+    for marker in ("LESSONS", "Fast mode", "Complete mission", "I already know this", "user_training_progress", "XP earned", "Reset my training"):
+        if marker not in training_text:
+            fail(f"Interactive training feature missing: {marker}")
+    if "training.register(app, ui.page)" not in (ROOT / "app/final.py").read_text(encoding="utf-8"):
+        fail("Training routes are not registered")
+    shared_ui_training = (ROOT / "app/ui.py").read_text(encoding="utf-8")
+    for marker in ('("training", "/training", "Training")', "tc-training-grid", "tc-mission-list", "tikcentral:density", "tcRestoreGuidance"):
+        if marker not in shared_ui_training:
+            fail(f"Training/refined UI integration missing: {marker}")
     resource_text = (ROOT / "app/resource_monitor.py").read_text(encoding="utf-8")
     for marker in ("_uptime_seconds", "_memory_bytes", "_record_reboot", "RESOURCE_CPU_WARN", "Unexpected router reboot detected"):
         if marker not in resource_text:
@@ -739,6 +757,7 @@ def validate_ui_and_assets():
         "tc-filter-toggle", "Columns", "tcCopy", "Copy field value", "organizeRouterWorkspace",
         "tc-router-toolbox", "tc-workspace-tabs", "data-default-hidden", "tc-page-intro",
         "tcObjectContext", "installRouterContext", "installRecentRouters", "protectDirtyForms",
+        "tcDensityToggle", "tcRestoreGuidance",
     ):
         if marker not in rendered:
             fail(f"Shared UI missing {marker}")
@@ -835,7 +854,7 @@ def validate_persistence_and_jobs():
         "router_log_patterns", "router_hardware_lifecycle",
         "router_dns_health", "router_interface_negotiation", "router_wan_quality",
         "router_pppoe_history", "router_isp_gateway_history", "fleet_cross_site_anomalies",
-        "change_impact_analysis",
+        "change_impact_analysis", "user_training_progress",
     }
     with sqlite3.connect(settings.DB_PATH) as conn:
         version = conn.execute("SELECT MAX(version) FROM schema_version").fetchone()[0]
