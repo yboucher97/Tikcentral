@@ -31,7 +31,7 @@ def install_middleware(app):
     @app.middleware("http")
     async def role_authorization(request: Request, call_next):
         path = request.url.path
-        if path.startswith("/static") or path in {"/login", "/healthz", "/api/enroll"}:
+        if path.startswith("/static") or path in {"/login", "/healthz", "/api/enroll", "/admin/tokens", "/admin/routers"}:
             return await call_next(request)
 
         try:
@@ -39,10 +39,6 @@ def install_middleware(app):
         except Exception:
             user = None
         if not user:
-            # Machine endpoints authenticate with the administrative API key,
-            # not a browser session.
-            if path in {"/admin/tokens", "/admin/routers"}:
-                return await call_next(request)
             if path.startswith("/api/"):
                 return JSONResponse({"detail": "authentication required"}, status_code=401)
             return RedirectResponse("/login", status_code=303)
