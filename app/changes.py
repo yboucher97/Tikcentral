@@ -156,18 +156,26 @@ def register(app, page_func):
             if not pieces:
                 if jobs:
                     pieces.append('<div class="tc-status warn"><span class="tc-status-dot"></span>Possible Tikcentral-attributed change</div>')
-                    pieces.extend(
-                        f'<div style="margin-top:7px"><strong>Job #{j["id"]} · {html.escape(j["kind"])}</strong> · {html.escape(j["status"])} · {html.escape(j["actor"] or "-")}<div class="muted">{html.escape(j["created_at"])} → {html.escape(j["finished_at"] or "")} · target {html.escape(j["target"] or "-")}</div></div>'
+                    job_rows = "".join(
+                        f'<tr><td>{html.escape(j["created_at"])}</td><td>#{j["id"]}</td><td>{html.escape(j["kind"])}</td><td>{html.escape(j["status"])}</td><td>{html.escape(j["actor"] or "-")}</td><td>{html.escape(j["target"] or "-")}</td><td>{html.escape(j["finished_at"] or "-")}</td></tr>'
                         for j in jobs
+                    )
+                    pieces.append(
+                        '<div class="panel" style="margin-top:8px"><table><thead><tr><th>Started</th><th>Job</th><th>Type</th><th>Status</th><th>Actor</th><th>Target</th><th>Finished</th></tr></thead><tbody>'
+                        + job_rows + '</tbody></table></div>'
                     )
                 else:
                     pieces.append('<div class="tc-status warn"><span class="tc-status-dot"></span>No matching Tikcentral mutation record</div><div class="muted" style="margin-top:6px">Tikcentral did not record a transaction or mutation job matching this snapshot interval. This suggests an out-of-band/manual change, but does not prove it.</div>')
 
             if evs:
                 pieces.append('<h3 style="margin-top:16px">Events in interval</h3>')
-                pieces.extend(
-                    f'<div><code>{html.escape(e["event_at"])}</code> · {html.escape(e["category"])} · <strong>{html.escape(e["summary"])}</strong><div class="muted">{html.escape((e["details"] or "")[-400:])}</div></div>'
+                event_rows = "".join(
+                    f'<tr><td>{html.escape(e["event_at"])}</td><td>{html.escape(e["severity"])}</td><td>{html.escape(e["category"])}</td><td><strong>{html.escape(e["summary"])}</strong><div class="muted">{html.escape((e["details"] or "")[-400:])}</div></td></tr>'
                     for e in evs
+                )
+                pieces.append(
+                    '<div class="panel"><table><thead><tr><th>Time</th><th>Level</th><th>Category</th><th>Event</th></tr></thead><tbody>'
+                    + event_rows + '</tbody></table></div>'
                 )
             attribution = "".join(pieces)
 
