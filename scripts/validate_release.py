@@ -675,7 +675,7 @@ def validate_source_boundaries():
         "installRecentRouters", "protectDirtyForms", "decorateEmptyStates", "classifyActions", "tcGotoPrefix",
         "CATEGORY_SLUG", "CATEGORY_HOME", "tc-cat-fleet", "tc-cat-operations", "tc-cat-changes",
         "tc-cat-intelligence", "tc-cat-administration", "installDisclosureState", "emphasizeNestedSections",
-        "tikcentral:disclosure", "tc-tab-description", "tabHelp", "Connectivity", "Configuration", "Assets", "Activity",
+        "ui:disclosure:", "tc-tab-description", "tabHelp", "Connectivity", "Configuration", "Assets", "Activity",
     ):
         if marker not in shared_ui:
             fail(f"Professional UI shell missing: {marker}")
