@@ -52,7 +52,7 @@ def scan():
             recent_quality=bool(r["quality_at"] and r["quality_at"]>=cutoff)
             recent_gateway=bool(r["gateway_at"] and r["gateway_at"]>=cutoff)
             probe_bad=recent_probe and r["classification"] in {"site_or_upstream","upstream","dns","partial","degraded_quality"}
-            quality_bad=recent_quality and r["quality_status"] in {"warning","saturated"}
+            quality_bad=recent_quality and r["quality_status"]=="warning"
             gateway_bad=recent_gateway and r["gateway_reachable"]==0
             if probe_bad or quality_bad or gateway_bad:
                 bad.append({
@@ -70,7 +70,7 @@ def scan():
 
         candidates={}
         for provider,items in grouped.items():
-            if len(items)>=MIN_PROVIDER_ROUTERS:
+            if provider!="Unknown provider" and len(items)>=MIN_PROVIDER_ROUTERS:
                 key=f"provider:{provider.lower()}:network"
                 candidates[key]={
                     "provider":provider,
@@ -78,7 +78,7 @@ def scan():
                     "items":items,
                     "summary":f"{len(items)} sites on {provider} show correlated network degradation within {WINDOW_MINUTES} minutes",
                 }
-        providers={x["provider"] for x in bad}
+        providers={x["provider"] for x in bad if x["provider"]!="Unknown provider"}
         if len(bad)>=MIN_FLEET_ROUTERS and len(providers)>=2:
             key="fleet:multi-provider:network"
             candidates[key]={
