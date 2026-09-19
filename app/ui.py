@@ -310,7 +310,7 @@ JS = r'''
    if(!m)return null;
    return Number(m[1]+m[2]+m[3]+(m[4]||'00')+(m[5]||'00')+(m[6]||'00'));
  }
- function sortTable(table,idx,dir){const tb=table.tBodies[0];if(!tb)return;const rows=[...tb.rows];rows.sort((a,b)=>{let x=(a.cells[idx]?.innerText||'').trim(),y=(b.cells[idx]?.innerText||'').trim();const dx=localWallTime(x),dy=localWallTime(y);if(dx!==null&&dy!==null)return dir*(dx-dy);const nx=numeric(x),ny=numeric(y);let cmp=(nx!==null&&ny!==null)?nx-ny:x.localeCompare(y,undefined,{numeric:true,sensitivity:'base'});return dir*cmp});rows.forEach(row=>tb.appendChild(row))}
+ function sortTable(table,idx,dir){const tb=table.tBodies[0];if(!tb)return;const rows=[...tb.rows];rows.sort((a,b)=>{let x=cellTextForCopy(a.cells[idx]||document.createElement('td')),y=cellTextForCopy(b.cells[idx]||document.createElement('td'));const dx=localWallTime(x),dy=localWallTime(y);if(dx!==null&&dy!==null)return dir*(dx-dy);const nx=numeric(x),ny=numeric(y);let cmp=(nx!==null&&ny!==null)?nx-ny:x.localeCompare(y,undefined,{numeric:true,sensitivity:'base'});return dir*cmp});rows.forEach(row=>tb.appendChild(row))}
  function comparable(v){const s=String(v??'').trim();const wall=localWallTime(s);if(wall!==null)return {type:'date',value:wall};const n=numeric(s);if(s&&n!==null)return {type:'number',value:n};return {type:'text',value:s.toLowerCase()}}
  function matchOperator(cell,op,wanted){const raw=String(cell??'').trim();if(op==='contains')return raw.toLowerCase().includes(String(wanted??'').toLowerCase());if(op==='!contains')return !raw.toLowerCase().includes(String(wanted??'').toLowerCase());const a=comparable(raw),b=comparable(wanted);let av=a.value,bv=b.value;if(a.type!==b.type){av=raw.toLowerCase();bv=String(wanted??'').toLowerCase()}return op==='='?av===bv:op==='!='?av!==bv:op==='>'?av>bv:op==='>='?av>=bv:op==='<'?av<bv:op==='<='?av<=bv:true}
  function isDateHeader(label){return /(^|\b)(time|date|timestamp|seen|created|updated|captured|checked|detected|started|finished|occurred|resolved|acknowledged|handshake)(\b|$)/i.test(label)}
@@ -336,7 +336,7 @@ JS = r'''
    const fromVal=from?localWallTime(from):null,toVal=to?localWallTime(to):null;
    let shown=0,total=0;
    wrap.querySelectorAll('tbody tr').forEach(r=>{
-     total++;const textOk=!q||(r.innerText||'').toLowerCase().includes(q);
+     total++;const rowText=[...r.cells].map(cellTextForCopy).join(' ').toLowerCase();const textOk=!q||rowText.includes(q);
      const filterOk=!wanted||col<0||matchOperator(cellTextForCopy(r.cells[col]||document.createElement('td')),op,wanted);
      let dateOk=true;if(dateCol>=0&&(fromVal!==null||toVal!==null)){const v=localWallTime(cellTextForCopy(r.cells[dateCol]||document.createElement('td')));dateOk=v!==null&&(fromVal===null||v>=fromVal)&&(toVal===null||v<=toVal)}
      const ok=textOk&&filterOk&&dateOk;r.style.display=ok?'':'none';if(ok)shown++;
