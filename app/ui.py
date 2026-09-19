@@ -30,6 +30,7 @@ NAV = [
     ("model-capabilities", "/model-capabilities", "Models"),
     ("hardware-lifecycle", "/hardware-lifecycle", "Hardware Life"),
     ("identity-collisions", "/identity-collisions", "Identity"),
+    ("cross-site-anomalies", "/cross-site-anomalies", "Cross-Site"),
     ("config-search", "/config-search", "Config Search"),
     ("retention", "/retention", "Retention"),
     ("audit", "/audit", "Audit"),
