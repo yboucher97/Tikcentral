@@ -244,10 +244,11 @@ JS = r'''
    const hero=panels[0],actions=hero.querySelector('.inline');
    if(actions){
      const links=[...actions.querySelectorAll(':scope > a')];
-     const primaryPatterns=[/\/timeline\//,/\/incidents\//,/\/diagnostics\//,/\/network-quality\//,/\/notes\//];
+     const primaryPatterns=[/\/timeline\/\d+\/?$/,/\/incidents\//,/\/network-quality\//,/\/site\//,/\/notes\//];
      const primary=[];const rest=[];
      links.forEach(a=>(primaryPatterns.some(rx=>rx.test(a.getAttribute('href')||''))&&primary.length<5?primary:rest).push(a));
      actions.className='tc-router-primary';actions.innerHTML='';primary.forEach(a=>actions.appendChild(a));
+     const routerId=location.pathname.split('/').filter(Boolean).pop();const ai=document.createElement('a');ai.href='/ai/'+routerId;ai.innerHTML='<button class="primary">AI analysis</button>';actions.appendChild(ai);
      if(rest.length){
        const details=document.createElement('details');details.className='tc-router-toolbox';details.innerHTML='<summary>All router tools ('+rest.length+')</summary><div class="tc-router-tool-groups"></div>';
        const groups={};rest.forEach(a=>{const g=toolCategory(a.getAttribute('href')||'');(groups[g]||(groups[g]=[])).push(a)});
