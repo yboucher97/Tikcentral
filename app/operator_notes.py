@@ -3,7 +3,7 @@
 import html
 from datetime import datetime, timezone
 
-from fastapi import Request
+from fastapi import HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app import events, main as core, migrations
@@ -61,6 +61,8 @@ def register(app,page_func):
         note=str(data.get("note","")).strip()[:6000]
         if not note:return RedirectResponse(f"/notes/{router_id}",303)
         with core.db() as conn:
+            if not conn.execute("SELECT 1 FROM routers WHERE id=?",(router_id,)).fetchone():
+                raise HTTPException(status_code=404,detail="router not found")
             conn.execute(
                 """INSERT INTO operator_notes(router_id,object_type,object_id,ticket_reference,visibility,note,created_by,created_at)
                    VALUES(?,?,?,?,?,?,?,?)""",
