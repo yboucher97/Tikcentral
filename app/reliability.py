@@ -494,8 +494,9 @@ def register(app, page_func):
 </div>'''
                 for s in steps
             )
+            impact_link=f'<div style="margin-top:8px"><a href="/change-impact/{t["id"]}">Measured before/after impact</a></div>' if t["status"] in {"succeeded","failed"} else ""
             tx_rows.append(
-                f'''<tr id="tx-{t["id"]}"><td>#{t["id"]}</td><td>{html.escape(t["site_name"])}</td><td>{html.escape(t["kind"])}</td><td>{html.escape(t["status"])}</td><td>{html.escape(t["actor"] or "")}</td><td>{transcript or '<span class="muted">No transcript steps.</span>'}</td></tr>'''
+                f'''<tr id="tx-{t["id"]}"><td>#{t["id"]}</td><td>{html.escape(t["site_name"])}</td><td>{html.escape(t["kind"])}</td><td>{html.escape(t["status"])}</td><td>{html.escape(t["actor"] or "")}</td><td>{transcript or '<span class="muted">No transcript steps.</span>'}{impact_link}</td></tr>'''
             )
         body = f'''<div class="panel pad"><h2>Reliability Center</h2><div class="muted">Access-first change safety, maintenance windows, correlated incidents, connectivity quality, recovery bundles and support packages.</div></div>
 <div class="panel"><table><thead><tr><th>Router</th><th>State</th><th>24h quality</th><th>Maintenance</th><th>Known-good / WAN</th><th>Recovery / support</th></tr></thead><tbody>{''.join(router_rows) or '<tr><td colspan="6">No routers.</td></tr>'}</tbody></table></div>
