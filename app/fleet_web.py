@@ -5,6 +5,7 @@ changes use the serialized Operations workflow one router at a time.
 """
 
 import html
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -16,7 +17,7 @@ from app import ui
 app = core.app
 
 
-def require_admin(request: Request):
+def require_user(request: Request):
     return core.require_web_admin(request)
 
 
@@ -31,7 +32,7 @@ def job_table(rows):
 
 @app.get("/automation", response_class=HTMLResponse)
 def automation_page(request: Request):
-    user = require_admin(request)
+    user = require_user(request)
     if not user:
         return RedirectResponse("/login", status_code=303)
     csrf = core.csrf_token(request)
@@ -52,9 +53,12 @@ def automation_page(request: Request):
 
     checked = "checked" if config["backups_enabled"] else ""
     analysis_checked = "checked" if config["analysis_enabled"] else ""
+    can_manage = user["role"] == "admin"
+    disabled = "" if can_manage else "disabled"
+    settings_note = "" if can_manage else '<div class="muted" style="margin-top:10px">Administrator access is required to change the fleet schedule.</div>'
     body = f'''
 <div class="cards"><div class="card"><div class="muted">Enabled routers</div><div class="value">{managed_count}</div></div><div class="card"><div class="muted">Daily backup</div><div class="value">{html.escape(config['backup_time'])}</div><div class="muted">{html.escape(config['timezone'])}</div></div><div class="card"><div class="muted">Daily backup retention</div><div class="value">{config['backup_retention_days']}d</div></div></div>
-<div class="panel pad"><h2>Backup schedule</h2><form class="inline" method="post" action="/automation/settings"><input type="hidden" name="csrf" value="{csrf}"><label><input type="checkbox" name="backups_enabled" value="1" {checked}> Daily backups</label><input type="time" name="backup_time" value="{html.escape(config['backup_time'])}" required><input name="timezone" value="{html.escape(config['timezone'])}" style="min-width:180px"><input type="number" min="1" max="3650" name="retention" value="{config['backup_retention_days']}" style="width:100px"><label><input type="checkbox" name="analysis_enabled" value="1" {analysis_checked}> Read-only analysis after backup</label><button class="primary">Save schedule</button></form><div class="muted" style="margin-top:10px">Daily backups rotate. Pre-change and commissioning backups are retained separately.</div></div>
+<div class="panel pad"><h2>Backup schedule</h2><form class="inline" method="post" action="/automation/settings"><input type="hidden" name="csrf" value="{csrf}"><label><input type="checkbox" name="backups_enabled" value="1" {checked} {disabled}> Daily backups</label><input type="time" name="backup_time" value="{html.escape(config['backup_time'])}" required {disabled}><input name="timezone" value="{html.escape(config['timezone'])}" style="min-width:180px" {disabled}><input type="number" min="1" max="3650" name="retention" value="{config['backup_retention_days']}" style="width:100px" {disabled}><label><input type="checkbox" name="analysis_enabled" value="1" {analysis_checked} {disabled}> Read-only analysis after backup</label><button class="primary" {disabled}>Save schedule</button></form><div class="muted" style="margin-top:10px">Daily backups rotate. Pre-change and commissioning backups are retained separately.</div>{settings_note}</div>
 <div class="panel pad"><h2>Run now</h2><div class="inline"><form method="post" action="/automation/backup"><input type="hidden" name="csrf" value="{csrf}"><button class="primary">Backup all routers now</button></form><form method="post" action="/automation/analyze"><input type="hidden" name="csrf" value="{csrf}"><button>Run read-only analysis</button></form><a href="/operations"><button>Router changes / upgrades</button></a></div><div class="muted" style="margin-top:10px">Fleet-wide arbitrary commands and mass RouterOS upgrades are intentionally not available. Changes are serialized per router under Operations.</div></div>
 <div class="panel"><table><thead><tr><th>Job</th><th>Type</th><th>Status</th><th>Success</th><th>Errors</th><th>Started by</th><th>Created</th></tr></thead><tbody>{job_table(fleet_jobs)}</tbody></table></div>
 <div class="panel"><table><thead><tr><th>Severity</th><th>Site</th><th>Category</th><th>Finding</th><th>Detected</th></tr></thead><tbody>{finding_rows}</tbody></table></div>'''
@@ -63,19 +67,27 @@ def automation_page(request: Request):
 
 @app.post("/automation/settings")
 async def automation_settings(request: Request):
-    user = require_admin(request)
+    user = core.require_web_role(request, "admin")
     if not user:
         return RedirectResponse("/login", status_code=303)
     data = await core.form_data(request)
     core.require_csrf(request, data.get("csrf", ""))
     backup_time = data.get("backup_time", "03:00")
-    if len(backup_time) != 5 or backup_time[2] != ":":
+    try:
+        hour, minute = (int(x) for x in backup_time.split(":", 1))
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=400, detail="invalid backup time")
+    if not (0 <= hour <= 23 and 0 <= minute <= 59) or backup_time != f"{hour:02d}:{minute:02d}":
         raise HTTPException(status_code=400, detail="invalid backup time")
     try:
         retention = max(1, min(3650, int(data.get("retention", "30"))))
     except ValueError:
         retention = 30
     timezone_name = data.get("timezone", "America/Toronto").strip()[:80] or "America/Toronto"
+    try:
+        ZoneInfo(timezone_name)
+    except (ZoneInfoNotFoundError, ValueError):
+        raise HTTPException(status_code=400, detail="invalid timezone")
     with core.db() as conn:
         conn.execute(
             "UPDATE fleet_settings SET backups_enabled=?,backup_time=?,timezone=?,backup_retention_days=?,analysis_enabled=? WHERE id=1",
@@ -92,7 +104,7 @@ async def automation_settings(request: Request):
 
 @app.post("/automation/backup")
 async def automation_backup(request: Request):
-    user = require_admin(request)
+    user = require_user(request)
     if not user:
         return RedirectResponse("/login", status_code=303)
     data = await core.form_data(request)
@@ -103,7 +115,7 @@ async def automation_backup(request: Request):
 
 @app.post("/automation/analyze")
 async def automation_analyze(request: Request):
-    user = require_admin(request)
+    user = require_user(request)
     if not user:
         return RedirectResponse("/login", status_code=303)
     data = await core.form_data(request)
@@ -114,7 +126,7 @@ async def automation_analyze(request: Request):
 
 @app.get("/automation/jobs/{job_id}", response_class=HTMLResponse)
 def automation_job(job_id: int, request: Request):
-    user = require_admin(request)
+    user = require_user(request)
     if not user:
         return RedirectResponse("/login", status_code=303)
     with core.db() as conn:
