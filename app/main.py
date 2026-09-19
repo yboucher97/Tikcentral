@@ -92,6 +92,7 @@ _DUMMY_LOGIN_HASH = hash_password("tikcentral-login-dummy-password")
 _LOGIN_FAILURES: dict[str, deque[float]] = defaultdict(deque)
 _LOGIN_WINDOW_SECONDS = 300
 _LOGIN_MAX_FAILURES = 10
+_MAX_PASSWORD_CHARS = 1024
 
 
 def request_source_ip(request: Request) -> str:
@@ -452,7 +453,7 @@ def login_page(request: Request):
     if session_user(request):
         return RedirectResponse("/", status_code=303)
     error = '<div class="error">Invalid email or password.</div>' if request.query_params.get("error") else ""
-    body = f'''<div class="login"><div class="panel pad"><h2>Sign in</h2>{error}<form method="post" action="/login"><div><input style="width:100%;margin-bottom:10px" type="email" name="email" placeholder="Email" required></div><div><div class="inline" style="align-items:stretch"><input id="loginPassword" style="flex:1;min-width:0" type="password" name="password" placeholder="Password" required data-no-copy><button type="button" id="loginPasswordToggle" onclick="const p=document.getElementById('loginPassword');const show=p.type==='password';p.type=show?'text':'password';this.textContent=show?'Hide password':'Show password'">Show password</button></div></div><button class="primary" style="width:100%;margin-top:14px">Sign in</button></form></div></div>'''
+    body = f'''<div class="login"><div class="panel pad"><h2>Sign in</h2>{error}<form method="post" action="/login"><div><input style="width:100%;margin-bottom:10px" type="email" name="email" placeholder="Email" required></div><div><div class="inline" style="align-items:stretch"><input id="loginPassword" style="flex:1;min-width:0" type="password" name="password" placeholder="Password" maxlength="1024" required data-no-copy><button type="button" id="loginPasswordToggle" onclick="const p=document.getElementById('loginPassword');const show=p.type==='password';p.type=show?'text':'password';this.textContent=show?'Hide password':'Show password'">Show password</button></div></div><button class="primary" style="width:100%;margin-top:14px">Sign in</button></form></div></div>'''
     return page("Login", body)
 
 
@@ -464,6 +465,9 @@ async def login(request: Request):
     data = await form_data(request)
     email = data.get("email", "").strip().lower()
     password = data.get("password", "")
+    if len(password) > _MAX_PASSWORD_CHARS:
+        _login_failed(source_ip)
+        return RedirectResponse("/login?error=1", status_code=303)
     with db() as conn:
         user = conn.execute("SELECT id,email,password_hash,role,enabled FROM users WHERE email=?", (email,)).fetchone()
         password_ok = verify_password(password, user["password_hash"] if user else _DUMMY_LOGIN_HASH)
@@ -658,7 +662,7 @@ def password_page(request: Request):
     if not user:
         return RedirectResponse("/login", status_code=303)
     csrf = csrf_token(request)
-    body = f'''<div class="panel pad" style="max-width:600px"><h2>Change password</h2><form method="post" action="/account/password"><input type="hidden" name="csrf" value="{csrf}"><div><input style="width:100%;margin-bottom:10px" type="password" name="current_password" placeholder="Current password" required></div><div><input style="width:100%;margin-bottom:10px" type="password" name="new_password" placeholder="New password (12+ characters)" minlength="12" required></div><button class="primary">Change password</button></form></div>'''
+    body = f'''<div class="panel pad" style="max-width:600px"><h2>Change password</h2><form method="post" action="/account/password"><input type="hidden" name="csrf" value="{csrf}"><div><input style="width:100%;margin-bottom:10px" type="password" name="current_password" placeholder="Current password" maxlength="1024" required></div><div><input style="width:100%;margin-bottom:10px" type="password" name="new_password" placeholder="New password (12+ characters)" minlength="12" maxlength="1024" required></div><button class="primary">Change password</button></form></div>'''
     return page("Password", body, user, "settings")
 
 
@@ -671,8 +675,8 @@ async def change_password(request: Request):
     require_csrf(request, data.get("csrf", ""))
     current = data.get("current_password", "")
     new = data.get("new_password", "")
-    if len(new) < 12:
-        raise HTTPException(status_code=400, detail="password must be at least 12 characters")
+    if len(current) > _MAX_PASSWORD_CHARS or not 12 <= len(new) <= _MAX_PASSWORD_CHARS:
+        raise HTTPException(status_code=400, detail="password must be between 12 and 1024 characters")
     with db() as conn:
         row = conn.execute("SELECT password_hash FROM users WHERE id=?", (user["id"],)).fetchone()
         if not row or not verify_password(current, row["password_hash"]):
@@ -701,7 +705,7 @@ def users_page(request: Request):
         rendered.append(
             f'''<tr><td>{html.escape(row['email'])}</td><td><form class="inline" method="post" action="/admin/users/{row['id']}/role"><input type="hidden" name="csrf" value="{csrf}"><select name="role"><option value="viewer" {'selected' if row['role']=='viewer' else ''}>Viewer</option><option value="technician" {'selected' if row['role']=='technician' else ''}>Technician</option><option value="admin" {'selected' if row['role']=='admin' else ''}>Admin</option></select><button {'disabled' if row['id']==user['id'] else ''}>Save</button></form></td><td>{'Active' if row['enabled'] else 'Disabled'}</td><td>{action}</td></tr>'''
         )
-    body = f'''<div class="panel pad"><h2>Add user</h2><form class="inline" method="post" action="/admin/users"><input type="hidden" name="csrf" value="{csrf}"><input type="email" name="email" placeholder="user@example.com" required><input type="password" name="password" placeholder="Temporary password (12+)" minlength="12" required><select name="role"><option value="viewer">Viewer</option><option value="technician">Technician</option><option value="admin">Admin</option></select><button>Add user</button></form></div><div class="panel"><table><thead><tr><th>Email</th><th>Role</th><th>Status</th><th></th></tr></thead><tbody>{''.join(rendered)}</tbody></table></div>'''
+    body = f'''<div class="panel pad"><h2>Add user</h2><form class="inline" method="post" action="/admin/users"><input type="hidden" name="csrf" value="{csrf}"><input type="email" name="email" placeholder="user@example.com" required><input type="password" name="password" placeholder="Temporary password (12+)" minlength="12" maxlength="1024" required><select name="role"><option value="viewer">Viewer</option><option value="technician">Technician</option><option value="admin">Admin</option></select><button>Add user</button></form></div><div class="panel"><table><thead><tr><th>Email</th><th>Role</th><th>Status</th><th></th></tr></thead><tbody>{''.join(rendered)}</tbody></table></div>'''
     return page("Users", body, user, "users")
 
 
@@ -719,8 +723,8 @@ async def add_user(request: Request):
         raise HTTPException(status_code=400, detail="invalid role")
     if not valid_email(email):
         raise HTTPException(status_code=400, detail="invalid email")
-    if len(password) < 12:
-        raise HTTPException(status_code=400, detail="password must be at least 12 characters")
+    if not 12 <= len(password) <= _MAX_PASSWORD_CHARS:
+        raise HTTPException(status_code=400, detail="password must be between 12 and 1024 characters")
     now = iso(utcnow())
     try:
         with db() as conn:
