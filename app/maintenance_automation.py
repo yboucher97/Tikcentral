@@ -1,6 +1,6 @@
 """Post-change verification/maintenance automation."""
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from app import compliance, desired_state, events, interface_monitor, main as core, migrations, operations, security_audit, state_capture, wan_probe
 
@@ -17,20 +17,39 @@ def _eligible(kind,settings):
 
 def process():
     migrations.migrate()
+    stale_cutoff=(datetime.now(timezone.utc)-timedelta(hours=2)).isoformat()
     with core.db() as conn:
+        # A process crash can leave a claim behind. After a conservative window,
+        # allow one retry; all actions are read-only or retained-backup captures.
+        conn.execute(
+            "DELETE FROM maintenance_automation_runs WHERE status='running' AND processed_at<?",
+            (stale_cutoff,),
+        )
         s=conn.execute("SELECT * FROM maintenance_automation_settings WHERE id=1").fetchone()
         if not s or not s["enabled"]: return 0
-        jobs=conn.execute(
+        pending=conn.execute(
             """SELECT j.* FROM router_jobs j LEFT JOIN maintenance_automation_runs a ON a.job_id=j.id
                WHERE j.status='succeeded' AND j.router_id IS NOT NULL AND a.job_id IS NULL
                ORDER BY j.id LIMIT 20"""
         ).fetchall()
     count=0
-    for j in jobs:
+    for j in pending:
+        claim_time=_now()
+        with core.db() as conn:
+            claimed=conn.execute(
+                """INSERT OR IGNORE INTO maintenance_automation_runs
+                   (job_id,router_id,job_kind,processed_at,status,summary)
+                   VALUES(?,?,?,?, 'running','')""",
+                (j["id"],j["router_id"],j["kind"],claim_time),
+            ).rowcount
+        if claimed != 1:
+            continue
         if not _eligible(j["kind"],s):
             with core.db() as conn:
-                conn.execute("INSERT OR IGNORE INTO maintenance_automation_runs(job_id,router_id,job_kind,processed_at,status,summary) VALUES(?,?,?,?,?,?)",
-                             (j["id"],j["router_id"],j["kind"],_now(),"skipped","Trigger not enabled"))
+                conn.execute(
+                    "UPDATE maintenance_automation_runs SET processed_at=?,status='skipped',summary='Trigger not enabled' WHERE job_id=? AND status='running'",
+                    (_now(),j["id"]),
+                )
             continue
         results=[]
         def run(label,fn):
@@ -47,14 +66,19 @@ def process():
         if s["run_desired_state"]: run("desired_state",lambda: desired_state.check(j["router_id"]))
         summary="; ".join(results)
         status="completed" if not any("=failed:" in x for x in results) else "partial"
+        completed_at=_now()
         with core.db() as conn:
-            conn.execute("INSERT OR REPLACE INTO maintenance_automation_runs(job_id,router_id,job_kind,processed_at,status,summary) VALUES(?,?,?,?,?,?)",
-                         (j["id"],j["router_id"],j["kind"],_now(),status,summary))
+            conn.execute(
+                """UPDATE maintenance_automation_runs
+                   SET processed_at=?,status=?,summary=?
+                   WHERE job_id=? AND status='running'""",
+                (completed_at,status,summary,j["id"]),
+            )
             conn.execute(
                 """INSERT INTO router_maintenance_history(router_id,occurred_at,technician,work_type,ticket_reference,issue,work_performed,result,follow_up,created_by,created_at)
                    VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
-                (j["router_id"],_now(),"Tikcentral automation","maintenance","","Post-change automated verification",
-                 f'Completed after job #{j["id"]} ({j["kind"]})',summary,"Review failed checks if any","maintenance-automation",_now()),
+                (j["router_id"],completed_at,"Tikcentral automation","maintenance","","Post-change automated verification",
+                 f'Completed after job #{j["id"]} ({j["kind"]})',summary,"Review failed checks if any","maintenance-automation",completed_at),
             )
         events.record(j["router_id"],"maintenance-automation",f"Post-change verification {status}",summary,"warning" if status=="partial" else "info")
         count+=1
