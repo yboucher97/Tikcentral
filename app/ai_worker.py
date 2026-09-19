@@ -27,6 +27,23 @@ def _recover_stale():
         )
 
 
+def _fail_ineligible_queued():
+    finished = _now()
+    with core.db() as conn:
+        conn.execute(
+            """UPDATE router_ai_analyses
+               SET status='failed',finished_at=?,error_code='ROUTER_INACTIVE',
+                   error_detail='Router was disabled or retired before the queued analysis could run.'
+               WHERE status='queued' AND trigger_source='human_web'
+                 AND EXISTS (
+                   SELECT 1 FROM routers r
+                   WHERE r.id=router_ai_analyses.router_id
+                     AND (r.enabled=0 OR COALESCE(r.lifecycle_state,'production')='retired')
+                 )""",
+            (finished,),
+        )
+
+
 def _claim_one():
     """Atomically claim one queued analysis whose router has no active change."""
     with core.db() as conn:
@@ -34,7 +51,7 @@ def _claim_one():
         row = conn.execute(
             """SELECT a.* FROM router_ai_analyses a
                JOIN routers r ON r.id=a.router_id
-               WHERE a.status='queued' AND r.enabled=1
+               WHERE a.status='queued' AND r.enabled=1 AND COALESCE(r.lifecycle_state,'production')<>'retired'
                  AND a.trigger_source='human_web'
                  AND NOT EXISTS (
                    SELECT 1 FROM router_jobs j
@@ -59,6 +76,7 @@ def _claim_one():
 def run_once() -> int:
     migrations.migrate()
     _recover_stale()
+    _fail_ineligible_queued()
     job = _claim_one()
     if not job:
         return 0
