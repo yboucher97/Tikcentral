@@ -1487,7 +1487,19 @@ def _m34(conn):
     """)
 
 
-MIGRATIONS = [_m1, _m2, _m3, _m4, _m5, _m6, _m7, _m8, _m9, _m10, _m11, _m12, _m13, _m14, _m15, _m16, _m17, _m18, _m19, _m20, _m21, _m22, _m23, _m24, _m25, _m26, _m27, _m28, _m29, _m30, _m31, _m32, _m33, _m34]
+def _m35(conn):
+    """Retire pre-trigger AI jobs that can no longer be executed safely."""
+    conn.execute(
+        """UPDATE router_ai_analyses
+           SET status='failed',
+               finished_at=COALESCE(NULLIF(finished_at,''), CURRENT_TIMESTAMP),
+               error_code=CASE WHEN COALESCE(error_code,'')='' THEN 'AI_TRIGGER_SOURCE_REQUIRED' ELSE error_code END,
+               error_detail=CASE WHEN COALESCE(error_detail,'')='' THEN 'Legacy AI request was not executed after human-trigger enforcement was enabled.' ELSE error_detail END
+           WHERE trigger_source='legacy' AND status IN ('queued','running')"""
+    )
+
+
+MIGRATIONS = [_m1, _m2, _m3, _m4, _m5, _m6, _m7, _m8, _m9, _m10, _m11, _m12, _m13, _m14, _m15, _m16, _m17, _m18, _m19, _m20, _m21, _m22, _m23, _m24, _m25, _m26, _m27, _m28, _m29, _m30, _m31, _m32, _m33, _m34, _m35]
 
 
 def migrate() -> int:
