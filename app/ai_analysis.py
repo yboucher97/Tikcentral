@@ -26,7 +26,7 @@ def _now() -> str:
 def _router(router_id: int):
     with core.db() as conn:
         return conn.execute(
-            "SELECT id,site_name,identity,serial,model,routeros_version,routerboot_version,vpn_ip,enabled FROM routers WHERE id=?",
+            "SELECT id,site_name,identity,serial,model,routeros_version,routerboot_version,vpn_ip,enabled,lifecycle_state FROM routers WHERE id=?",
             (router_id,),
         ).fetchone()
 
@@ -54,8 +54,8 @@ def collect_snapshot(router_id: int, focus_start: str = "", focus_end: str = "",
     """Collect a fresh, sanitized, read-only router snapshot."""
     migrations.migrate()
     router = _router(router_id)
-    if not router or not router["enabled"]:
-        raise errors.OperationError("ROUTER_NOT_FOUND", "Enabled router not found")
+    if not router or not router["enabled"] or (router["lifecycle_state"] or "production") == "retired":
+        raise errors.OperationError("ROUTER_NOT_FOUND", "Active router not found")
 
     telemetry_error = ""
     try:
