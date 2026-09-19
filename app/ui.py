@@ -168,63 +168,135 @@ JS = r'''
  const root=document.documentElement;
  const saved=localStorage.getItem('tikcentral:theme');
  root.dataset.theme=saved||(matchMedia('(prefers-color-scheme: light)').matches?'light':'dark');
- function themeLabel(){const b=document.getElementById('tcTheme');if(b)b.textContent=root.dataset.theme==='light'?'Dark mode':'Light mode'}
+
+ function themeLabel(){const b=document.getElementById('tcTheme');if(b)b.textContent=root.dataset.theme==='light'?'Dark':'Light'}
  window.tcToggleTheme=function(){root.dataset.theme=root.dataset.theme==='light'?'dark':'light';localStorage.setItem('tikcentral:theme',root.dataset.theme);themeLabel()};
+
  async function tcWriteClipboard(text){
    text=String(text??'');
-   try{
-     if(navigator.clipboard&&window.isSecureContext){await navigator.clipboard.writeText(text);return true}
-   }catch(_){}
-   try{
-     const ta=document.createElement('textarea');ta.value=text;ta.setAttribute('readonly','');ta.style.position='fixed';ta.style.opacity='0';ta.style.pointerEvents='none';document.body.appendChild(ta);ta.select();ta.setSelectionRange(0,ta.value.length);const ok=document.execCommand('copy');ta.remove();return !!ok
-   }catch(_){return false}
+   try{if(navigator.clipboard&&window.isSecureContext){await navigator.clipboard.writeText(text);return true}}catch(_){}
+   try{const ta=document.createElement('textarea');ta.value=text;ta.setAttribute('readonly','');ta.style.position='fixed';ta.style.opacity='0';document.body.appendChild(ta);ta.select();ta.setSelectionRange(0,ta.value.length);const ok=document.execCommand('copy');ta.remove();return !!ok}catch(_){return false}
  }
  window.tcCopy=async function(valueOrElement,button){
    let text='';
-   if(valueOrElement&&typeof valueOrElement==='object'){
-     if('value' in valueOrElement)text=valueOrElement.value;
-     else text=valueOrElement.innerText||valueOrElement.textContent||'';
-   }else text=String(valueOrElement??'');
+   if(valueOrElement&&typeof valueOrElement==='object')text=('value' in valueOrElement)?valueOrElement.value:(valueOrElement.innerText||valueOrElement.textContent||'');
+   else text=String(valueOrElement??'');
    const ok=await tcWriteClipboard(text);
-   if(button){
-     const old=button.textContent;button.textContent=ok?'Copied':'Copy failed';button.classList.toggle('tc-copy-ok',ok);
-     setTimeout(()=>{button.textContent=old;button.classList.remove('tc-copy-ok')},1200);
-   }
+   if(button){const old=button.textContent;button.textContent=ok?'Copied':'Failed';button.classList.toggle('tc-copy-ok',ok);setTimeout(()=>{button.textContent=old;button.classList.remove('tc-copy-ok')},1100)}
    return ok;
  };
  function installCopyButtons(rootNode=document){
    const rootEl=(rootNode&&rootNode.querySelectorAll)?rootNode:document;
-   const fields=[...rootEl.querySelectorAll('input,textarea,select')].filter(el=>{
-     const type=(el.getAttribute('type')||'text').toLowerCase();
-     return !['hidden','checkbox','radio','submit','button','file'].includes(type)&&!el.dataset.noCopy&&el.id!=='tcGlobalSearch';
-   });
+   const fields=[...rootEl.querySelectorAll('input,textarea,select')];
    if(rootNode&&rootNode.matches&&rootNode.matches('input,textarea,select'))fields.unshift(rootNode);
    fields.forEach(el=>{
      const type=(el.getAttribute('type')||'text').toLowerCase();
-     if(['hidden','checkbox','radio','submit','button','file'].includes(type)||el.dataset.noCopy||el.id==='tcGlobalSearch'||el.dataset.tcCopyReady)return;
-     el.dataset.tcCopyReady='1';
-     const b=document.createElement('button');b.type='button';b.className='tc-copy-btn';b.textContent='Copy';b.title='Copy field value';b.setAttribute('aria-label','Copy field value');
-     b.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();window.tcCopy(el,b)});el.insertAdjacentElement('afterend',b);
+     if(['hidden','checkbox','radio','submit','button','file','password'].includes(type)||el.dataset.noCopy||['tcGlobalSearch','tcPaletteSearch'].includes(el.id)||el.dataset.tcCopyReady)return;
+     el.dataset.tcCopyReady='1';const b=document.createElement('button');b.type='button';b.className='tc-copy-btn';b.textContent='Copy';b.title='Copy field value';
+     b.onclick=e=>{e.preventDefault();e.stopPropagation();window.tcCopy(el,b)};el.insertAdjacentElement('afterend',b);
    });
    const copyables=[...rootEl.querySelectorAll('[data-copy],code.tc-copy,pre.tc-copy')];
-   if(rootNode&&rootNode.matches&&rootNode.matches('[data-copy],code.tc-copy,pre.tc-copy'))copyables.unshift(rootNode);
-   copyables.forEach(el=>{
-     if(el.dataset.tcCopyReady)return;el.dataset.tcCopyReady='1';
-     const b=document.createElement('button');b.type='button';b.className='tc-copy-btn';b.textContent='Copy';b.title='Copy value';
-     b.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();window.tcCopy(el,b)});el.insertAdjacentElement('afterend',b);
-   });
+   copyables.forEach(el=>{if(el.dataset.tcCopyReady)return;el.dataset.tcCopyReady='1';const b=document.createElement('button');b.type='button';b.className='tc-copy-btn';b.textContent='Copy';b.onclick=e=>{e.preventDefault();e.stopPropagation();window.tcCopy(el,b)};el.insertAdjacentElement('afterend',b)});
  }
  document.addEventListener('click',e=>{const b=e.target.closest('[data-copy-target]');if(!b)return;const t=document.querySelector(b.dataset.copyTarget);if(t)window.tcCopy(t,b)});
+
  function numeric(s){const v=Number(String(s).replace(/[^0-9+-.]/g,''));return Number.isFinite(v)?v:null}
- function sortTable(table,idx,dir){const tb=table.tBodies[0];if(!tb)return;const rows=[...tb.rows];rows.sort((a,b)=>{let x=(a.cells[idx]?.innerText||'').trim(),y=(b.cells[idx]?.innerText||'').trim();const nx=numeric(x),ny=numeric(y);let c=(nx!==null&&ny!==null)?nx-ny:x.localeCompare(y,undefined,{numeric:true,sensitivity:'base'});return dir*c});rows.forEach(r=>tb.appendChild(r))}
+ function sortTable(table,idx,dir){const tb=table.tBodies[0];if(!tb)return;const rows=[...tb.rows];rows.sort((a,b)=>{let x=(a.cells[idx]?.innerText||'').trim(),y=(b.cells[idx]?.innerText||'').trim();const nx=numeric(x),ny=numeric(y);let cmp=(nx!==null&&ny!==null)?nx-ny:x.localeCompare(y,undefined,{numeric:true,sensitivity:'base'});return dir*cmp});rows.forEach(row=>tb.appendChild(row))}
  function comparable(v){const s=String(v??'').trim();const d=Date.parse(s);if(s&&Number.isFinite(d)&&(/\d{4}-\d{1,2}-\d{1,2}/.test(s)||s.includes('T')))return {type:'date',value:d};const n=numeric(s);if(s&&n!==null)return {type:'number',value:n};return {type:'text',value:s.toLowerCase()}}
- function matchOperator(cell,op,wanted){const raw=String(cell??'').trim();const a=comparable(raw),b=comparable(wanted);if(op==='contains')return raw.toLowerCase().includes(String(wanted??'').toLowerCase());if(op==='!contains')return !raw.toLowerCase().includes(String(wanted??'').toLowerCase());let av=a.value,bv=b.value;if(a.type!==b.type){av=raw.toLowerCase();bv=String(wanted??'').toLowerCase()}if(op==='=')return av===bv;if(op==='!=')return av!==bv;if(op==='>')return av>bv;if(op==='>=')return av>=bv;if(op==='<')return av<bv;if(op==='<=')return av<=bv;return true}
- function filterTable(wrap){const q=(wrap.querySelector('.tc-local-search')?.value||'').toLowerCase();const col=Number(wrap.querySelector('.tc-filter-column')?.value??-1);const op=wrap.querySelector('.tc-filter-op')?.value||'contains';const wanted=wrap.querySelector('.tc-filter-value')?.value||'';let shown=0,total=0;wrap.querySelectorAll('tbody tr').forEach(r=>{total++;const textOk=!q||(r.innerText||'').toLowerCase().includes(q);const filterOk=!wanted||col<0||matchOperator(r.cells[col]?.innerText||'',op,wanted);const ok=textOk&&filterOk;r.style.display=ok?'':'none';if(ok)shown++});const c=wrap.querySelector('.tc-count');if(c)c.textContent=shown+' of '+total+' rows'}
- function enhanceTable(table,index){if(table.dataset.tcReady)return;table.dataset.tcReady='1';const panel=table.parentElement;const wrap=document.createElement('div');wrap.className='tc-table-wrap';panel.insertBefore(wrap,table);const tools=document.createElement('div');tools.className='tc-table-tools';tools.innerHTML='<input class="tc-local-search" data-no-copy placeholder="Search this table…"><select class="tc-filter-column" data-no-copy title="Filter column"></select><select class="tc-filter-op" data-no-copy title="Filter operator"><option value="contains">contains</option><option value="!contains">does not contain</option><option value="=">=</option><option value="!=">!=</option><option value=">">&gt;</option><option value=">=">&gt;=</option><option value="<">&lt;</option><option value="<=">&lt;=</option></select><input class="tc-filter-value" data-no-copy placeholder="Filter value…"><span class="tc-count"></span><div class="tc-colbox"><button type="button" class="tc-colbtn">Columns ▾</button><div class="tc-colmenu"></div></div><button type="button" class="tc-reset">Reset view</button>';wrap.appendChild(tools);const scroll=document.createElement('div');scroll.className='tc-scroll';wrap.appendChild(scroll);scroll.appendChild(table);const key='tikcentral:columns:'+location.pathname+':'+index;let hidden=[];try{hidden=JSON.parse(localStorage.getItem(key)||'[]')}catch(_){hidden=[]}const headers=[...table.querySelectorAll('thead th')];const menu=tools.querySelector('.tc-colmenu');const filterColumn=tools.querySelector('.tc-filter-column');headers.forEach((th,i)=>{th.dataset.sort='1';let dir=1;th.addEventListener('click',e=>{if(e.target.closest('input,button,select'))return;sortTable(table,i,dir);dir*=-1});const label=(th.innerText||('Column '+(i+1))).trim()||('Column '+(i+1));const opt=document.createElement('option');opt.value=String(i);opt.textContent=label;filterColumn.appendChild(opt);const row=document.createElement('label');row.innerHTML='<input type="checkbox" '+(hidden.includes(i)?'':'checked')+'><span></span>';row.querySelector('span').textContent=label;const cb=row.querySelector('input');cb.addEventListener('change',()=>setCol(i,cb.checked));menu.appendChild(row);setCol(i,!hidden.includes(i),false)});function setCol(i,show,save=true){[...table.rows].forEach(r=>{if(r.cells[i])r.cells[i].style.display=show?'':'none'});hidden=hidden.filter(x=>x!==i);if(!show)hidden.push(i);if(save)localStorage.setItem(key,JSON.stringify(hidden))}tools.querySelector('.tc-colbtn').onclick=e=>{e.stopPropagation();tools.querySelector('.tc-colbox').classList.toggle('open')};tools.querySelector('.tc-local-search').oninput=()=>filterTable(wrap);filterColumn.onchange=()=>filterTable(wrap);tools.querySelector('.tc-filter-op').onchange=()=>filterTable(wrap);tools.querySelector('.tc-filter-value').oninput=()=>filterTable(wrap);tools.querySelector('.tc-reset').onclick=()=>{tools.querySelector('.tc-local-search').value='';tools.querySelector('.tc-filter-value').value='';tools.querySelector('.tc-filter-op').value='contains';if(filterColumn.options.length)filterColumn.selectedIndex=0;hidden=[];localStorage.removeItem(key);headers.forEach((_,i)=>setCol(i,true,false));menu.querySelectorAll('input').forEach(x=>x.checked=true);filterTable(wrap)};filterTable(wrap)}
- function globalFilter(){const q=(document.getElementById('tcGlobalSearch')?.value||'').toLowerCase();document.querySelectorAll('.panel,.card').forEach(el=>{if(el.querySelector('.tc-table-wrap'))return;el.style.display=!q||(el.innerText||'').toLowerCase().includes(q)?'':'none'});document.querySelectorAll('.tc-table-wrap').forEach(w=>{const inp=w.querySelector('.tc-local-search');if(inp){inp.value=q;filterTable(w)}})}
- document.addEventListener('click',()=>document.querySelectorAll('.tc-colbox.open').forEach(x=>x.classList.remove('open')));
- document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='k'){e.preventDefault();document.getElementById('tcGlobalSearch')?.focus()}if(e.key==='Escape'&&document.activeElement===document.getElementById('tcGlobalSearch')){document.getElementById('tcGlobalSearch').value='';globalFilter()}});
- document.addEventListener('DOMContentLoaded',()=>{themeLabel();installCopyButtons();const observer=new MutationObserver(mutations=>{mutations.forEach(m=>m.addedNodes.forEach(node=>{if(node.nodeType===1)installCopyButtons(node)}))});observer.observe(document.body,{childList:true,subtree:true});document.querySelectorAll('table').forEach(enhanceTable);const g=document.getElementById('tcGlobalSearch');if(g)g.addEventListener('input',globalFilter);document.querySelectorAll('td').forEach(td=>{if(td.children.length)return;const s=(td.innerText||'').trim().toLowerCase();let tone='';if(['healthy','online','passed','success','succeeded','enabled','ready','commissioned','matches baseline'].includes(s))tone='ok';else if(['warning','partial','degraded','pending','queued','running','verifying','drift','drift detected'].includes(s))tone='warn';else if(['failed','error','critical','offline'].includes(s))tone='bad';if(tone){const text=td.innerText;td.innerHTML='<span class="tc-status '+tone+' live"><span class="tc-status-dot"></span><span></span></span>';td.firstChild.lastChild.textContent=text}})});
+ function matchOperator(cell,op,wanted){const raw=String(cell??'').trim();if(op==='contains')return raw.toLowerCase().includes(String(wanted??'').toLowerCase());if(op==='!contains')return !raw.toLowerCase().includes(String(wanted??'').toLowerCase());const a=comparable(raw),b=comparable(wanted);let av=a.value,bv=b.value;if(a.type!==b.type){av=raw.toLowerCase();bv=String(wanted??'').toLowerCase()}return op==='='?av===bv:op==='!='?av!==bv:op==='>'?av>bv:op==='>='?av>=bv:op==='<'?av<bv:op==='<='?av<=bv:true}
+ function filterTable(wrap){const q=(wrap.querySelector('.tc-local-search')?.value||'').toLowerCase();const col=Number(wrap.querySelector('.tc-filter-column')?.value??-1);const op=wrap.querySelector('.tc-filter-op')?.value||'contains';const wanted=wrap.querySelector('.tc-filter-value')?.value||'';let shown=0,total=0;wrap.querySelectorAll('tbody tr').forEach(r=>{total++;const textOk=!q||(r.innerText||'').toLowerCase().includes(q);const filterOk=!wanted||col<0||matchOperator(r.cells[col]?.innerText||'',op,wanted);const ok=textOk&&filterOk;r.style.display=ok?'':'none';if(ok)shown++});const count=wrap.querySelector('.tc-count');if(count)count.textContent=shown+' / '+total}
+ function enhanceTable(table,index){
+   if(table.dataset.tcReady)return;table.dataset.tcReady='1';
+   const panel=table.parentElement,wrap=document.createElement('div');wrap.className='tc-table-wrap';panel.insertBefore(wrap,table);
+   const tools=document.createElement('div');tools.className='tc-table-tools';
+   tools.innerHTML='<input class="tc-local-search" data-no-copy placeholder="Search rows…"><button type="button" class="tc-filter-toggle">Filter</button><span class="tc-count"></span><div class="tc-colbox"><button type="button" class="tc-colbtn">Columns</button><div class="tc-colmenu"></div></div><button type="button" class="tc-reset">Reset</button><div class="tc-advanced"><select class="tc-filter-column" data-no-copy></select><select class="tc-filter-op" data-no-copy><option value="contains">contains</option><option value="!contains">does not contain</option><option value="=">=</option><option value="!=">!=</option><option value=">">&gt;</option><option value=">=">&gt;=</option><option value="<">&lt;</option><option value="<=">&lt;=</option></select><input class="tc-filter-value" data-no-copy placeholder="Filter value…"></div>';
+   wrap.appendChild(tools);const scroll=document.createElement('div');scroll.className='tc-scroll';wrap.appendChild(scroll);scroll.appendChild(table);
+   const key='tikcentral:columns:'+location.pathname+':'+index;let hidden=[];try{hidden=JSON.parse(localStorage.getItem(key)||'[]')}catch(_){}
+   const headers=[...table.querySelectorAll('thead th')],menu=tools.querySelector('.tc-colmenu'),filterColumn=tools.querySelector('.tc-filter-column');
+   headers.forEach((th,i)=>{th.dataset.sort='1';let dir=1;th.onclick=e=>{if(e.target.closest('input,button,select'))return;sortTable(table,i,dir);dir*=-1};const label=(th.innerText||('Column '+(i+1))).trim()||('Column '+(i+1));const opt=document.createElement('option');opt.value=String(i);opt.textContent=label;filterColumn.appendChild(opt);const row=document.createElement('label');row.innerHTML='<input type="checkbox" '+(hidden.includes(i)?'':'checked')+'><span></span>';row.querySelector('span').textContent=label;const cb=row.querySelector('input');cb.onchange=()=>setCol(i,cb.checked);menu.appendChild(row);setCol(i,!hidden.includes(i),false)});
+   function setCol(i,show,save=true){[...table.rows].forEach(r=>{if(r.cells[i])r.cells[i].style.display=show?'':'none'});hidden=hidden.filter(x=>x!==i);if(!show)hidden.push(i);if(save)localStorage.setItem(key,JSON.stringify(hidden))}
+   tools.querySelector('.tc-filter-toggle').onclick=()=>tools.classList.toggle('filter-open');
+   tools.querySelector('.tc-colbtn').onclick=e=>{e.stopPropagation();tools.querySelector('.tc-colbox').classList.toggle('open')};
+   ['input','change'].forEach(ev=>{tools.querySelector('.tc-local-search').addEventListener(ev,()=>filterTable(wrap));tools.querySelector('.tc-filter-value').addEventListener(ev,()=>filterTable(wrap))});
+   filterColumn.onchange=()=>filterTable(wrap);tools.querySelector('.tc-filter-op').onchange=()=>filterTable(wrap);
+   tools.querySelector('.tc-reset').onclick=()=>{tools.querySelector('.tc-local-search').value='';tools.querySelector('.tc-filter-value').value='';tools.querySelector('.tc-filter-op').value='contains';hidden=[];localStorage.removeItem(key);headers.forEach((_,i)=>setCol(i,true,false));menu.querySelectorAll('input').forEach(x=>x.checked=true);filterTable(wrap)};
+   filterTable(wrap);
+ }
+
+ function globalFilter(){const q=(document.getElementById('tcGlobalSearch')?.value||'').toLowerCase();document.querySelectorAll('.tc-content>.panel,.tc-content>.card,.tc-content>.cards').forEach(el=>{if(el.querySelector('.tc-table-wrap'))return;el.style.display=!q||(el.innerText||'').toLowerCase().includes(q)?'':'none'});document.querySelectorAll('.tc-table-wrap').forEach(w=>{const inp=w.querySelector('.tc-local-search');if(inp){inp.value=q;filterTable(w)}})}
+
+ function openPalette(){const p=document.getElementById('tcPalette');if(!p)return;p.classList.add('open');const i=document.getElementById('tcPaletteSearch');if(i){i.value='';filterPalette();setTimeout(()=>i.focus(),0)}}
+ function closePalette(){document.getElementById('tcPalette')?.classList.remove('open')}
+ function filterPalette(){const q=(document.getElementById('tcPaletteSearch')?.value||'').trim().toLowerCase();document.querySelectorAll('.tc-palette-item').forEach(x=>x.style.display=!q||(x.dataset.search||'').includes(q)?'flex':'none')}
+
+ const toolCategory=(href)=>{
+   if(/timeline|incidents|diagnostics|network-quality|wan-probe|interfaces|lte|mtu|time-health|traffic|capacity/.test(href))return 'Troubleshoot';
+   if(/desired-state|compliance|security-audit|protection|audit|automation-inventory|log-patterns|topology/.test(href))return 'Configuration & security';
+   if(/site|notes|customer-report|maintenance-history|hardware|lifecycle|certificates/.test(href))return 'Site & assets';
+   if(/recovery|replacements|rescue|change|commissioning|public-ip|local-utilization/.test(href))return 'Lifecycle & recovery';
+   return 'Other tools';
+ };
+ function organizeRouterWorkspace(){
+   if(!/^\/operations\/\d+\/?$/.test(location.pathname))return;
+   const content=document.querySelector('.tc-content');if(!content)return;
+   const panels=[...content.children].filter(x=>x.classList?.contains('panel'));
+   if(!panels.length)return;
+   const hero=panels[0],actions=hero.querySelector('.inline');
+   if(actions){
+     const links=[...actions.querySelectorAll(':scope > a')];
+     const primaryPatterns=[/\/timeline\//,/\/incidents\//,/\/diagnostics\//,/\/network-quality\//,/\/notes\//];
+     const primary=[];const rest=[];
+     links.forEach(a=>(primaryPatterns.some(rx=>rx.test(a.getAttribute('href')||''))&&primary.length<5?primary:rest).push(a));
+     actions.className='tc-router-primary';actions.innerHTML='';primary.forEach(a=>actions.appendChild(a));
+     if(rest.length){
+       const details=document.createElement('details');details.className='tc-router-toolbox';details.innerHTML='<summary>All router tools ('+rest.length+')</summary><div class="tc-router-tool-groups"></div>';
+       const groups={};rest.forEach(a=>{const g=toolCategory(a.getAttribute('href')||'');(groups[g]||(groups[g]=[])).push(a)});
+       const box=details.querySelector('.tc-router-tool-groups');Object.entries(groups).forEach(([name,items])=>{const d=document.createElement('div');d.className='tc-router-tool-group';d.innerHTML='<strong>'+name+'</strong>';items.forEach(a=>{const copy=a.cloneNode(true);const btn=copy.querySelector('button');if(btn){const label=btn.textContent;copy.textContent=label}d.appendChild(copy)});box.appendChild(d)});hero.appendChild(details);
+     }
+   }
+   const categoryMap={
+     'Summary':['Lifecycle','Site / customer','Outage domain','Access / commissioning','Telemetry'],
+     'Connectivity':['Interface health','Traffic','Capacity trends','WAN probe','Network quality','Time / NTP','MTU / MSS','Public IP churn','Local network utilization','LTE','Topology'],
+     'Configuration':['Security exposure','RouterOS automation','Desired state','Commissioning checklist','Golden policy','Router log patterns','Performance','RouterOS / RouterBOOT'],
+     'Assets':['Model capabilities','Hardware lifecycle'],
+   };
+   const leftovers=[];const sections={};
+   Object.keys(categoryMap).forEach(name=>{const s=document.createElement('div');s.className='tc-workspace-section';s.dataset.tab=name;sections[name]=s});
+   [...content.children].forEach(el=>{
+     if(el===hero||el.classList?.contains('tc-page-tools'))return;
+     const h=el.querySelector?.(':scope > h3');const title=h?.textContent?.trim()||'';
+     let dest='';for(const [name,titles] of Object.entries(categoryMap)){if(titles.includes(title)){dest=name;break}}
+     if(dest)sections[dest].appendChild(el);else leftovers.push(el);
+   });
+   const activity=document.createElement('div');activity.className='tc-workspace-section';activity.dataset.tab='Activity';leftovers.forEach(el=>activity.appendChild(el));sections.Activity=activity;
+   const tabs=document.createElement('div');tabs.className='tc-workspace-tabs';
+   Object.keys(sections).forEach((name,i)=>{const b=document.createElement('button');b.type='button';b.textContent=name;b.className=i===0?'active':'';b.onclick=()=>{tabs.querySelectorAll('button').forEach(x=>x.classList.remove('active'));b.classList.add('active');Object.values(sections).forEach(s=>s.classList.remove('active'));sections[name].classList.add('active');localStorage.setItem('tikcentral:router-tab',name)};tabs.appendChild(b)});
+   hero.insertAdjacentElement('afterend',tabs);Object.values(sections).forEach(s=>content.appendChild(s));
+   const saved=localStorage.getItem('tikcentral:router-tab');const target=sections[saved]?saved:Object.keys(sections)[0];[...tabs.children].find(b=>b.textContent===target)?.click();
+ }
+
+ function decorateStatuses(){document.querySelectorAll('td').forEach(td=>{if(td.children.length)return;const s=(td.innerText||'').trim().toLowerCase();let tone='';if(['healthy','online','passed','success','succeeded','enabled','ready','commissioned','matches baseline','ok','up'].includes(s))tone='ok';else if(['warning','partial','degraded','pending','queued','running','verifying','drift','drift detected','saturated'].includes(s))tone='warn';else if(['failed','error','critical','offline','down'].includes(s))tone='bad';if(tone){const text=td.innerText;td.innerHTML='<span class="tc-status '+tone+'"><span class="tc-status-dot"></span><span></span></span>';td.firstChild.lastChild.textContent=text}})}
+
+ document.addEventListener('click',e=>{
+   if(!e.target.closest('.tc-colbox'))document.querySelectorAll('.tc-colbox.open').forEach(x=>x.classList.remove('open'));
+   if(!e.target.closest('.tc-account'))document.querySelector('.tc-account')?.classList.remove('open');
+   if(e.target.id==='tcPalette')closePalette();
+ });
+ document.addEventListener('keydown',e=>{
+   if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='k'){e.preventDefault();openPalette()}
+   if(e.key==='Escape'){closePalette();document.body.classList.remove('tc-nav-open')}
+ });
+ document.addEventListener('DOMContentLoaded',()=>{
+   themeLabel();installCopyButtons();organizeRouterWorkspace();decorateStatuses();
+   const observer=new MutationObserver(ms=>ms.forEach(m=>m.addedNodes.forEach(node=>{if(node.nodeType===1)installCopyButtons(node)})));observer.observe(document.body,{childList:true,subtree:true});
+   document.querySelectorAll('table').forEach(enhanceTable);
+   const g=document.getElementById('tcGlobalSearch');if(g)g.oninput=globalFilter;
+   const clear=document.getElementById('tcPageSearchClear');if(clear)clear.onclick=()=>{if(g){g.value='';globalFilter()}};
+   document.getElementById('tcCommandBtn')?.addEventListener('click',openPalette);
+   document.getElementById('tcPaletteSearch')?.addEventListener('input',filterPalette);
+   document.getElementById('tcMenuBtn')?.addEventListener('click',()=>document.body.classList.toggle('tc-nav-open'));
+   document.getElementById('tcAccountBtn')?.addEventListener('click',e=>{e.stopPropagation();document.querySelector('.tc-account')?.classList.toggle('open')});
+ });
 })();
 '''
 
