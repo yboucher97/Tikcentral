@@ -84,8 +84,8 @@ async def ssh_console_run(router_id: int, request: Request):
             "SELECT id,site_name,identity,model,vpn_ip,enabled,lifecycle_state FROM routers WHERE id=?",
             (router_id,),
         ).fetchone()
-    if not router or not router["enabled"]:
-        raise HTTPException(status_code=404, detail="enabled router not found")
+    if not router or not router["enabled"] or (router["lifecycle_state"] or "production") == "retired":
+        raise HTTPException(status_code=404, detail="active router not found")
 
     actor = user["email"] if "email" in user.keys() else "admin"
     override_degraded = str(data.get("override_degraded", "")) == "1"
