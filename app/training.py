@@ -192,7 +192,7 @@ INTELLIGENCE_GUIDE = [
         "next":"Use Mbps first; use percentage only when negotiated capacity is known."
     },
     {
-        "group":"Fleet","name":"Public-IP Change Frequency","kind":"Compare","route":"/public-ip-analysis",
+        "group":"Fleet","name":"Public-IP Change Frequency","kind":"Compare","route":"/operations",
         "does":"Shows how often a site's public IP changes.",
         "looks":"Observed public-IP transitions over time.",
         "read":"High churn can explain allow-list/VPN/reachability problems but is not automatically an outage.",
