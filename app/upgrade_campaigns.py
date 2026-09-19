@@ -63,18 +63,19 @@ def _queue_stage(campaign_id:int,stage:str,actor:str):
     with core.db() as conn:
         campaign=conn.execute("SELECT * FROM upgrade_campaigns WHERE id=?",(campaign_id,)).fetchone()
         members=conn.execute(
-            """SELECT m.*,r.model,r.lifecycle_state FROM upgrade_campaign_members m
+            """SELECT m.*,r.model,r.lifecycle_state,r.enabled FROM upgrade_campaign_members m
                JOIN routers r ON r.id=m.router_id
                WHERE m.campaign_id=? AND m.stage=? AND m.status='pending' ORDER BY m.id""",
             (campaign_id,stage),
         ).fetchall()
     if not campaign: raise ValueError("campaign not found")
     for m in members:
-        if (m["lifecycle_state"] or "production") not in {"production","maintenance"}:
+        if not m["enabled"] or (m["lifecycle_state"] or "production") not in {"production","maintenance"}:
+            reason = "router disabled" if not m["enabled"] else f'lifecycle state {m["lifecycle_state"] or "production"} is not upgrade-eligible'
             with core.db() as conn:
                 conn.execute(
                     "UPDATE upgrade_campaign_members SET status='failed',last_error=?,updated_at=? WHERE id=?",
-                    (f'lifecycle state {m["lifecycle_state"] or "production"} is not upgrade-eligible',_now(),m["id"]),
+                    (reason,_now(),m["id"]),
                 )
             return 0
         with core.db() as conn:
@@ -115,7 +116,7 @@ def register(app,page_func):
             routers=conn.execute(
                 """SELECT r.id,r.site_name,r.model,r.lifecycle_state,u.latest_version
                    FROM routers r LEFT JOIN router_update_status u ON u.router_id=r.id
-                   WHERE r.enabled=1 AND r.lifecycle_state<>'retired'
+                   WHERE r.enabled=1 AND COALESCE(r.lifecycle_state,'production') IN ('production','maintenance')
                    ORDER BY r.site_name COLLATE NOCASE"""
             ).fetchall()
             campaigns=conn.execute("SELECT * FROM upgrade_campaigns ORDER BY id DESC LIMIT 50").fetchall()
@@ -165,11 +166,11 @@ def register(app,page_func):
             raise HTTPException(status_code=400,detail="campaign name, target version and routers are required")
         with core.db() as conn:
             valid_ids={int(r[0]) for r in conn.execute(
-                "SELECT id FROM routers WHERE enabled=1 AND lifecycle_state<>'retired' AND id IN ("+(",".join("?" for _ in ids))+")",
+                "SELECT id FROM routers WHERE enabled=1 AND COALESCE(lifecycle_state,'production') IN ('production','maintenance') AND id IN ("+(",".join("?" for _ in ids))+")",
                 tuple(ids),
             ).fetchall()}
         if canary not in valid_ids or valid_ids != set(ids):
-            raise HTTPException(status_code=400,detail="campaign contains an invalid, disabled or retired router")
+            raise HTTPException(status_code=400,detail="campaign contains a router that is disabled or not in Production/Maintenance")
         now=_now()
         with core.db() as conn:
             cur=conn.execute("INSERT INTO upgrade_campaigns(name,target_version,status,created_by,created_at,notes) VALUES(?,?,'canary_running',?,?,?)",
