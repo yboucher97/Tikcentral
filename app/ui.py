@@ -552,14 +552,14 @@ JS = r'''
    mount.innerHTML='<div class="tc-contextbar"><div class="tc-context-main"><span class="tc-status-dot" style="color:var(--accent)"></span><div><div class="tc-context-title"></div><div class="muted">Router workspace</div></div></div><div class="tc-context-links">'+htmlLinks+'</div></div>';
    mount.querySelector('.tc-context-title').textContent=label;
    try{
-     const key='tikcentral:recent-routers';let recent=JSON.parse(localStorage.getItem(key)||'[]');
-     recent=recent.filter(x=>String(x.id)!==String(id));recent.unshift({id,label,at:Date.now()});recent=recent.slice(0,8);localStorage.setItem(key,JSON.stringify(recent));
+     const key=localPrefKey('ui:recent-routers');let recent=JSON.parse(localStorage.getItem(key)||'[]');
+     recent=recent.filter(x=>String(x.id)!==String(id));recent.unshift({id,label,at:Date.now()});recent=recent.slice(0,8);localStorage.setItem(key,JSON.stringify(recent));prefSet('ui:recent-routers',recent);
    }catch(_){}
  }
  function installRecentRouters(){
    const list=document.querySelector('.tc-palette-list');if(!list)return;
    try{
-     const recent=JSON.parse(localStorage.getItem('tikcentral:recent-routers')||'[]');if(!recent.length)return;
+     const recent=prefGet('ui:recent-routers',JSON.parse(localStorage.getItem(localPrefKey('ui:recent-routers'))||'[]'));if(!recent.length)return;
      const title=document.createElement('div');title.className='tc-palette-group';title.textContent='Recent routers';list.prepend(title);
      [...recent].reverse().forEach(x=>{const a=document.createElement('a');a.className='tc-palette-item';a.href='/operations/'+x.id;a.dataset.search=('router '+x.label+' '+x.id).toLowerCase();a.innerHTML='<span></span><span>Router</span>';a.firstChild.textContent=x.label;title.insertAdjacentElement('afterend',a)});
    }catch(_){}
@@ -588,11 +588,11 @@ JS = r'''
    if(!details.length)return;
    details.forEach((d,i)=>{
      const label=(d.querySelector(':scope > summary')?.innerText||('section-'+i)).trim();
-     const key='tikcentral:disclosure:'+location.pathname+':'+label;
-     const stored=localStorage.getItem(key);
+     const key='ui:disclosure:'+location.pathname+':'+label;
+     const stored=prefGet(key,null);
      if(stored==='open')d.open=true;
      else if(stored==='closed')d.open=false;
-     d.addEventListener('toggle',()=>localStorage.setItem(key,d.open?'open':'closed'));
+     d.addEventListener('toggle',()=>prefSet(key,d.open?'open':'closed'));
    });
    if(details.length>=2){
      const tools=document.querySelector('.tc-page-tools');
