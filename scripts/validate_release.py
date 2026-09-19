@@ -461,6 +461,18 @@ def validate_source_boundaries():
     final_guard = (ROOT / "app/final.py").read_text(encoding="utf-8")
     if "Normalization blocked by protected object rule" not in final_guard:
         fail("Normalization does not enforce protected-object policy")
+    guardian_guard = (ROOT / "app/guardian.py").read_text(encoding="utf-8")
+    rescue_guard = (ROOT / "app/rescue.py").read_text(encoding="utf-8")
+    ssh_guard = (ROOT / "app/production.py").read_text(encoding="utf-8")
+    for source, label, markers in (
+        (guardian_guard, "Guardian repair", ("ROUTER_RETIRED", "lifecycle_state")),
+        (rescue_guard, "Rescue", ("ROUTER_RETIRED", "lifecycle_state")),
+        (ssh_guard, "Web SSH", ("lifecycle_state", "active router not found")),
+        (final_guard, "Audit normalization", ("lifecycle_state", '"retired"')),
+    ):
+        for marker in markers:
+            if marker not in source:
+                fail(f"{label} retired-router guard missing: {marker}")
     lifecycle_text = (ROOT / "app/lifecycle.py").read_text(encoding="utf-8")
     for marker in ("STATES", "commissioning", "production", "maintenance", "retired", "Lifecycle changed"):
         if marker not in lifecycle_text:
@@ -534,6 +546,10 @@ def validate_source_boundaries():
     for marker in ("STANDARD", "1.1.1.1", "8.8.8.8", "cloudflare.com", "degraded_quality", "packet_loss_warn_percent", "latency_warn_ms"):
         if marker not in wan_probe_text:
             fail(f"WAN probe standard profile missing: {marker}")
+    for marker in ("external_states", "probe unavailable or incomplete", "dns_ok=None"):
+        haystack = wan_probe_text.replace(" ", "") if marker == "dns_ok=None" else wan_probe_text
+        if marker not in haystack:
+            fail(f"WAN probe transport-failure handling missing: {marker}")
     desired_text = (ROOT / "app/desired_state.py").read_text(encoding="utf-8")
     for marker in ("STANDARD_INTENT", "management_services_restricted", "default_route_required", "wireguard_required", "audit only"):
         if marker not in desired_text:
