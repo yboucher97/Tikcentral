@@ -1,11 +1,12 @@
 """Multi-target WAN probing with a standard fallback profile."""
 
 import html
+import ipaddress
 import json
 import re
 from datetime import datetime, timezone
 
-from fastapi import Request
+from fastapi import HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app import events, main as core, migrations, router_exec
@@ -21,6 +22,23 @@ STANDARD={
 
 
 def _now(): return datetime.now(timezone.utc).isoformat()
+
+
+_HOST_RE=re.compile(r"^(?=.{1,253}$)(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)*[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$")
+
+
+def _safe_target(value: str) -> str:
+    raw=(value or "").strip()
+    if not raw:
+        raise ValueError("probe target is empty")
+    try:
+        ipaddress.ip_address(raw)
+        return raw
+    except ValueError:
+        pass
+    if _HOST_RE.fullmatch(raw):
+        return raw
+    raise ValueError("probe target must be a valid IP address or hostname")
 
 
 def get_config(router_id:int):
@@ -78,7 +96,8 @@ def collect(router_id:int):
     targets=(cfg["targets"]+["",""])[:2]
     p1=_ping(r["vpn_ip"],targets[0]); p2=_ping(r["vpn_ip"],targets[1])
     try:
-        dnsout=router_exec.read(r["vpn_ip"],f':do {{ :put ("resolved=" . [:resolve "{cfg["dns_name"]}"]) }} on-error={{ :put "resolved=FAILED" }}',timeout=20,label="WAN DNS probe")
+        dns_name=_safe_target(str(cfg["dns_name"]))
+        dnsout=router_exec.read(r["vpn_ip"],f':do {{ :put ("resolved=" . [:resolve "{dns_name}"]) }} on-error={{ :put "resolved=FAILED" }}',timeout=20,label="WAN DNS probe")
         dns_ok="FAILED" not in dnsout and "resolved=" in dnsout
     except Exception:dns_ok=False
 
@@ -157,12 +176,24 @@ def register(app,page_func):
         if profile=="standard":
             cfg=dict(STANDARD)
         else:
+            try:
+                target1=_safe_target(str(data.get("target1","")).strip() or STANDARD["targets"][0])
+                target2=_safe_target(str(data.get("target2","")).strip() or STANDARD["targets"][1])
+                dns_name=_safe_target(str(data.get("dns_name","")).strip() or STANDARD["dns_name"])
+                latency=float(data.get("latency_warn_ms") or STANDARD["latency_warn_ms"])
+                loss=float(data.get("loss_warn") or STANDARD["packet_loss_warn_percent"])
+            except (TypeError,ValueError) as exc:
+                raise HTTPException(status_code=400,detail=str(exc) or "invalid WAN probe configuration")
+            if not (1 <= latency <= 60000):
+                raise HTTPException(status_code=400,detail="latency warning must be between 1 and 60000 ms")
+            if not (0 <= loss <= 100):
+                raise HTTPException(status_code=400,detail="packet loss warning must be between 0 and 100 percent")
             cfg={
                 "profile":"custom",
-                "targets":[str(data.get("target1","")).strip() or STANDARD["targets"][0],str(data.get("target2","")).strip() or STANDARD["targets"][1]],
-                "dns_name":str(data.get("dns_name","")).strip() or STANDARD["dns_name"],
-                "latency_warn_ms":float(data.get("latency_warn_ms") or STANDARD["latency_warn_ms"]),
-                "packet_loss_warn_percent":float(data.get("loss_warn") or STANDARD["packet_loss_warn_percent"]),
+                "targets":[target1,target2],
+                "dns_name":dns_name,
+                "latency_warn_ms":latency,
+                "packet_loss_warn_percent":loss,
             }
         with core.db() as conn:
             conn.execute(
