@@ -222,8 +222,9 @@ source "$ENV_FILE"
 set +a
 DOMAIN="${PUBLIC_HOSTNAME:-${WG_ENDPOINT%:*}}"
 [[ -n "$DOMAIN" ]] || { echo "Could not determine Tikcentral hostname from $ENV_FILE" >&2; exit 1; }
+CADDY_TMP="$(mktemp /tmp/tikcentral-caddy.XXXXXX)"
 if [[ -n "${ACME_EMAIL:-}" ]]; then
-  cat > /etc/caddy/Caddyfile <<EOF
+  cat > "$CADDY_TMP" <<EOF
 {
     email $ACME_EMAIL
 }
@@ -236,7 +237,7 @@ $DOMAIN {
 }
 EOF
 else
-  cat > /etc/caddy/Caddyfile <<EOF
+  cat > "$CADDY_TMP" <<EOF
 $DOMAIN {
     encode zstd gzip
     reverse_proxy 127.0.0.1:8080 {
@@ -245,8 +246,10 @@ $DOMAIN {
 }
 EOF
 fi
-caddy fmt --overwrite /etc/caddy/Caddyfile >/dev/null
-caddy validate --config /etc/caddy/Caddyfile
+caddy fmt --overwrite "$CADDY_TMP" >/dev/null
+caddy validate --adapter caddyfile --config "$CADDY_TMP"
+install -o root -g root -m 0644 "$CADDY_TMP" /etc/caddy/Caddyfile
+rm -f "$CADDY_TMP"
 
 ACTIVATION_STARTED=1
 # Quiesce every Tikcentral process that can touch SQLite before schema evolution.
