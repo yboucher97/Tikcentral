@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from fastapi import Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
-from app import jobs, main as core, migrations, operations
+from app import errors, jobs, main as core, migrations, operations
 
 
 def _now():
@@ -14,6 +14,8 @@ def _now():
 
 
 def _sync(campaign_id:int):
+    queue_stage=""
+    queue_actor=""
     with core.db() as conn:
         members=conn.execute("SELECT * FROM upgrade_campaign_members WHERE campaign_id=?",(campaign_id,)).fetchall()
         for m in members:
@@ -27,12 +29,22 @@ def _sync(campaign_id:int):
                 (mapped,(j["error_code"] or "")+" "+(j["error_message"] or ""),_now(),m["id"]),
             )
         rows=conn.execute("SELECT stage,status FROM upgrade_campaign_members WHERE campaign_id=?",(campaign_id,)).fetchall()
-        campaign=conn.execute("SELECT status FROM upgrade_campaigns WHERE id=?",(campaign_id,)).fetchone()
+        campaign=conn.execute("SELECT status,created_by,approved_by FROM upgrade_campaigns WHERE id=?",(campaign_id,)).fetchone()
         if not campaign: return
         if rows and all(r["status"]=="succeeded" for r in rows):
             conn.execute("UPDATE upgrade_campaigns SET status='completed' WHERE id=?",(campaign_id,))
         elif any(r["status"]=="failed" for r in rows):
             conn.execute("UPDATE upgrade_campaigns SET status='failed' WHERE id=?",(campaign_id,))
+        else:
+            stage="canary" if campaign["status"]=="canary_running" else ("rollout" if campaign["status"]=="rollout_running" else "")
+            if stage:
+                active=any(r["stage"]==stage and r["status"] in {"queued","running"} for r in rows)
+                pending=any(r["stage"]==stage and r["status"]=="pending" for r in rows)
+                if pending and not active:
+                    queue_stage=stage
+                    queue_actor=(campaign["approved_by"] or campaign["created_by"] or "scheduler")
+    if queue_stage:
+        _queue_stage(campaign_id,queue_stage,queue_actor)
 
 
 def sync_all():
@@ -47,6 +59,7 @@ def sync_all():
 
 
 def _queue_stage(campaign_id:int,stage:str,actor:str):
+    """Queue at most one campaign member because upgrades are globally serialized."""
     with core.db() as conn:
         campaign=conn.execute("SELECT * FROM upgrade_campaigns WHERE id=?",(campaign_id,)).fetchone()
         members=conn.execute(
@@ -56,7 +69,6 @@ def _queue_stage(campaign_id:int,stage:str,actor:str):
             (campaign_id,stage),
         ).fetchall()
     if not campaign: raise ValueError("campaign not found")
-    queued=0
     for m in members:
         if (m["lifecycle_state"] or "production") not in {"production","maintenance"}:
             with core.db() as conn:
@@ -64,23 +76,33 @@ def _queue_stage(campaign_id:int,stage:str,actor:str):
                     "UPDATE upgrade_campaign_members SET status='failed',last_error=?,updated_at=? WHERE id=?",
                     (f'lifecycle state {m["lifecycle_state"] or "production"} is not upgrade-eligible',_now(),m["id"]),
                 )
-            continue
-        # Campaign target must match the router's checked latest version.
+            return 0
         with core.db() as conn:
             st=conn.execute("SELECT latest_version FROM router_update_status WHERE router_id=?",(m["router_id"],)).fetchone()
         if not st or operations._version_number(st["latest_version"]) != operations._version_number(campaign["target_version"]):
             with core.db() as conn:
-                conn.execute("UPDATE upgrade_campaign_members SET status='failed',last_error=?,updated_at=? WHERE id=?",
-                             ("target version not confirmed by update check",_now(),m["id"]))
-            continue
-        job_id=jobs.create(m["router_id"],"upgrade_routeros",actor,campaign["target_version"],
-                           {"campaign_id":campaign_id,"campaign_stage":stage,"canary":stage=="canary"},
-                           serialize_router=True,serialize_global_kind="upgrade_")
+                conn.execute(
+                    "UPDATE upgrade_campaign_members SET status='failed',last_error=?,updated_at=? WHERE id=?",
+                    ("target version not confirmed by update check",_now(),m["id"]),
+                )
+            return 0
+        try:
+            job_id=jobs.create(
+                m["router_id"],"upgrade_routeros",actor,campaign["target_version"],
+                {"campaign_id":campaign_id,"campaign_stage":stage,"canary":stage=="canary"},
+                serialize_router=True,serialize_global_kind="upgrade_",
+            )
+        except errors.OperationError as exc:
+            if exc.code=="JOB_BUSY":
+                return 0
+            raise
         with core.db() as conn:
-            conn.execute("UPDATE upgrade_campaign_members SET status='queued',job_id=?,updated_at=? WHERE id=?",(job_id,_now(),m["id"]))
-        queued+=1
-    return queued
-
+            conn.execute(
+                "UPDATE upgrade_campaign_members SET status='queued',job_id=?,updated_at=? WHERE id=?",
+                (job_id,_now(),m["id"]),
+            )
+        return 1
+    return 0
 
 def register(app,page_func):
     migrations.migrate()
