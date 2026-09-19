@@ -31,7 +31,7 @@ def enabled_routers(*, skip_busy: bool = True):
     busy = jobs.active_change_router_ids() if skip_busy else set()
     with core.db() as conn:
         rows = conn.execute(
-            "SELECT id,site_name,vpn_ip FROM routers WHERE enabled=1 ORDER BY site_name COLLATE NOCASE,id"
+            "SELECT id,site_name,vpn_ip FROM routers WHERE enabled=1 AND COALESCE(lifecycle_state,'production')<>'retired' ORDER BY site_name COLLATE NOCASE,id"
         ).fetchall()
     return [row for row in rows if int(row["id"]) not in busy]
 
