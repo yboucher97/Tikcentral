@@ -954,9 +954,15 @@ def validate_persistence_and_jobs():
                 (rid, "2026-01-01T00:00:00+00:00", "2026-01-01T00:00:00+00:00"),
             )
 
-    ai_id = ai_analysis.queue_analysis(9002, "validator")
-    if ai_analysis.queue_analysis(9002, "validator") != ai_id:
+    ai_id = ai_analysis.queue_analysis(9002, "validator", human_requested=True)
+    if ai_analysis.queue_analysis(9002, "validator", human_requested=True) != ai_id:
         fail("AI analysis queue allowed duplicate pending work for one router")
+    try:
+        ai_analysis.queue_analysis(9001, "scheduler")
+    except Exception:
+        pass
+    else:
+        fail("AI analysis queue accepted a non-human backend trigger")
 
     job_id = jobs.create(9001, "smoke_mutation", "validator", serialize_router=True)
     jobs.running(job_id)
@@ -1049,6 +1055,10 @@ def validate_provisioning_and_updater():
     worker_text = (ROOT / "app/ai_worker.py").read_text(encoding="utf-8")
     if "router_ai_analyses" not in worker_text or "ai_analysis.run_codex" not in worker_text:
         fail("Persistent AI worker is not wired to the AI queue")
+    for marker in ("trigger_source='human_web'", 'human_requested: bool = False', "AI_HUMAN_TRIGGER_REQUIRED"):
+        source = worker_text + (ROOT / "app/ai_analysis.py").read_text(encoding="utf-8")
+        if marker not in source:
+            fail(f"AI human-trigger control missing: {marker}")
 
 
 def main():
