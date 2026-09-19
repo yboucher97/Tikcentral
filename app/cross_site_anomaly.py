@@ -88,6 +88,7 @@ def scan():
                 "summary":f"{len(bad)} sites across {len(providers)} providers show concurrent degradation within {WINDOW_MINUTES} minutes",
             }
 
+        event_records=[]
         active=conn.execute("SELECT * FROM fleet_cross_site_anomalies WHERE status='active'").fetchall()
         active_by_key={x["anomaly_key"]:x for x in active}
         for key,data in candidates.items():
@@ -105,7 +106,7 @@ def scan():
                        VALUES(?,?,?,?,?,?,'active',?)""",
                     (now.isoformat(),key,data["provider"],data["kind"],len(ids),json.dumps(ids),data["summary"]),
                 )
-                events.record(None,"cross-site",data["summary"],json.dumps(data["items"])[:3500],"warning")
+                event_records.append((data["summary"],json.dumps(data["items"])[:3500],"warning"))
 
         for key,row in active_by_key.items():
             if key not in candidates:
@@ -117,7 +118,9 @@ def scan():
                     "UPDATE fleet_cross_site_anomalies SET status='resolved',resolved_at=? WHERE id=?",
                     (now.isoformat(),row["id"]),
                 )
-                events.record(None,"cross-site",f"Cross-site anomaly resolved: {row['summary']}","","info")
+                event_records.append((f"Cross-site anomaly resolved: {row['summary']}","","info"))
+    for summary,detail,severity in event_records:
+        events.record(None,"cross-site",summary,detail,severity)
     return len(candidates)
 
 
