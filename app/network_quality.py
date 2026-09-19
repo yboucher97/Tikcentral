@@ -2,6 +2,7 @@
 
 import hashlib
 import html
+import ipaddress
 import json
 import re
 import statistics
@@ -145,7 +146,13 @@ def _resolver_list(ip):
         raw=kv.get(key,"")
         for item in re.split(r"[,\s]+",raw):
             item=item.strip()
-            if item and item not in values:
+            if not item:
+                continue
+            try:
+                item=str(ipaddress.ip_address(item))
+            except ValueError:
+                continue
+            if item not in values:
                 values.append(item)
     return values[:4]
 
