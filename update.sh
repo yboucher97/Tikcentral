@@ -18,7 +18,7 @@ set -a
 source "$ENV_FILE"
 set +a
 DB_FILE="${DB_PATH:-/var/lib/tikcentral/tikcentral.db}"
-for cmd in git tar python3 sqlite3 curl jq caddy sudo visudo ssh-keygen systemctl runuser useradd; do
+for cmd in git tar python3 sqlite3 curl jq caddy sudo visudo ssh-keygen systemctl runuser useradd ufw; do
   command -v "$cmd" >/dev/null 2>&1 || { echo "Required command is missing: $cmd" >&2; exit 1; }
 done
 
@@ -222,6 +222,36 @@ source "$ENV_FILE"
 set +a
 DOMAIN="${PUBLIC_HOSTNAME:-${WG_ENDPOINT%:*}}"
 [[ -n "$DOMAIN" ]] || { echo "Could not determine Tikcentral hostname from $ENV_FILE" >&2; exit 1; }
+# Keep host firewall rules aligned with runtime-configurable management ranges.
+UFW_STATE="/var/lib/tikcentral/ufw-runtime.env"
+CURRENT_ROUTER_POOL="${WG_ROUTER_POOL:-10.250.1.0/24}"
+CURRENT_WINBOX_RANGE="${WINBOX_PUBLIC_PORT_MIN:-20000}:${WINBOX_PUBLIC_PORT_MAX:-49999}"
+PREVIOUS_ROUTER_POOL=""
+PREVIOUS_WINBOX_RANGE=""
+if [[ -r "$UFW_STATE" ]]; then
+  # shellcheck disable=SC1090
+  source "$UFW_STATE"
+  PREVIOUS_ROUTER_POOL="${TIKCENTRAL_UFW_ROUTER_POOL:-}"
+  PREVIOUS_WINBOX_RANGE="${TIKCENTRAL_UFW_WINBOX_RANGE:-}"
+fi
+if [[ -n "$PREVIOUS_WINBOX_RANGE" && "$PREVIOUS_WINBOX_RANGE" != "$CURRENT_WINBOX_RANGE" ]]; then
+  ufw --force delete allow "$PREVIOUS_WINBOX_RANGE/tcp" >/dev/null 2>&1 || true
+elif [[ -z "$PREVIOUS_WINBOX_RANGE" && "$CURRENT_WINBOX_RANGE" != "20000:49999" ]]; then
+  ufw --force delete allow "20000:49999/tcp" >/dev/null 2>&1 || true
+fi
+if [[ -n "$PREVIOUS_ROUTER_POOL" && "$PREVIOUS_ROUTER_POOL" != "$CURRENT_ROUTER_POOL" ]]; then
+  ufw --force delete route allow in on wg0 out on wg0 from 10.250.254.0/24 to "$PREVIOUS_ROUTER_POOL" >/dev/null 2>&1 || true
+elif [[ -z "$PREVIOUS_ROUTER_POOL" && "$CURRENT_ROUTER_POOL" != "10.250.1.0/24" ]]; then
+  ufw --force delete route allow in on wg0 out on wg0 from 10.250.254.0/24 to 10.250.1.0/24 >/dev/null 2>&1 || true
+fi
+ufw allow "$CURRENT_WINBOX_RANGE/tcp" >/dev/null
+ufw route allow in on wg0 out on wg0 from 10.250.254.0/24 to "$CURRENT_ROUTER_POOL" >/dev/null
+cat > "$UFW_STATE" <<EOF
+TIKCENTRAL_UFW_ROUTER_POOL=$CURRENT_ROUTER_POOL
+TIKCENTRAL_UFW_WINBOX_RANGE=$CURRENT_WINBOX_RANGE
+EOF
+chown root:tikcentral "$UFW_STATE"
+chmod 0640 "$UFW_STATE"
 CADDY_TMP="$(mktemp /tmp/tikcentral-caddy.XXXXXX)"
 if [[ -n "${ACME_EMAIL:-}" ]]; then
   cat > "$CADDY_TMP" <<EOF
