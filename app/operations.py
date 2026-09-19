@@ -347,7 +347,7 @@ def validate_commissioning(router_id: int, created_by: str):
 
         admin_user, admin_password = provisioning.get_admin_credentials()
         if admin_user and admin_password:
-            safe = admin_user.replace('"', '')
+            safe = provisioning._ros(admin_user)
             value, err = _probe_count(router["vpn_ip"], f':put [/user print count-only where name="{safe}" disabled=no]', "Personal admin probe")
             observed["personal_admin"] = value
             checks["personal_admin"] = bool(value) if value is not None else False
