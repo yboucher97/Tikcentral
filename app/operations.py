@@ -589,8 +589,19 @@ def _process_upgrade_job():
             events.record(router["id"], "upgrade", "Upgrade dispatch failed", errors.short(exc), "critical")
         return job["id"]
 
+    if job["status"] == "running":
+        # A restart can interrupt the short dispatch phase after the job has
+        # become running. Never re-dispatch an upgrade blindly; resume at
+        # verification so an already-sent reboot can complete safely, while an
+        # upgrade that was never dispatched will fail version verification.
+        jobs.verifying(job["id"])
+        events.record(router["id"], "upgrade", "Recovered interrupted upgrade job", f"job {job['id']} resumed at verification after an interrupted dispatch phase", "warning")
+        job = jobs.get(job["id"])
+
     if job["status"] == "verifying":
         timeout = 1200 if kind == "upgrade_routeros" else 900
+        payload = jobs.payload(job["id"])
+        tx_id = int(payload.get("transaction_id") or 0)
         if not _access_ok(router):
             if _seconds_since(job["started_at"]) > timeout:
                 err = errors.OperationError("UPGRADE_RETURN_TIMEOUT", "Router did not return healthy after upgrade", severity="critical")
@@ -598,7 +609,7 @@ def _process_upgrade_job():
                 events.record(router["id"], "upgrade", err.message, severity="critical")
             return job["id"]
         try:
-            post_access = change_control.verify_management(router, "Upgrade", transaction_id=tx_id)
+            post_access = change_control.verify_management(router, "Upgrade", transaction_id=tx_id or None)
             telem = collect_telemetry(router["id"])
             if kind == "upgrade_routeros":
                 current = _version_number(telem.get("version", ""))
@@ -608,10 +619,8 @@ def _process_upgrade_job():
                 if not (telem.get("routerboot_current") and telem.get("routerboot_current") == telem.get("routerboot_upgrade")):
                     raise errors.OperationError("ROUTERBOOT_VERIFY_FAILED", "RouterBOOT versions still differ", f"current={telem.get('routerboot_current')} available={telem.get('routerboot_upgrade')}")
 
-            payload = jobs.payload(job["id"])
             healthy_checks = int(payload.get("healthy_checks", 0)) + 1
             jobs.update_payload(job["id"], {"healthy_checks": healthy_checks, "last_verified_at": now_iso()})
-            tx_id = int(payload.get("transaction_id") or 0)
             if tx_id:
                 change_control.step(tx_id, "verify", "ok", f"Post-upgrade health sample {healthy_checks}/2", json.dumps({"access": post_access, "version": telem.get("version", "")}, default=str))
             if healthy_checks < 2:
