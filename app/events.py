@@ -55,6 +55,19 @@ def record(router_id, category: str, summary: str, details: str = "", severity: 
                    (SELECT id FROM router_events WHERE router_id=? ORDER BY id DESC LIMIT ?)""",
                 (router_id, router_id, settings.EVENT_RETENTION_ROWS),
             )
+        else:
+            # Fleet/global events have no router_id but still need bounded
+            # retention or cross-site/system events will grow forever.
+            conn.execute(
+                """DELETE FROM router_events WHERE router_id IS NULL AND severity='info' AND id NOT IN
+                   (SELECT id FROM router_events WHERE router_id IS NULL AND severity='info' ORDER BY id DESC LIMIT ?)""",
+                (settings.EVENT_INFO_RETENTION_ROWS,),
+            )
+            conn.execute(
+                """DELETE FROM router_events WHERE router_id IS NULL AND id NOT IN
+                   (SELECT id FROM router_events WHERE router_id IS NULL ORDER BY id DESC LIMIT ?)""",
+                (settings.EVENT_RETENTION_ROWS,),
+            )
 
 
 def maintenance():
@@ -73,6 +86,16 @@ def maintenance():
                    (SELECT id FROM router_events WHERE router_id=? ORDER BY id DESC LIMIT ?)""",
                 (router_id, router_id, settings.EVENT_RETENTION_ROWS),
             )
+        conn.execute(
+            """DELETE FROM router_events WHERE router_id IS NULL AND severity='info' AND id NOT IN
+               (SELECT id FROM router_events WHERE router_id IS NULL AND severity='info' ORDER BY id DESC LIMIT ?)""",
+            (settings.EVENT_INFO_RETENTION_ROWS,),
+        )
+        conn.execute(
+            """DELETE FROM router_events WHERE router_id IS NULL AND id NOT IN
+               (SELECT id FROM router_events WHERE router_id IS NULL ORDER BY id DESC LIMIT ?)""",
+            (settings.EVENT_RETENTION_ROWS,),
+        )
 
 
 def recent(router_id: int, limit: int = 100):
