@@ -7,40 +7,54 @@ from fastapi.responses import HTMLResponse
 from app import settings
 from app.ui_time import localize_html_iso_timestamps
 
-NAV = [
-    ("dashboard", "/", "Dashboard"),
-    ("routers", "/routers", "Routers"),
-    ("enroll", "/enroll", "Enroll"),
-    ("guardian", "/guardian", "Guardian"),
-    ("reliability", "/reliability", "Reliability"),
-    ("operations", "/operations", "Operations"),
-    ("customers", "/customers", "Customers"),
-    ("alerts", "/alerts", "Alerts"),
-    ("replacements", "/replacements", "Replacements"),
-    ("maintenance-automation", "/maintenance-automation", "Post-change"),
-    ("lifecycle", "/lifecycle", "Lifecycle"),
-    ("upgrade-campaigns", "/upgrade-campaigns", "Upgrades"),
-    ("compliance", "/compliance", "Compliance"),
-    ("rescue", "/rescue", "Rescue"),
-    ("automation", "/automation", "Automation"),
-    ("ssh", "/ssh", "SSH"),
-    ("changes", "/changes", "Changes"),
-    ("change-calendar", "/change-calendar", "Calendar"),
-    ("fleet-search", "/fleet-search", "Fleet Search"),
-    ("model-capabilities", "/model-capabilities", "Models"),
-    ("hardware-lifecycle", "/hardware-lifecycle", "Hardware Life"),
-    ("identity-collisions", "/identity-collisions", "Identity"),
-    ("cross-site-anomalies", "/cross-site-anomalies", "Cross-Site"),
-    ("config-search", "/config-search", "Config Search"),
-    ("retention", "/retention", "Retention"),
-    ("audit", "/audit", "Audit"),
-    ("operator-audit", "/operator-audit", "Operator Audit"),
-    ("system-health", "/system-health", "System"),
-    ("database-health", "/database-health", "DB Health"),
-    ("users", "/admin/users", "Users"),
-    ("settings", "/settings", "Settings"),
+NAV_GROUPS = [
+    ("Overview", [
+        ("dashboard", "/", "Dashboard"),
+        ("alerts", "/alerts", "Alerts"),
+    ]),
+    ("Fleet", [
+        ("routers", "/routers", "Routers"),
+        ("fleet-search", "/fleet-search", "Fleet search"),
+        ("customers", "/customers", "Customers"),
+        ("cross-site-anomalies", "/cross-site-anomalies", "Cross-site"),
+        ("model-capabilities", "/model-capabilities", "Model capabilities"),
+        ("hardware-lifecycle", "/hardware-lifecycle", "Hardware lifecycle"),
+        ("identity-collisions", "/identity-collisions", "Identity collisions"),
+    ]),
+    ("Operations", [
+        ("operations", "/operations", "Router operations"),
+        ("guardian", "/guardian", "Guardian"),
+        ("reliability", "/reliability", "Reliability"),
+        ("compliance", "/compliance", "Compliance"),
+        ("rescue", "/rescue", "Rescue"),
+        ("automation", "/automation", "Automation"),
+        ("ssh", "/ssh", "Web SSH"),
+    ]),
+    ("Changes", [
+        ("changes", "/changes", "Changes"),
+        ("change-calendar", "/change-calendar", "Calendar"),
+        ("maintenance-automation", "/maintenance-automation", "Post-change"),
+        ("upgrade-campaigns", "/upgrade-campaigns", "Upgrades"),
+        ("replacements", "/replacements", "Replacements"),
+        ("lifecycle", "/lifecycle", "Lifecycle"),
+    ]),
+    ("Intelligence", [
+        ("config-search", "/config-search", "Config search"),
+        ("audit", "/audit", "Router audit"),
+        ("operator-audit", "/operator-audit", "Operator audit"),
+    ]),
+    ("Administration", [
+        ("enroll", "/enroll", "Enroll router"),
+        ("retention", "/retention", "Retention"),
+        ("system-health", "/system-health", "System health"),
+        ("database-health", "/database-health", "Database health"),
+        ("users", "/admin/users", "Users"),
+        ("settings", "/settings", "Settings"),
+    ]),
 ]
 
+NAV = [item for _, items in NAV_GROUPS for item in items]
+NAV_CATEGORY = {key: group for group, items in NAV_GROUPS for key, _, _ in items}
 
 def _infer_active(title: str) -> str:
     t = (title or "").lower()
