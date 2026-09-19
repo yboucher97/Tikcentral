@@ -207,7 +207,7 @@ def guardian_tick():
     ensure_schema()
     with core.db() as conn:
         routers = conn.execute(
-            "SELECT id,site_name,vpn_ip,public_key,enabled FROM routers ORDER BY id"
+            "SELECT id,site_name,vpn_ip,public_key,enabled,lifecycle_state FROM routers ORDER BY id"
         ).fetchall()
         previous = {
             r["router_id"]: (bool(r["management_ok"]), r["last_error"] or "")
@@ -225,8 +225,13 @@ def guardian_tick():
     peers = core.wireguard_peers()
     checked = now_iso()
     results = []
+    inactive_ids = set()
     transitions = []
     for row in routers:
+        if not row["enabled"] or (row["lifecycle_state"] or "production") == "retired":
+            inactive_ids.add(int(row["id"]))
+            _update_alert_state(int(row["id"]), {"management_ok": True}, checked, in_maintenance=False)
+            continue
         result = probe_router(row, peers)
         last_error = access_issue(result)
         with core.db() as conn:
@@ -304,7 +309,7 @@ def guardian_tick():
                 ids = [int(x) for x in json.loads(incident["router_ids"] or "[]")]
             except Exception:
                 ids = []
-            if ids and all(result_map.get(rid, False) for rid in ids):
+            if ids and all(result_map.get(rid, rid in inactive_ids) for rid in ids):
                 conn.execute(
                     "UPDATE fleet_incidents SET status='resolved',resolved_at=? WHERE id=?",
                     (checked, incident["id"]),
@@ -409,8 +414,10 @@ def repair_router(router_id: int, actor: str = "guardian"):
 
 def _diagnosis(row, history):
     """Explain current management-path health in operator terms."""
+    if "lifecycle_state" in row.keys() and (row["lifecycle_state"] or "production") == "retired":
+        return "Router is retired; Guardian no longer probes or escalates it."
     if not row["enabled"]:
-        return "Router is disabled in Tikcentral."
+        return "Router is disabled in Tikcentral; Guardian no longer probes or escalates it."
     if not row["checked_at"]:
         return "Guardian has not completed a probe yet."
     if not row["wg_online"]:
@@ -456,6 +463,8 @@ def _quality_metrics(history):
 
 
 def _state_for(row):
+    if "lifecycle_state" in row.keys() and (row["lifecycle_state"] or "production") == "retired":
+        return "Retired"
     if not row["enabled"]:
         return "Disabled"
     if "maintenance_end" in row.keys() and row["maintenance_end"] and row["maintenance_end"] > now_iso():
@@ -481,7 +490,7 @@ def register(app, page_func):
         csrf = core.csrf_token(request)
         with core.db() as conn:
             rows = conn.execute(
-                """SELECT r.id,r.site_name,r.identity,r.model,r.vpn_ip,r.public_winbox_port,r.enabled,
+                """SELECT r.id,r.site_name,r.identity,r.model,r.vpn_ip,r.public_winbox_port,r.enabled,r.lifecycle_state,
                           s.checked_at,s.wg_online,s.ssh_open,s.winbox_open,s.api_open,
                           s.management_ok,s.last_good_at,s.last_error,
                           m.end_at AS maintenance_end,m.reason AS maintenance_reason,
