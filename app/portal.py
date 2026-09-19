@@ -36,7 +36,8 @@ def routers_page(request: Request):
         latest = int(live.get("latest_handshake", 0) or 0)
         last_seen = datetime.fromtimestamp(latest, timezone.utc).isoformat() if latest else "Never"
         retired = (row["lifecycle_state"] or "production") == "retired"
-        remote_winbox = f'{settings.PUBLIC_HOSTNAME}:{row["public_winbox_port"]}' if row["public_winbox_port"] and not retired else "-"
+        active = bool(row["enabled"]) and not retired
+        remote_winbox = f'{settings.PUBLIC_HOSTNAME}:{row["public_winbox_port"]}' if row["public_winbox_port"] and active else "-"
         item_health = health.get(row["id"])
         state = "Retired" if retired else (item_health.state if item_health else ("Disabled" if not row["enabled"] else "Unknown"))
         detail = "Excluded from active monitoring and remote relay" if retired else (item_health.detail if item_health else "")
@@ -53,7 +54,7 @@ def routers_page(request: Request):
 <td>{html.escape(row['serial'] or '-')}</td><td>{html.escape(row['routeros_version'] or '-')}</td>
 <td>{html.escape(row['routerboot_version'] or '-')}</td><td><code>{html.escape(public_ip)}</code></td>
 <td><code>{html.escape(row['vpn_ip'])}</code></td><td><code>{html.escape(remote_winbox)}</code></td>
-<td><code>{html.escape(row['vpn_ip'])}:8291</code></td><td>{'Retired' if retired else ('Enabled' if row['enabled'] else 'Disabled')}</td>
+<td><code>{html.escape(row['vpn_ip'])+':8291' if active else '-'}</code></td><td>{'Retired' if retired else ('Enabled' if row['enabled'] else 'Disabled')}</td>
 <td class="muted">{html.escape(last_seen)}</td><td>{actions}</td></tr>'''
         )
     if not rendered:
