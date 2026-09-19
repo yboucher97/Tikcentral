@@ -110,6 +110,10 @@ def scan():
         for key,row in active_by_key.items():
             if key not in candidates:
                 conn.execute(
+                    "DELETE FROM fleet_cross_site_anomalies WHERE anomaly_key=? AND status='resolved'",
+                    (key,),
+                )
+                conn.execute(
                     "UPDATE fleet_cross_site_anomalies SET status='resolved',resolved_at=? WHERE id=?",
                     (now.isoformat(),row["id"]),
                 )
