@@ -37,7 +37,7 @@ def get(router_id: int) -> FleetHealth:
     ensure_schema()
     with core.db() as conn:
         row = conn.execute(
-            """SELECT r.id,r.enabled,r.routeros_version,
+            """SELECT r.id,r.enabled,r.lifecycle_state,r.routeros_version,
                       a.wg_online,a.management_ok,a.last_error,
                       e.drifted,e.commissioning_status,
                       u.latest_version
@@ -48,7 +48,11 @@ def get(router_id: int) -> FleetHealth:
                WHERE r.id=?""",
             (router_id,),
         ).fetchone()
-    if not row or not row["enabled"]:
+    if not row:
+        return FleetHealth(router_id, UNKNOWN, "Router not found")
+    if (row["lifecycle_state"] or "production") == "retired":
+        return FleetHealth(router_id, UNKNOWN, "Router is retired")
+    if not row["enabled"]:
         return FleetHealth(router_id, UNKNOWN, "Router is not enabled")
     if row["management_ok"] is None:
         return FleetHealth(router_id, UNKNOWN, "Guardian has not checked this router yet")
