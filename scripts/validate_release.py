@@ -1081,6 +1081,57 @@ def validate_provisioning_and_updater():
     ):
         if marker not in update_text:
             fail(f"Atomic updater backup-permission repair missing: {marker}")
+    migrations_text = (ROOT / "app/migrations.py").read_text(encoding="utf-8")
+    for marker in ("fcntl.flock", ".migrate.lock", "LOCK_EX"):
+        if marker not in migrations_text:
+            fail(f"Cross-process migration serialization missing: {marker}")
+    updater_markers = (
+        'DB_FILE="' + '
+    bootstrap_text = (ROOT / "bootstrap.sh").read_text(encoding="utf-8")
+    if 'install -d -o root -g tikcentral -m 0750 "$BACKUP_DIR"' not in bootstrap_text:
+        fail("Bootstrap backup-directory group permissions are unsafe for self-health verification")
+    worker_text = (ROOT / "app/ai_worker.py").read_text(encoding="utf-8")
+    if "router_ai_analyses" not in worker_text or "ai_analysis.run_codex" not in worker_text:
+        fail("Persistent AI worker is not wired to the AI queue")
+    for marker in ("_fail_ineligible_queued", "ROUTER_INACTIVE", "lifecycle_state"):
+        if marker not in worker_text:
+            fail(f"Inactive-router AI queue cleanup missing: {marker}")
+    main_request_text = (ROOT / "app/main.py").read_text(encoding="utf-8")
+    for marker in ("_read_limited_body", "request.stream()", "request body too large"):
+        if marker not in main_request_text:
+            fail(f"Request body size protection missing: {marker}")
+    for marker in ("trigger_source='human_web'", 'human_requested: bool = False', "AI_HUMAN_TRIGGER_REQUIRED"):
+        source = worker_text + (ROOT / "app/ai_analysis.py").read_text(encoding="utf-8")
+        if marker not in source:
+            fail(f"AI human-trigger control missing: {marker}")
+
+
+def main():
+    validate_routes()
+    validate_source_boundaries()
+    validate_ui_and_assets()
+    validate_router_policy()
+    validate_rescue()
+    validate_persistence_and_jobs()
+    validate_optional_boundaries()
+    validate_provisioning_and_updater()
+    print(f"Tikcentral release validation: OK · schema v{len(migrations.MIGRATIONS)} · {len(app.routes)} routes")
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    finally:
+        _TMP.cleanup()
+ + '{DB_PATH:-/var/lib/tikcentral/tikcentral.db}"',
+        "ACTIVATION_DB_BACKUP",
+        "Quiesce every Tikcentral process",
+        "pre-migration activation snapshot",
+        'install -o tikcentral -g tikcentral -m 0640 "$ACTIVATION_DB_BACKUP" "$DB_FILE"',
+    )
+    for marker in updater_markers:
+        if marker not in update_text:
+            fail(f"Migration-safe updater rollback missing: {marker}")
     bootstrap_text = (ROOT / "bootstrap.sh").read_text(encoding="utf-8")
     if 'install -d -o root -g tikcentral -m 0750 "$BACKUP_DIR"' not in bootstrap_text:
         fail("Bootstrap backup-directory group permissions are unsafe for self-health verification")
