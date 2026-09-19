@@ -35,6 +35,18 @@ def authorized(source_ip: str) -> bool:
     return bool(row)
 
 
+def target_active(vpn_ip: str) -> bool:
+    with db_connect() as conn:
+        row = conn.execute(
+            """SELECT 1 FROM routers
+               WHERE vpn_ip=? AND enabled=1
+                 AND COALESCE(lifecycle_state,'production')<>'retired'
+               LIMIT 1""",
+            (vpn_ip,),
+        ).fetchone()
+    return bool(row)
+
+
 async def relay(reader: asyncio.StreamReader, writer: asyncio.StreamWriter, vpn_ip: str):
     peer = writer.get_extra_info("peername")
     source_ip = peer[0] if peer else ""
@@ -67,7 +79,7 @@ async def relay(reader: asyncio.StreamReader, writer: asyncio.StreamWriter, vpn_
         interval = max(5, int(settings.WINBOX_RESCAN_SECONDS))
         while not writer.is_closing() and not target_writer.is_closing():
             await asyncio.sleep(interval)
-            if not authorized(source_ip):
+            if not authorized(source_ip) or not target_active(vpn_ip):
                 return
 
     tasks = {
