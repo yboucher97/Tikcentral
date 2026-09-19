@@ -135,15 +135,21 @@ set_env ACME_EMAIL "$EMAIL"
 chmod 0640 "$ENV_FILE"
 chown root:tikcentral "$ENV_FILE"
 
+set -a
+source "$ENV_FILE"
+set +a
+ROUTER_POOL="${WG_ROUTER_POOL:-10.250.1.0/24}"
+WINBOX_RANGE="${WINBOX_PUBLIC_PORT_MIN:-20000}:${WINBOX_PUBLIC_PORT_MAX:-49999}"
+
 ufw allow "$SSH_PORT/tcp"
 ufw allow 80/tcp
 ufw allow 443/tcp
 ufw allow 51820/udp
-ufw allow 20000:49999/tcp
+ufw allow "$WINBOX_RANGE/tcp"
 ufw default deny incoming
 ufw default allow outgoing
 ufw default deny routed
-ufw route allow in on wg0 out on wg0 from 10.250.254.0/24 to 10.250.1.0/24
+ufw route allow in on wg0 out on wg0 from 10.250.254.0/24 to "$ROUTER_POOL"
 ufw --force enable
 
 systemctl enable --now wg-quick@wg0
