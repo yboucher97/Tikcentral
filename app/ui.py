@@ -339,7 +339,12 @@ JS = r'''
  }
  document.addEventListener('click',e=>{const b=e.target.closest('[data-copy-target]');if(!b)return;const t=document.querySelector(b.dataset.copyTarget);if(t)window.tcCopy(t,b)});
 
- function numeric(s){const v=Number(String(s).replace(/[^0-9+-.]/g,''));return Number.isFinite(v)?v:null}
+ function numeric(s){
+   const raw=String(s??'').trim();
+   const m=raw.match(/^([-+]?\d+(?:\.\d+)?)(?:\s*(?:%|b|kb|mb|gb|tb|bps|kbps|mbps|gbps|tbps|ms|s|sec|secs|seconds?|min|mins|minutes?|h|hr|hrs|hours?|d|day|days|dbm))?$/i);
+   if(!m)return null;
+   const v=Number(m[1]);return Number.isFinite(v)?v:null;
+ }
  function localWallTime(s){
    const m=String(s??'').trim().match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2})(?::(\d{2}))?)?/);
    if(!m)return null;
