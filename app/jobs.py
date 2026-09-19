@@ -6,11 +6,12 @@ router_jobs. The table represents serialized changes that may alter router state
 
 import json
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from app import errors
 from app import main as core
 from app import migrations
+from app import settings
 
 ACTIVE = {"queued", "running", "verifying"}
 FINAL = {"succeeded", "failed"}
@@ -188,6 +189,50 @@ def active_change_router_ids() -> set[int]:
 
 def router_has_active_change(router_id: int) -> bool:
     return active_for_router(router_id) is not None
+
+
+def recover_stale_nonupgrade_jobs() -> int:
+    """Fail abandoned synchronous mutation jobs without touching upgrade recovery.
+
+    Ordinary mutations execute inside one web/fleet process. If that process
+    disappears, no worker can legitimately resume the job. A conservative age
+    threshold avoids interfering with slow but still-live operations.
+    """
+    ensure_schema()
+    stale_seconds = max(3600, settings.MUTATION_TIMEOUT * 3)
+    cutoff = (datetime.now(timezone.utc) - timedelta(seconds=stale_seconds)).isoformat()
+    finished = now_iso()
+    recovered = 0
+    with core.db() as conn:
+        rows = conn.execute(
+            """SELECT id,router_id,kind,status FROM router_jobs
+               WHERE kind NOT LIKE 'upgrade_%'
+                 AND status IN ('queued','running','verifying')
+                 AND updated_at<?
+               ORDER BY id""",
+            (cutoff,),
+        ).fetchall()
+        for row in rows:
+            changed = conn.execute(
+                """UPDATE router_jobs
+                   SET status='failed',updated_at=?,finished_at=?,
+                       error_code='PROCESS_INTERRUPTED',
+                       error_message='Operation was abandoned after the executing process stopped responding.'
+                   WHERE id=? AND status IN ('queued','running','verifying')""",
+                (finished, finished, row["id"]),
+            ).rowcount
+            if not changed:
+                continue
+            conn.execute(
+                """UPDATE change_transactions
+                   SET status='failed',finished_at=?,
+                       error_code='PROCESS_INTERRUPTED',
+                       error_detail='Linked operation was abandoned after the executing process stopped responding.'
+                   WHERE job_id=? AND status='running'""",
+                (finished, row["id"]),
+            )
+            recovered += 1
+    return recovered
 
 
 def next_queued(kind_prefix: str = ""):
