@@ -98,6 +98,12 @@ def _finish_job(job_id):
             "UPDATE fleet_jobs SET status=?,finished_at=?,total=?,succeeded=?,failed=? WHERE id=?",
             ("success" if total == ok else "completed_with_errors", now_iso(), total, ok, total - ok, job_id),
         )
+        # Fleet backup/analysis runs are recurring operational history, not an
+        # unbounded audit archive. Results cascade with their parent job.
+        conn.execute(
+            """DELETE FROM fleet_jobs WHERE id NOT IN
+               (SELECT id FROM fleet_jobs ORDER BY id DESC LIMIT 2000)"""
+        )
 
 
 def _run_read_job(job_type: str, command: str, created_by: str):
