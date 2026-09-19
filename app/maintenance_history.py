@@ -75,12 +75,17 @@ def register(app,page_func):
             occurred=_normalize_occurred(values["occurred_at"])
         except (TypeError,ValueError):
             raise HTTPException(status_code=400,detail="invalid maintenance date/time")
+        work_type=values["work_type"] or "service"
+        if work_type not in {"service","installation","maintenance","upgrade","incident","inspection"}:
+            raise HTTPException(status_code=400,detail="invalid maintenance work type")
         with core.db() as conn:
+            if not conn.execute("SELECT 1 FROM routers WHERE id=?",(router_id,)).fetchone():
+                raise HTTPException(status_code=404,detail="router not found")
             conn.execute(
                 """INSERT INTO router_maintenance_history
                    (router_id,occurred_at,technician,work_type,ticket_reference,issue,work_performed,result,follow_up,created_by,created_at)
                    VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
-                (router_id,occurred,values["technician"][:200],values["work_type"][:60],values["ticket_reference"][:200],
+                (router_id,occurred,values["technician"][:200],work_type,values["ticket_reference"][:200],
                  values["issue"][:4000],values["work_performed"][:8000],values["result"][:4000],values["follow_up"][:4000],user["email"],_now()),
             )
         events.record(router_id,"maintenance","Maintenance history entry added",f'ticket={values["ticket_reference"] or "-"} type={values["work_type"] or "service"} by={user["email"]}')
