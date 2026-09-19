@@ -28,6 +28,7 @@ NAV = [
     ("change-calendar", "/change-calendar", "Calendar"),
     ("fleet-search", "/fleet-search", "Fleet Search"),
     ("model-capabilities", "/model-capabilities", "Models"),
+    ("hardware-lifecycle", "/hardware-lifecycle", "Hardware Life"),
     ("identity-collisions", "/identity-collisions", "Identity"),
     ("config-search", "/config-search", "Config Search"),
     ("retention", "/retention", "Retention"),
