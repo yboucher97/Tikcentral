@@ -106,10 +106,25 @@ def request_source_ip(request: Request) -> str:
         return ""
 
 
+def _prune_login_failures(now: float):
+    for ip, q in list(_LOGIN_FAILURES.items()):
+        while q and now - q[0] > _LOGIN_WINDOW_SECONDS:
+            q.popleft()
+        if not q:
+            _LOGIN_FAILURES.pop(ip, None)
+    # Bound memory even under wide distributed scanning.
+    if len(_LOGIN_FAILURES) > 8192:
+        oldest = sorted(_LOGIN_FAILURES, key=lambda ip: _LOGIN_FAILURES[ip][-1] if _LOGIN_FAILURES[ip] else 0)
+        for ip in oldest[: len(_LOGIN_FAILURES) - 4096]:
+            _LOGIN_FAILURES.pop(ip, None)
+
+
 def _login_limited(source_ip: str) -> bool:
     if not source_ip:
         return False
     now = time.monotonic()
+    if len(_LOGIN_FAILURES) > 2048:
+        _prune_login_failures(now)
     q = _LOGIN_FAILURES[source_ip]
     while q and now - q[0] > _LOGIN_WINDOW_SECONDS:
         q.popleft()
@@ -118,7 +133,10 @@ def _login_limited(source_ip: str) -> bool:
 
 def _login_failed(source_ip: str):
     if source_ip:
-        _LOGIN_FAILURES[source_ip].append(time.monotonic())
+        now = time.monotonic()
+        _LOGIN_FAILURES[source_ip].append(now)
+        if len(_LOGIN_FAILURES) > 8192:
+            _prune_login_failures(now)
 
 
 def _login_succeeded(source_ip: str):
