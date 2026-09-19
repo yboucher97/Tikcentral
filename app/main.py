@@ -490,9 +490,7 @@ async def login(request: Request):
 
 
 @app.post("/logout")
-async def logout(request: Request):
-    data = await form_data(request)
-    require_csrf(request, data.get("csrf", ""))
+def logout(request: Request):
     raw = request.cookies.get("tikcentral_session", "")
     if raw:
         with db() as conn:
