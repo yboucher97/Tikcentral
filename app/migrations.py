@@ -5,6 +5,7 @@ CREATE/ALTER operations that preserve data. Application modules must not create
 or alter tables at runtime outside this file.
 """
 
+import fcntl
 import sqlite3
 from pathlib import Path
 
@@ -1525,16 +1526,26 @@ MIGRATIONS = [_m1, _m2, _m3, _m4, _m5, _m6, _m7, _m8, _m9, _m10, _m11, _m12, _m1
 
 
 def migrate() -> int:
-    with _connect() as conn:
-        conn.execute("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)")
-        applied = {int(r[0]) for r in conn.execute("SELECT version FROM schema_version")}
-        for version, fn in enumerate(MIGRATIONS, start=1):
-            if version in applied:
-                continue
-            fn(conn)
-            conn.execute("INSERT INTO schema_version(version) VALUES(?)", (version,))
-        conn.commit()
-        return len(MIGRATIONS)
+    # Web, fleet and AI processes can start together after an update. Serialize
+    # schema evolution across processes because ALTER TABLE migrations are not
+    # safe to race even when CREATE IF NOT EXISTS migrations are idempotent.
+    lock_path = Path(settings.DB_PATH).with_suffix(Path(settings.DB_PATH).suffix + ".migrate.lock")
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with lock_path.open("a+") as lock_file:
+        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+        try:
+            with _connect() as conn:
+                conn.execute("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)")
+                applied = {int(r[0]) for r in conn.execute("SELECT version FROM schema_version")}
+                for version, fn in enumerate(MIGRATIONS, start=1):
+                    if version in applied:
+                        continue
+                    fn(conn)
+                    conn.execute("INSERT INTO schema_version(version) VALUES(?)", (version,))
+                conn.commit()
+                return len(MIGRATIONS)
+        finally:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
 
 
 def current_version() -> int:
