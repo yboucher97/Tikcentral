@@ -22,6 +22,12 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from app import main as core, migrations, settings
 
 
+DB_BACKUP_WARN_HOURS = 36
+DB_BACKUP_CRITICAL_HOURS = 72
+ROUTER_BACKUP_WARN_HOURS = 36
+ROUTER_BACKUP_CRITICAL_HOURS = 72
+
+
 def now_iso():
     return datetime.now(timezone.utc).isoformat()
 
@@ -175,6 +181,31 @@ def collect_health():
     else:
         checks["db_restore_test"] = _status(True, "No restore verification has run yet", warning=True)
 
+    with core.db() as conn:
+        router_checked = conn.execute(
+            "SELECT MAX(checked_at) checked_at FROM backup_verifications WHERE kind='router'"
+        ).fetchone()["checked_at"]
+        router_verify_rows = conn.execute(
+            "SELECT status,COUNT(*) count FROM backup_verifications WHERE kind='router' AND checked_at=? GROUP BY status",
+            (router_checked or "",),
+        ).fetchall() if router_checked else []
+    if router_verify_rows:
+        counts = {row["status"]: int(row["count"]) for row in router_verify_rows}
+        total = sum(counts.values())
+        detail = (
+            f"{counts.get('ok',0)}/{total} router backup(s) verified"
+            f" · {counts.get('warning',0)} warning · {counts.get('critical',0)} critical"
+        )
+        verify_age_h = _age_seconds(router_checked) / 3600
+        if counts.get("critical", 0) or verify_age_h > ROUTER_BACKUP_CRITICAL_HOURS:
+            checks["router_backup_verification"] = _status(False, f"{detail} · checked {verify_age_h:.1f}h ago")
+        elif counts.get("warning", 0) or verify_age_h > ROUTER_BACKUP_WARN_HOURS:
+            checks["router_backup_verification"] = _status(True, f"{detail} · checked {verify_age_h:.1f}h ago", warning=True)
+        else:
+            checks["router_backup_verification"] = _status(True, f"{detail} · checked {verify_age_h:.1f}h ago")
+    else:
+        checks["router_backup_verification"] = _status(True, "No router backup verification has run yet", warning=True)
+
     statuses = [v["status"] for v in checks.values()]
     overall = "critical" if "critical" in statuses else ("warning" if "warning" in statuses else "ok")
     return overall, checks
@@ -252,7 +283,7 @@ def _router_backup_status():
         except OSError:
             found = []
         if not found:
-            results.append((False, "", f"{router['site_name']}: no .rsc backup found"))
+            results.append(("warning", "", f"{router['site_name']}: no .rsc backup found"))
             continue
         path = found[0]
         try:
@@ -267,9 +298,11 @@ def _router_backup_status():
                     (router["id"], digest),
                 ).fetchone()
             suffix = f"snapshot #{snapshot['id']} hash matched" if snapshot else "readable export; no matching retained snapshot hash"
-            results.append((True, str(path), f"{router['site_name']}: {path.name} · {suffix}"))
+            age_h = max(0.0, (datetime.now(timezone.utc).timestamp() - path.stat().st_mtime) / 3600)
+            status = "critical" if age_h > ROUTER_BACKUP_CRITICAL_HOURS else ("warning" if age_h > ROUTER_BACKUP_WARN_HOURS else "ok")
+            results.append((status, str(path), f"{router['site_name']}: {path.name} · {age_h:.1f}h old · {suffix}"))
         except Exception as exc:
-            results.append((False, str(path), f"{router['site_name']}: {path}: {exc}"))
+            results.append(("critical", str(path), f"{router['site_name']}: {path}: {exc}"))
     return results
 
 
@@ -284,14 +317,17 @@ def verify_backups():
     else:
         try:
             detail = _verify_database_backup(db_backup)
+            backup_age_h = max(0.0, (datetime.now(timezone.utc).timestamp() - db_backup.stat().st_mtime) / 3600)
             if db_backup_kind == "scheduled":
-                records.append(("database", str(db_backup), "ok", detail))
+                status = "critical" if backup_age_h > DB_BACKUP_CRITICAL_HOURS else ("warning" if backup_age_h > DB_BACKUP_WARN_HOURS else "ok")
+                records.append(("database", str(db_backup), status, f"{detail} · backup age {backup_age_h:.1f}h"))
             else:
+                status = "critical" if backup_age_h > DB_BACKUP_CRITICAL_HOURS else "warning"
                 records.append((
                     "database",
                     str(db_backup),
-                    "warning",
-                    f"{detail} · scheduled backup not found; verified latest pre-update backup instead",
+                    status,
+                    f"{detail} · backup age {backup_age_h:.1f}h · scheduled backup not found; verified latest pre-update backup instead",
                 ))
         except Exception as exc:
             records.append(("database", str(db_backup), "critical", str(exc)))
@@ -300,8 +336,8 @@ def verify_backups():
     if not router_results:
         records.append(("router", "", "warning", "No enabled routers to verify"))
     else:
-        for ok, path, detail in router_results:
-            records.append(("router", path, "ok" if ok else "warning", detail))
+        for status, path, detail in router_results:
+            records.append(("router", path, status, detail))
 
     with core.db() as conn:
         for kind, path, status, detail in records:
