@@ -85,7 +85,8 @@ def settings_page(request: Request):
 <tr><td>Router VPN pool</td><td><code>{html.escape(str(settings.WG_ROUTER_POOL))}</code></td></tr>
 <tr><td>Remote WinBox port range</td><td><code>{settings.WINBOX_PUBLIC_PORT_MIN}-{settings.WINBOX_PUBLIC_PORT_MAX}</code></td></tr>
 <tr><td>Enrollment token lifetime</td><td>{settings.TOKEN_TTL_HOURS} hours</td></tr>
-<tr><td>UI timezone</td><td><code>Montréal local time</code><div class="muted">{html.escape(settings.TIMEZONE)} Eastern/DST rules</div></td></tr>
+<tr><td>UI timezone</td><td><code>Montréal local time</code><div class="muted">Eastern time with automatic EST/EDT daylight saving</div></td></tr>
+<tr><td>Operational scheduler timezone</td><td><code>{html.escape(settings.TIMEZONE)}</code></td></tr>
 <tr><td>Codex AI</td><td><code>{html.escape(settings.AI_CODEX_HELPER)}</code> · isolated read-only router analysis</td></tr>
 </tbody></table></div>'''
     return ui.page("Settings", body, user, "settings")
