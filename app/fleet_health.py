@@ -71,7 +71,7 @@ def get(router_id: int) -> FleetHealth:
 def all_states() -> dict[int, FleetHealth]:
     ensure_schema()
     with core.db() as conn:
-        ids = [int(r[0]) for r in conn.execute("SELECT id FROM routers WHERE enabled=1 ORDER BY id")]
+        ids = [int(r[0]) for r in conn.execute("SELECT id FROM routers WHERE enabled=1 AND COALESCE(lifecycle_state,'production')<>'retired' ORDER BY id")]
     return {router_id: get(router_id) for router_id in ids}
 
 
