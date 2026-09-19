@@ -810,6 +810,8 @@ def validate_persistence_and_jobs():
         snapshot_columns = {r[1] for r in conn.execute("PRAGMA table_info(router_snapshots)")}
         ai_columns = {r[1] for r in conn.execute("PRAGMA table_info(router_ai_analyses)")}
         router_columns = {r[1] for r in conn.execute("PRAGMA table_info(routers)")}
+        site_columns = {r[1] for r in conn.execute("PRAGMA table_info(router_site_metadata)")}
+        retention_columns = {r[1] for r in conn.execute("PRAGMA table_info(retention_settings)")}
     if version != expected or not required.issubset(tables):
         fail("Fresh migration schema validation failed")
     if not {"source_kind", "source_id", "source_actor"}.issubset(snapshot_columns):
@@ -818,6 +820,10 @@ def validate_persistence_and_jobs():
         fail("Incident AI schema validation failed")
     if not {"lifecycle_state", "lifecycle_updated_at", "lifecycle_updated_by"}.issubset(router_columns):
         fail("Router lifecycle schema validation failed")
+    if not {"circuit_down_mbps", "circuit_up_mbps"}.issubset(site_columns):
+        fail("Circuit capacity metadata schema validation failed")
+    if not {"dns_health_days", "wan_quality_days", "pppoe_days", "isp_gateway_days"}.issubset(retention_columns):
+        fail("Network quality retention schema validation failed")
 
     capabilities.set_mode(9001, capabilities.OPTICABLE_DEFAULT, "2026-01-01T00:00:00+00:00", "smoke")
     cap = capabilities.get(9001)
