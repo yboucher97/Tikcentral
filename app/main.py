@@ -416,7 +416,7 @@ def dashboard(request: Request):
     can_admin = user["role"] == "admin"
     with db() as conn:
         rows = conn.execute(
-            "SELECT id,site_name,identity,serial,model,routeros_version,routerboot_version,public_key,vpn_ip,public_winbox_port FROM routers WHERE enabled=1 ORDER BY site_name COLLATE NOCASE,id"
+            "SELECT id,site_name,identity,serial,model,routeros_version,routerboot_version,public_key,vpn_ip,public_winbox_port FROM routers WHERE enabled=1 AND COALESCE(lifecycle_state,'production')<>'retired' ORDER BY site_name COLLATE NOCASE,id"
         ).fetchall()
         access_rows = conn.execute(
             "SELECT id,ip_address,label,always_allow,expires_at FROM authorized_ips ORDER BY always_allow DESC,ip_address"
@@ -424,7 +424,7 @@ def dashboard(request: Request):
         open_alerts = conn.execute("SELECT COUNT(*) FROM alert_queue WHERE status<>'resolved'").fetchone()[0]
         management_healthy = conn.execute(
             """SELECT COUNT(*) FROM routers r JOIN router_access_state a ON a.router_id=r.id
-               WHERE r.enabled=1 AND a.management_ok=1"""
+               WHERE r.enabled=1 AND COALESCE(r.lifecycle_state,'production')<>'retired' AND a.management_ok=1"""
         ).fetchone()[0]
     from app import ip_enrichment
     router_rows = []
