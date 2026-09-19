@@ -154,7 +154,8 @@ def _dns_collect(router, captured):
     with core.db() as conn:
         previous_time=conn.execute("SELECT MAX(captured_at) t FROM router_dns_health WHERE router_id=?",(router["id"],)).fetchone()["t"]
         previous_rows=conn.execute("SELECT ok FROM router_dns_health WHERE router_id=? AND captured_at=?",(router["id"],previous_time or "")).fetchall() if previous_time else []
-    previous_all_failed=bool(previous_rows) and all(x["ok"]==0 for x in previous_rows if x["ok"] is not None)
+    previous_known=[x["ok"] for x in previous_rows if x["ok"] is not None]
+    previous_all_failed=bool(previous_known) and all(x==0 for x in previous_known)
     resolvers=_resolver_list(router["vpn_ip"])
     if not resolvers:
         resolvers=["1.1.1.1","8.8.8.8"]
@@ -544,9 +545,21 @@ def register(app,page_func):
         pppoe_rows="".join(f'<tr><td>{html.escape(x["interface"])}</td><td>{html.escape(x["status"])}</td><td>{html.escape(x["uptime"] or "-")}</td><td>{html.escape(x["ac_name"] or "-")}</td><td>{html.escape(x["local_address"] or "-")}</td><td>{x["mtu"] or "—"} / {x["mru"] or "—"}</td><td>{html.escape(x["summary"] or "")}</td></tr>' for x in pppoe) or '<tr><td colspan="7">No PPPoE client observed.</td></tr>'
         wan_status=wan["summary"] if wan else "No WAN quality sample."
         gateway_status=gw["summary"] if gw else "No ISP gateway sample."
+        def pct(v):return "—" if v is None else f"{float(v):.1f}%"
+        def mbps(v):return "—" if v is None else f"{float(v)/1e6:.1f} Mbps"
+        def ms(v):return "—" if v is None else f"{float(v):.1f} ms"
         body=f'''<div class="panel pad"><h2>Network quality · {html.escape(r["site_name"])}</h2>
 <div><strong>{html.escape(wan_status)}</strong></div><div class="muted">WAN saturation uses configured circuit speed when available; negotiated link rate is only a lower-confidence fallback. Bufferbloat is only assessed when high utilization is actually observed.</div>
 <form method="post" action="/network-quality/{router_id}/run" style="margin-top:12px"><input type="hidden" name="csrf" value="{csrf}"><button class="primary">Run quality diagnostics now</button></form></div>
+<div class="cards">
+<div class="card"><h3>Download capacity</h3><div class="value">{mbps(wan["down_capacity_bps"]) if wan else "—"}</div><div class="muted">{html.escape(wan["capacity_source"] if wan else "unknown")}</div></div>
+<div class="card"><h3>Upload capacity</h3><div class="value">{mbps(wan["up_capacity_bps"]) if wan else "—"}</div><div class="muted">{html.escape(wan["capacity_source"] if wan else "unknown")}</div></div>
+<div class="card"><h3>RX utilization</h3><div class="value">{pct(wan["rx_utilization_percent"]) if wan else "—"}</div></div>
+<div class="card"><h3>TX utilization</h3><div class="value">{pct(wan["tx_utilization_percent"]) if wan else "—"}</div></div>
+<div class="card"><h3>Low-load latency</h3><div class="value">{ms(wan["idle_latency_ms"]) if wan else "—"}</div></div>
+<div class="card"><h3>Observed latency</h3><div class="value">{ms(wan["observed_latency_ms"]) if wan else "—"}</div></div>
+<div class="card"><h3>Bufferbloat</h3><div>{html.escape(wan["bufferbloat_status"] if wan else "unknown")}</div><div class="muted">Warn ≥ {BUFFERBLOAT_WARN_MS:.0f} ms increase · severe ≥ {BUFFERBLOAT_CRITICAL_MS:.0f} ms</div></div>
+</div>
 <div class="panel pad"><h3>ISP gateway</h3><div>{html.escape(gateway_status)}</div></div>
 <div class="panel"><div class="pad"><h3>DNS resolver health / reachability latency</h3></div><table><thead><tr><th>Resolver</th><th>Resolution</th><th>Reachability RTT</th><th>Source</th><th>Summary</th></tr></thead><tbody>{dns_rows}</tbody></table></div>
 <div class="panel"><div class="pad"><h3>Interface negotiation</h3></div><table><thead><tr><th>Interface</th><th>Rate</th><th>Duplex</th><th>Link-down Δ 24h</th><th>Status</th><th>Summary</th></tr></thead><tbody>{neg_rows}</tbody></table></div>
