@@ -245,10 +245,20 @@ def wireguard_peers() -> dict[str, dict]:
     return peers
 
 
-async def form_data(request: Request) -> dict[str, str]:
+class FormValues(dict[str, str]):
+    """Small multi-value form mapping compatible with existing dict callers."""
+    def __init__(self, parsed: dict[str, list[str]]):
+        super().__init__({key: values[-1] if values else "" for key, values in parsed.items()})
+        self._lists = {key: list(values) for key, values in parsed.items()}
+
+    def getlist(self, key: str) -> list[str]:
+        return list(self._lists.get(key, []))
+
+
+async def form_data(request: Request) -> FormValues:
     raw = (await request.body()).decode("utf-8", "replace")
     parsed = parse_qs(raw, keep_blank_values=True)
-    return {key: values[-1] for key, values in parsed.items()}
+    return FormValues(parsed)
 
 
 class TokenCreate(BaseModel):
