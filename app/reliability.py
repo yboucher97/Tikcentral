@@ -16,6 +16,7 @@ from fastapi import Request
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 
 from app import change_control, events, guardian, main as core, management_script, migrations, router_exec, state_capture
+from app.ui_time import format_montreal
 
 
 def now_iso():
@@ -156,19 +157,19 @@ def _support_summary_html(router, telemetry, evs, jobs, ai, incidents, snaps) ->
 
     latest_t = telemetry[0] if telemetry else None
     event_rows = "".join(
-        f"<tr><td>{esc(x['event_at'])}</td><td>{esc(x['severity'])}</td><td>{esc(x['category'])}</td><td>{esc(x['summary'])}</td></tr>"
+        f"<tr><td>{esc(format_montreal(x['event_at'], seconds=True))}</td><td>{esc(x['severity'])}</td><td>{esc(x['category'])}</td><td>{esc(x['summary'])}</td></tr>"
         for x in evs[:60]
     ) or '<tr><td colspan="4">No recent events.</td></tr>'
     job_rows = "".join(
-        f"<tr><td>{esc(x['created_at'])}</td><td>{esc(x['kind'])}</td><td>{esc(x['status'])}</td><td>{esc(x['actor'])}</td><td>{esc(x['error_code'])} {esc(x['error_message'])}</td></tr>"
+        f"<tr><td>{esc(format_montreal(x['created_at'], seconds=True))}</td><td>{esc(x['kind'])}</td><td>{esc(x['status'])}</td><td>{esc(x['actor'])}</td><td>{esc(x['error_code'])} {esc(x['error_message'])}</td></tr>"
         for x in jobs[:40]
     ) or '<tr><td colspan="5">No recent jobs.</td></tr>'
     ai_rows = "".join(
-        f"<tr><td>#{x['id']}</td><td>{esc(x['created_at'])}</td><td>{esc(x['status'])}</td><td>{esc(x['requested_by'])}</td><td>{esc((x['report'] or '')[:800])}</td></tr>"
+        f"<tr><td>#{x['id']}</td><td>{esc(format_montreal(x['created_at'], seconds=True))}</td><td>{esc(x['status'])}</td><td>{esc(x['requested_by'])}</td><td>{esc((x['report'] or '')[:800])}</td></tr>"
         for x in ai[:10]
     ) or '<tr><td colspan="5">No AI analyses.</td></tr>'
     incident_rows = "".join(
-        f"<tr><td>#{x['id']}</td><td>{esc(x['opened_at'])}</td><td>{esc(x['status'])}</td><td>{esc(x['summary'])}</td></tr>"
+        f"<tr><td>#{x['id']}</td><td>{esc(format_montreal(x['opened_at'], seconds=True))}</td><td>{esc(x['status'])}</td><td>{esc(x['summary'])}</td></tr>"
         for x in incidents[:30]
     ) or '<tr><td colspan="4">No fleet incidents.</td></tr>'
     telemetry_text = (
@@ -176,8 +177,8 @@ def _support_summary_html(router, telemetry, evs, jobs, ai, incidents, snaps) ->
         f"uptime {esc(latest_t['uptime'])} · RouterOS {esc(latest_t['routeros_version'])}"
         if latest_t else "No telemetry"
     )
-    snapshots = ", ".join(f"#{x['id']} {esc(x['captured_at'])}" for x in snaps) or "None"
-    generated = datetime.now(timezone.utc).isoformat()
+    snapshots = ", ".join(f"#{x['id']} {esc(format_montreal(x['captured_at'], seconds=True))}" for x in snaps) or "None"
+    generated = format_montreal(datetime.now(timezone.utc).isoformat(), seconds=True)
     return f"""<!doctype html><html><head><meta charset="utf-8"><title>Tikcentral Support Summary</title>
 <style>body{{font:14px system-ui;max-width:1200px;margin:30px auto;padding:0 20px;color:#202722}}
 table{{width:100%;border-collapse:collapse;margin:12px 0 28px}}th,td{{padding:8px;border:1px solid #d9e2dc;text-align:left;vertical-align:top}}
