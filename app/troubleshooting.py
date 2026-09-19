@@ -212,5 +212,5 @@ def register(app, page_func):
         data=await core.form_data(request)
         core.require_csrf(request,data.get("csrf",""))
         actor=user["email"]
-        ai_analysis.queue_analysis(router_id,actor,data.get("start",""),data.get("end",""),data.get("note","")[:500])
+        ai_analysis.queue_analysis(router_id,actor,data.get("start",""),data.get("end",""),data.get("note","")[:500],human_requested=True)
         return RedirectResponse(f"/ai/{router_id}",303)
