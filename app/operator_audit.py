@@ -83,7 +83,7 @@ def install_middleware(app):
                     _action_for(request.url.path),
                     method=request.method,
                     path=request.url.path,
-                    source_ip=core.request_public_ip(request) or "",
+                    source_ip=core.request_source_ip(request) or "",
                     status_code=response.status_code,
                 )
             except Exception:
