@@ -88,6 +88,9 @@ async def relay(reader: asyncio.StreamReader, writer: asyncio.StreamWriter, vpn_
         asyncio.create_task(authorization_watch()),
     }
     done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+    # Consume the completed task as well as cancelled siblings so transient DB
+    # or socket exceptions cannot leak as "Task exception was never retrieved".
+    await asyncio.gather(*done, return_exceptions=True)
     for task in pending:
         task.cancel()
     await asyncio.gather(*pending, return_exceptions=True)
