@@ -67,7 +67,7 @@ def register(app,page_func):
 <div class="muted">Persistent NOC workflow: New → Acknowledged → Assigned → Investigating → Resolved.</div>
 <div class="inline"><a href="/alerts"><button>Open</button></a><a href="/alerts?status=resolved"><button>Resolved</button></a></div></div>
 <div class="panel"><table><thead><tr><th>Level</th><th>Alert</th><th>Status</th><th>Assigned</th><th>Ticket</th><th>Workflow</th></tr></thead><tbody>{rendered}</tbody></table></div>'''
-        return page_func("Alert Queue",body,user,"operations")
+        return page_func("Alert Queue",body,user,"alerts")
 
     @app.post("/alerts/{alert_id}")
     async def update(alert_id:int,request:Request):
