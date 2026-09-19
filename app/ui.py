@@ -385,6 +385,7 @@ JS = r'''
    });
    const count=wrap.querySelector('.tc-count');if(count)count.textContent=shown+' / '+total;
  }
+ function viewPath(){return location.pathname.replace(/\/\d+(?=\/|$)/g,'/:id')}
  function defaultHiddenColumns(table){
    const raw=(table.dataset.defaultHidden||'').trim();
    if(!raw)return [];
@@ -394,7 +395,7 @@ JS = r'''
    if(table.dataset.viewKey)return 'table:'+table.dataset.viewKey;
    const signature=headers.map(h=>(h.innerText||'').trim().toLowerCase()).join('|').replace(/[^a-z0-9|:_ -]/g,'').slice(0,220);
    const panel=table.closest('.panel,details');const heading=(panel?.querySelector(':scope > h2,:scope > h3,:scope > summary')?.innerText||'').trim().toLowerCase().replace(/[^a-z0-9 _:-]/g,'').slice(0,100);
-   return 'table:'+location.pathname+':'+(heading||('table-'+index))+':'+signature;
+   return 'table:'+viewPath()+':'+(heading||('table-'+index))+':'+signature;
  }
  function enhanceTable(table,index){
    if(table.dataset.tcReady)return;table.dataset.tcReady='1';
@@ -588,7 +589,7 @@ JS = r'''
    if(!details.length)return;
    details.forEach((d,i)=>{
      const label=(d.querySelector(':scope > summary')?.innerText||('section-'+i)).trim();
-     const key='ui:disclosure:'+location.pathname+':'+label;
+     const key='ui:disclosure:'+viewPath()+':'+label;
      const stored=prefGet(key,null);
      if(stored==='open')d.open=true;
      else if(stored==='closed')d.open=false;
