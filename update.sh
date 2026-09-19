@@ -15,7 +15,7 @@ KEEP_RELEASES="${TIKCENTRAL_KEEP_RELEASES:-5}"
 set -a
 source "$ENV_FILE"
 set +a
-DB_FILE="${DB_PATH:-$DB_FILE}"
+DB_FILE="${DB_PATH:-/var/lib/tikcentral/tikcentral.db}"
 for cmd in git tar python3 sqlite3 curl jq caddy sudo visudo ssh-keygen systemctl runuser useradd; do
   command -v "$cmd" >/dev/null 2>&1 || { echo "Required command is missing: $cmd" >&2; exit 1; }
 done
@@ -61,8 +61,8 @@ DB_BACKUP="/var/backups/tikcentral/pre-update-$STAMP.db"
 ACTIVATION_DB_BACKUP="/var/backups/tikcentral/pre-activation-$STAMP.db"
 ENV_BACKUP="/var/backups/tikcentral/pre-update-$STAMP.env"
 
-if [[ -f $DB_FILE ]]; then
-  sqlite3 $DB_FILE ".backup '$DB_BACKUP'"
+if [[ -f "$DB_FILE" ]]; then
+  sqlite3 "$DB_FILE" ".backup '$DB_BACKUP'"
   chown root:tikcentral "$DB_BACKUP"
   chmod 0640 "$DB_BACKUP"
 fi
@@ -185,8 +185,8 @@ rollback() {
   systemctl stop tikcentral-backup.timer tikcentral-backup.service >/dev/null 2>&1 || true
   systemctl stop tikcentral-winbox-proxy tikcentral >/dev/null 2>&1 || true
   if [[ -f "$ACTIVATION_DB_BACKUP" ]]; then
-    rm -f ${DB_FILE}-wal ${DB_FILE}-shm
-    install -o tikcentral -g tikcentral -m 0640 "$ACTIVATION_DB_BACKUP" $DB_FILE
+    rm -f "${DB_FILE}-wal" "${DB_FILE}-shm"
+    install -o tikcentral -g tikcentral -m 0640 "$ACTIVATION_DB_BACKUP" "$DB_FILE"
   fi
   switch_current "$PREVIOUS" || true
   [[ -f "$PREVIOUS/deploy/tikcentral.service" ]] && install_runtime_files "$PREVIOUS"
@@ -256,8 +256,8 @@ systemctl stop tikcentral-winbox-proxy tikcentral >/dev/null 2>&1 || true
 # rollback. Modern installations already have PREVIOUS pointing at a release.
 if [[ -d "$CURRENT" && ! -L "$CURRENT" ]]; then mv "$CURRENT" "$PREVIOUS"; fi
 
-if [[ -f $DB_FILE ]]; then
-  sqlite3 $DB_FILE ".backup '$ACTIVATION_DB_BACKUP'"
+if [[ -f "$DB_FILE" ]]; then
+  sqlite3 "$DB_FILE" ".backup '$ACTIVATION_DB_BACKUP'"
   chown root:tikcentral "$ACTIVATION_DB_BACKUP"
   chmod 0640 "$ACTIVATION_DB_BACKUP"
 fi
