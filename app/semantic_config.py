@@ -89,6 +89,8 @@ def _selector(cmd:str)->str:
                     if depth==0:
                         return f"set {rest[:i+1]}"
         first=rest.split(" ",1)[0]
+        if "=" in first:
+            return "set"
         return f"set {first}"
     if op in {"remove","enable","disable"}:
         return f"{op} {rest.split(' ',1)[0] if rest else ''}".strip()
