@@ -54,6 +54,7 @@ STAMP="$(date -u +%Y%m%d-%H%M%S)"
 RELEASE="$RELEASES/$SHORT_SHA"
 BUILD="$RELEASES/.build-$SHORT_SHA-$$"
 DB_BACKUP="/var/backups/tikcentral/pre-update-$STAMP.db"
+ACTIVATION_DB_BACKUP="/var/backups/tikcentral/pre-activation-$STAMP.db"
 ENV_BACKUP="/var/backups/tikcentral/pre-update-$STAMP.env"
 
 if [[ -f /var/lib/tikcentral/tikcentral.db ]]; then
@@ -134,8 +135,6 @@ if [[ ! -f "$RELEASE/.tikcentral-validated" ]] || [[ "$(cat "$RELEASE/.tikcentra
   printf '%s\n' "$TARGET_SHA" > "$RELEASE/.tikcentral-validated"
 fi
 
-sudo -u tikcentral bash -c "set -a; source '$ENV_FILE'; set +a; cd '$RELEASE'; '$RELEASE/.venv/bin/python3' -c 'from app import migrations; migrations.migrate()'"
-
 install_runtime_files() {
   local release="$1"
   chmod +x "$release/helpers/tikcentral-wg-peer" "$release/helpers/tikcentral-update" "$release/helpers/tikcentral-codex-analyze"
@@ -178,8 +177,13 @@ rollback() {
   echo "New release failed activation: $reason" >&2
   if [[ -z "$PREVIOUS" || ! -d "$PREVIOUS" ]]; then echo "No previous release is available for automatic rollback." >&2; return 1; fi
   systemctl stop tikcentral-ai.timer tikcentral-ai.service >/dev/null 2>&1 || true
-  systemctl stop tikcentral-fleet.timer >/dev/null 2>&1 || true
-  systemctl stop tikcentral-fleet.service >/dev/null 2>&1 || true
+  systemctl stop tikcentral-fleet.timer tikcentral-fleet.service >/dev/null 2>&1 || true
+  systemctl stop tikcentral-backup.timer tikcentral-backup.service >/dev/null 2>&1 || true
+  systemctl stop tikcentral-winbox-proxy tikcentral >/dev/null 2>&1 || true
+  if [[ -f "$ACTIVATION_DB_BACKUP" ]]; then
+    rm -f /var/lib/tikcentral/tikcentral.db-wal /var/lib/tikcentral/tikcentral.db-shm
+    install -o tikcentral -g tikcentral -m 0640 "$ACTIVATION_DB_BACKUP" /var/lib/tikcentral/tikcentral.db
+  fi
   switch_current "$PREVIOUS" || true
   [[ -f "$PREVIOUS/deploy/tikcentral.service" ]] && install_runtime_files "$PREVIOUS"
   systemctl daemon-reload || true
@@ -237,10 +241,22 @@ fi
 caddy fmt --overwrite /etc/caddy/Caddyfile >/dev/null
 caddy validate --config /etc/caddy/Caddyfile
 
-systemctl stop tikcentral-ai.timer tikcentral-ai.service >/dev/null 2>&1 || true
-systemctl stop tikcentral-fleet.timer >/dev/null 2>&1 || true
-systemctl stop tikcentral-fleet.service >/dev/null 2>&1 || true
 ACTIVATION_STARTED=1
+# Quiesce every Tikcentral process that can touch SQLite before schema evolution.
+systemctl stop tikcentral-ai.timer tikcentral-ai.service >/dev/null 2>&1 || true
+systemctl stop tikcentral-fleet.timer tikcentral-fleet.service >/dev/null 2>&1 || true
+systemctl stop tikcentral-backup.timer tikcentral-backup.service >/dev/null 2>&1 || true
+systemctl stop tikcentral-winbox-proxy tikcentral >/dev/null 2>&1 || true
+
+if [[ -f /var/lib/tikcentral/tikcentral.db ]]; then
+  sqlite3 /var/lib/tikcentral/tikcentral.db ".backup '$ACTIVATION_DB_BACKUP'"
+  chown root:tikcentral "$ACTIVATION_DB_BACKUP"
+  chmod 0640 "$ACTIVATION_DB_BACKUP"
+fi
+
+# Apply the new schema only while the old runtime is stopped. Any activation
+# failure restores the exact pre-migration activation snapshot in rollback().
+sudo -u tikcentral bash -c "set -a; source '$ENV_FILE'; set +a; cd '$RELEASE'; '$RELEASE/.venv/bin/python3' -c 'from app import migrations; migrations.migrate()'"
 
 if [[ -d "$CURRENT" && ! -L "$CURRENT" ]]; then mv "$CURRENT" "$PREVIOUS"; fi
 switch_current "$RELEASE"
@@ -312,7 +328,7 @@ fi
 UPDATE_BACKUP_KEEP="${TIKCENTRAL_UPDATE_BACKUP_KEEP:-20}"
 [[ "$UPDATE_BACKUP_KEEP" =~ ^[0-9]+$ ]] || UPDATE_BACKUP_KEEP=20
 (( UPDATE_BACKUP_KEEP >= 2 )) || UPDATE_BACKUP_KEEP=2
-for pattern in 'pre-update-*.db' 'pre-update-*.env'; do
+for pattern in 'pre-update-*.db' 'pre-activation-*.db' 'pre-update-*.env'; do
   mapfile -t files < <(find /var/backups/tikcentral -maxdepth 1 -type f -name "$pattern" -printf '%T@ %p\n' | sort -nr | cut -d' ' -f2-)
   if (( ${#files[@]} > UPDATE_BACKUP_KEEP )); then printf '%s\0' "${files[@]:UPDATE_BACKUP_KEEP}" | xargs -0r rm -f; fi
 done
