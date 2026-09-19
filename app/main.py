@@ -8,6 +8,7 @@ import secrets
 import sqlite3
 import subprocess
 import time
+from collections import defaultdict, deque
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from urllib.parse import parse_qs
@@ -84,6 +85,45 @@ def verify_password(password: str, stored: str) -> bool:
         return hmac.compare_digest(derived.hex(), digest_hex)
     except Exception:
         return False
+
+# Keep unknown-email login attempts on the same scrypt path as known users so
+# response timing does not disclose whether an account exists.
+_DUMMY_LOGIN_HASH = hash_password("tikcentral-login-dummy-password")
+_LOGIN_FAILURES: dict[str, deque[float]] = defaultdict(deque)
+_LOGIN_WINDOW_SECONDS = 300
+_LOGIN_MAX_FAILURES = 10
+
+
+def request_source_ip(request: Request) -> str:
+    """Return normalized IPv4 or IPv6 source address from the trusted proxy."""
+    forwarded = request.headers.get("x-forwarded-for", "")
+    candidate = forwarded.split(",", 1)[0].strip() if forwarded else ""
+    if not candidate and request.client:
+        candidate = request.client.host
+    try:
+        return str(ipaddress.ip_address(candidate))
+    except ValueError:
+        return ""
+
+
+def _login_limited(source_ip: str) -> bool:
+    if not source_ip:
+        return False
+    now = time.monotonic()
+    q = _LOGIN_FAILURES[source_ip]
+    while q and now - q[0] > _LOGIN_WINDOW_SECONDS:
+        q.popleft()
+    return len(q) >= _LOGIN_MAX_FAILURES
+
+
+def _login_failed(source_ip: str):
+    if source_ip:
+        _LOGIN_FAILURES[source_ip].append(time.monotonic())
+
+
+def _login_succeeded(source_ip: str):
+    if source_ip:
+        _LOGIN_FAILURES.pop(source_ip, None)
 
 
 def valid_email(value: str) -> bool:
@@ -182,14 +222,11 @@ def require_csrf(request: Request, value: str):
 
 
 def request_public_ip(request: Request) -> str:
-    forwarded = request.headers.get("x-forwarded-for", "")
-    candidate = forwarded.split(",", 1)[0].strip() if forwarded else ""
-    if not candidate and request.client:
-        candidate = request.client.host
-    try:
-        ip = ipaddress.ip_address(candidate)
-    except ValueError:
+    """Return the IPv4 source eligible for the public WinBox allow-list."""
+    candidate = request_source_ip(request)
+    if not candidate:
         return ""
+    ip = ipaddress.ip_address(candidate)
     return str(ip) if ip.version == 4 else ""
 
 
@@ -358,13 +395,19 @@ def login_page(request: Request):
 
 @app.post("/login")
 async def login(request: Request):
+    source_ip = request_source_ip(request)
+    if _login_limited(source_ip):
+        raise HTTPException(status_code=429, detail="too many failed login attempts; try again shortly")
     data = await form_data(request)
     email = data.get("email", "").strip().lower()
     password = data.get("password", "")
     with db() as conn:
         user = conn.execute("SELECT id,email,password_hash,role,enabled FROM users WHERE email=?", (email,)).fetchone()
-        if not user or not user["enabled"] or not verify_password(password, user["password_hash"]):
+        password_ok = verify_password(password, user["password_hash"] if user else _DUMMY_LOGIN_HASH)
+        if not user or not user["enabled"] or not password_ok:
+            _login_failed(source_ip)
             return RedirectResponse("/login?error=1", status_code=303)
+        _login_succeeded(source_ip)
         raw = secrets.token_urlsafe(32)
         now = utcnow()
         conn.execute("DELETE FROM sessions WHERE user_id=? AND expires_at<=?", (user["id"], iso(now)))
@@ -379,7 +422,7 @@ async def login(request: Request):
             "Login",
             method="POST",
             path="/login",
-            source_ip=request_public_ip(request) or "",
+            source_ip=request_source_ip(request) or "",
             status_code=303,
         )
     except Exception:
