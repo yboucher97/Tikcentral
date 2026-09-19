@@ -16,9 +16,10 @@ for cmd in git tar python3 sqlite3 curl jq caddy sudo visudo ssh-keygen systemct
   command -v "$cmd" >/dev/null 2>&1 || { echo "Required command is missing: $cmd" >&2; exit 1; }
 done
 
-mkdir -p "$RELEASES" /var/backups/tikcentral
+mkdir -p "$RELEASES"
 chmod 0755 "$ROOT" "$RELEASES"
-find /var/backups/tikcentral -maxdepth 1 -type f -name 'tikcentral-*.db' -exec chown root:tikcentral {} + -exec chmod 0640 {} + 2>/dev/null || true
+install -d -o root -g tikcentral -m 0750 /var/backups/tikcentral
+find /var/backups/tikcentral -maxdepth 1 -type f \( -name 'tikcentral-*.db' -o -name 'pre-update-*.db' \) -exec chown root:tikcentral {} + -exec chmod 0640 {} + 2>/dev/null || true
 
 bootstrap_repository() {
   if [[ -d "$REPO" ]]; then return; fi
@@ -57,6 +58,8 @@ ENV_BACKUP="/var/backups/tikcentral/pre-update-$STAMP.env"
 
 if [[ -f /var/lib/tikcentral/tikcentral.db ]]; then
   sqlite3 /var/lib/tikcentral/tikcentral.db ".backup '$DB_BACKUP'"
+  chown root:tikcentral "$DB_BACKUP"
+  chmod 0640 "$DB_BACKUP"
 fi
 cp -a "$ENV_FILE" "$ENV_BACKUP"
 
@@ -68,8 +71,11 @@ chown root:tikcentral "$SSH_DIR/tikcentral_ed25519" "$SSH_DIR/tikcentral_ed25519
 chmod 0640 "$SSH_DIR/tikcentral_ed25519"
 chmod 0644 "$SSH_DIR/tikcentral_ed25519.pub"
 
+install -d -o root -g tikcentral -m 0750 /var/backups/tikcentral
 install -d -o tikcentral -g tikcentral -m 0750 "$ROUTER_BACKUP_DIR"
 chown -R tikcentral:tikcentral "$ROUTER_BACKUP_DIR" || true
+find "$ROUTER_BACKUP_DIR" -type d -exec chmod 0750 {} + 2>/dev/null || true
+find "$ROUTER_BACKUP_DIR" -type f -exec chmod 0640 {} + 2>/dev/null || true
 install -d -o tikcentral -g tikcentral -m 0750 /var/lib/tikcentral /var/lib/tikcentral/router-backups
 if [[ ! -f /var/lib/tikcentral/known_hosts ]]; then
   install -o tikcentral -g tikcentral -m 0600 /dev/null /var/lib/tikcentral/known_hosts
