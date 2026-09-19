@@ -657,6 +657,9 @@ def validate_source_boundaries():
         if marker not in login_text:
             fail(f"Login password visibility control missing: {marker}")
     shared_ui = (ROOT / "app/ui.py").read_text(encoding="utf-8")
+    for marker in ("NAV_GROUPS", "Overview", "Fleet", "Operations", "Changes", "Intelligence", "Administration", "openPalette", "organizeRouterWorkspace", "data-default-hidden", "tc-filter-toggle"):
+        if marker not in shared_ui:
+            fail(f"Professional UI shell missing: {marker}")
     for marker in ("tc-filter-column", "tc-filter-op", "tc-filter-value", "matchOperator", "contains", "!contains", ">=", "<=", "!="):
         if marker not in shared_ui:
             fail(f"Advanced shared table filter missing: {marker}")
@@ -715,12 +718,27 @@ def validate_source_boundaries():
 def validate_ui_and_assets():
     rendered = ui.page(
         "Operations",
-        '<div class="panel"><table><thead><tr><th>Status</th></tr></thead><tbody><tr><td>Healthy</td></tr></tbody></table></div>',
-        {"email": "validator@opticable.local"}, "operations",
+        '<div class="panel"><table data-default-hidden="0"><thead><tr><th>Status</th></tr></thead><tbody><tr><td>Healthy</td></tr></tbody></table></div>',
+        {"email": "validator@opticable.local", "role": "admin"}, "operations",
     ).body.decode()
-    for marker in ("tcGlobalSearch", "tcToggleTheme", "tc-local-search", "tc-filter-column", "tc-filter-op", "tc-filter-value", "Columns ▾", "tcCopy", "Copy field value"):
+    for marker in (
+        "tc-shell", "tc-sidebar", "tc-topbar", "tcCommandBtn", "tcPalette", "tcGlobalSearch",
+        "tcToggleTheme", "tc-local-search", "tc-filter-column", "tc-filter-op", "tc-filter-value",
+        "tc-filter-toggle", "Columns", "tcCopy", "Copy field value", "organizeRouterWorkspace",
+        "tc-router-toolbox", "tc-workspace-tabs", "data-default-hidden",
+    ):
         if marker not in rendered:
             fail(f"Shared UI missing {marker}")
+    login_rendered = ui.page("Sign in", '<div class="login">Login</div>', None).body.decode()
+    if "tc-sidebar" in login_rendered or "tc-shell" in login_rendered:
+        fail("Anonymous/login UI incorrectly renders authenticated application shell")
+    if not getattr(ui, "NAV_GROUPS", None) or len(ui.NAV) < 20:
+        fail("Grouped navigation registry is missing or incomplete")
+    route_counts, _ = routes()
+    for group, items in ui.NAV_GROUPS:
+        for key, href, label in items:
+            if route_counts.get(("GET", href), 0) != 1:
+                fail(f"Navigation destination missing: {group} / {label} -> {href}")
     if set(settings.ASSET_FILES) != {"logo_light", "logo_dark", "icon"}:
         fail("Unexpected asset manifest keys")
     for key, filename in settings.ASSET_FILES.items():
