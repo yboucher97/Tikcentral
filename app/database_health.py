@@ -31,7 +31,7 @@ def _human(value):
     return f"{value:.1f} TB"
 
 
-def collect(force=False):
+def collect(force=False, persist=True):
     migrations.migrate()
     now=_now()
     db_path=Path(settings.DB_PATH)
@@ -89,22 +89,24 @@ def collect(force=False):
     if days_to_80 is not None:
         summary+=f" · ~{days_to_80:.0f} days to 80% filesystem use"
 
-    with core.db() as conn:
-        previous=conn.execute("SELECT status FROM database_health_history ORDER BY id DESC LIMIT 1").fetchone()
-        conn.execute(
-            """INSERT INTO database_health_history
-               (checked_at,db_bytes,wal_bytes,shm_bytes,total_sqlite_bytes,filesystem_total_bytes,filesystem_free_bytes,
-                growth_bytes_per_day,estimated_days_to_80_percent,status,summary)
-               VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
-            (now.isoformat(),db_bytes,wal_bytes,shm_bytes,total_sqlite,fs_total,fs_free,growth,days_to_80,status,summary),
-        )
-        conn.execute(
-            """DELETE FROM database_health_history WHERE id NOT IN
-               (SELECT id FROM database_health_history ORDER BY id DESC LIMIT 2160)"""
-        )
-    if previous and previous["status"]!=status:
-        events.record(None,"database-health",f"Database/storage health: {previous['status']} → {status}",summary,
-                      "critical" if status=="critical" else ("warning" if status=="warning" else "info"))
+    previous=None
+    if persist:
+        with core.db() as conn:
+            previous=conn.execute("SELECT status FROM database_health_history ORDER BY id DESC LIMIT 1").fetchone()
+            conn.execute(
+                """INSERT INTO database_health_history
+                   (checked_at,db_bytes,wal_bytes,shm_bytes,total_sqlite_bytes,filesystem_total_bytes,filesystem_free_bytes,
+                    growth_bytes_per_day,estimated_days_to_80_percent,status,summary)
+                   VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+                (now.isoformat(),db_bytes,wal_bytes,shm_bytes,total_sqlite,fs_total,fs_free,growth,days_to_80,status,summary),
+            )
+            conn.execute(
+                """DELETE FROM database_health_history WHERE id NOT IN
+                   (SELECT id FROM database_health_history ORDER BY id DESC LIMIT 2160)"""
+            )
+        if previous and previous["status"]!=status:
+            events.record(None,"database-health",f"Database/storage health: {previous['status']} → {status}",summary,
+                          "critical" if status=="critical" else ("warning" if status=="warning" else "info"))
     return {
         "checked_at":now.isoformat(),"db_bytes":db_bytes,"wal_bytes":wal_bytes,"shm_bytes":shm_bytes,
         "total_sqlite_bytes":total_sqlite,"filesystem_total_bytes":fs_total,"filesystem_free_bytes":fs_free,
@@ -119,7 +121,7 @@ def register(app,page_func):
     def page(request:Request):
         user=core.require_web_admin(request)
         if not user:return RedirectResponse("/login",303)
-        current=collect(force=True)
+        current=collect(force=True,persist=False)
         with core.db() as conn:
             rows=conn.execute("SELECT * FROM database_health_history ORDER BY id DESC LIMIT 168").fetchall()
             page_count=conn.execute("PRAGMA page_count").fetchone()[0]
