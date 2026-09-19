@@ -20,7 +20,7 @@ os.environ["DB_PATH"] = str(Path(_TMP.name) / "tikcentral.db")
 
 from app import ai_analysis, capabilities, errors, events, fleet, fleet_health, jobs, semantic_config
 from app import management_script, migrations, performance_profile, router_exec
-from app import scheduler, settings, system_health, ui
+from app import scheduler, settings, system_health, ui, ui_time
 from app import main as core
 from app.final import app
 
@@ -718,6 +718,10 @@ def validate_source_boundaries():
     for marker in ("router_wan_quality", "router_interface_negotiation", "router_dns_health", "router_isp_gateway_history", "fleet_cross_site_anomalies"):
         if marker not in attention_quality:
             fail(f"Network quality attention integration missing: {marker}")
+    ui_time_text = (ROOT / "app/ui_time.py").read_text(encoding="utf-8")
+    for marker in ("Montréal", "_LEGACY_UTC_RE", "format_montreal", "localize_html_iso_timestamps"):
+        if marker not in ui_time_text:
+            fail(f"Montreal UI time formatter missing: {marker}")
     training_text = (ROOT / "app/training.py").read_text(encoding="utf-8")
     for marker in ("LESSONS", "RANKS", "INTELLIGENCE_GUIDE", "Smart Features Map", "Measure", "Compare", "Correlate", "Estimate", "AI", "Unknown is not Healthy", "Fast mode", "Complete mission", "I already know this", "user_training_progress", "XP earned", "Reset my training", "Skip unfinished", "Tikcentral Expert"):
         if marker not in training_text:
@@ -741,6 +745,30 @@ def validate_source_boundaries():
     ui_copy_text = (ROOT / "app/ui.py").read_text(encoding="utf-8")
     if "hasAttribute('data-no-copy')" not in ui_copy_text:
         fail("No-copy fields can still receive automatic Copy buttons")
+    for marker in (
+        "localWallTime", "isDateHeader", "tc-date-range", 'type="datetime-local"',
+        "installCellCopy", "cellTextForCopy", "tc-copy-priority", "Montréal local time",
+        "does not contain", "op==='>='", "op==='<='",
+    ):
+        if marker not in ui_copy_text:
+            fail(f"Shared table filter/copy capability missing: {marker}")
+    alert_text = (ROOT / "app/alert_queue.py").read_text(encoding="utf-8")
+    for marker in ('<th>Time</th>', 'last_seen_at', 'first_seen_at'):
+        if marker not in alert_text:
+            fail(f"Alert timestamp/filter support missing: {marker}")
+    log_text = (ROOT / "app/log_patterns.py").read_text(encoding="utf-8")
+    for marker in ('<th>Captured</th>', 'captured_at', 'LIMIT 1000'):
+        if marker not in log_text:
+            fail(f"Log-pattern history timestamp support missing: {marker}")
+    main_text = (ROOT / "app/main.py").read_text(encoding="utf-8")
+    if "Last handshake UTC" in main_text or "strftime(\"%Y-%m-%d %H:%M:%S\") if latest" in main_text:
+        fail("Dashboard still exposes unlocalized handshake timestamps")
+    reliability_text = (ROOT / "app/reliability.py").read_text(encoding="utf-8")
+    if "format_montreal" not in reliability_text:
+        fail("Support summary timestamps are not localized to Montreal")
+    for path in (ROOT / "app").glob("*.py"):
+        if "var(--green)" in path.read_text(encoding="utf-8"):
+            fail(f"Stale pre-redesign healthy color token remains: {path.name}")
     resource_text = (ROOT / "app/resource_monitor.py").read_text(encoding="utf-8")
     for marker in ("_uptime_seconds", "_memory_bytes", "_record_reboot", "RESOURCE_CPU_WARN", "Unexpected router reboot detected"):
         if marker not in resource_text:
@@ -778,7 +806,8 @@ def validate_ui_and_assets():
         "tc-router-toolbox", "tc-workspace-tabs", "data-default-hidden", "tc-page-intro",
         "tcObjectContext", "installRouterContext", "installRecentRouters", "protectDirtyForms",
         "tcDensityToggle", "tcRestoreGuidance", "tcDisclosureToggle", "installDisclosureState",
-        "tc-section-index", "data-workflow",
+        "tc-section-index", "data-workflow", "tc-date-range", "tc-date-from", "tc-date-to",
+        "tc-date-column", "Montréal local time", "tc-cell-copy", "tc-copy-priority",
     ):
         if marker not in rendered:
             fail(f"Shared UI missing {marker}")
@@ -789,6 +818,15 @@ def validate_ui_and_assets():
         fail("Anonymous/login UI content is missing")
     if not getattr(ui, "NAV_GROUPS", None) or len(ui.NAV) < 20:
         fail("Grouped navigation registry is missing or incomplete")
+    converted = ui_time.format_montreal("2026-09-19T11:40:00+00:00", seconds=True)
+    if converted != "2026-09-19 07:40:00 EDT":
+        fail(f"Montreal timezone conversion failed: {converted}")
+    legacy = ui_time.localize_html_iso_timestamps("<td>2026-09-19 11:40:00 UTC</td>")
+    if "2026-09-19 07:40:00 EDT" not in legacy:
+        fail("Legacy UTC timestamp was not converted to Montreal local time")
+    protected_attr = '<input value="2026-09-19T11:40:00+00:00">'
+    if ui_time.localize_html_iso_timestamps(protected_attr) != protected_attr:
+        fail("Timestamp localization modified an HTML attribute value")
     route_counts, _ = routes()
     for group, items in ui.NAV_GROUPS:
         for key, href, label in items:
