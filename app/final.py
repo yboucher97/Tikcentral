@@ -71,6 +71,7 @@ from app import router_exec
 from app import site_metadata
 from app import system_health
 from app import topology
+from app import training
 from app import time_health
 from app import traffic_monitor
 from app import troubleshooting
@@ -229,6 +230,7 @@ local_utilization.register(app, ui.page)
 model_capabilities.register(app, ui.page)
 log_patterns.register(app, ui.page)
 topology.register(app, ui.page)
+training.register(app, ui.page)
 wan_probe.register(app, ui.page)
 desired_state.register(app, ui.page)
 hardware_inventory.register(app, ui.page)
