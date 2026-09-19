@@ -252,7 +252,10 @@ def collect_snapshot(router_id: int, focus_start: str = "", focus_end: str = "",
         "wan_probe": row_dict(wan_probe),
         "desired_state": row_dict(desired_state),
         "site_topology": [dict(r) for r in topology_devices],
-        "operator_notes": [dict(r) for r in operator_notes],
+        "operator_notes": [
+            dict(r) | {"note": _sanitize(r["note"] or "", 4000)}
+            for r in operator_notes
+        ],
         "security_exposure_audit": row_dict(security_audit),
         "automation_inventory": [dict(r) for r in automation_inventory],
         "traffic_history": [dict(r) for r in traffic_history],
