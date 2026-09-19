@@ -102,8 +102,8 @@ h1,h2,h3{line-height:1.25}h1{font-size:24px}h2{font-size:18px}h3{font-size:14px}
 .tc-logo{display:block;width:182px;max-height:38px;object-fit:contain;object-position:left center}.tc-logo-light{display:none}.tc-logo-dark{display:block}
 html[data-theme="light"] .tc-logo-dark{display:none}html[data-theme="light"] .tc-logo-light{display:block}
 .tc-icon{display:none;width:34px;height:34px}
-.tc-nav-group{margin:15px 0 4px}.tc-nav-label{padding:0 10px 6px;color:var(--muted);font-size:10px;letter-spacing:.11em;text-transform:uppercase;font-weight:800}
-.tc-nav{display:grid;gap:2px}.tc-nav a{display:flex;align-items:center;min-height:36px;padding:8px 10px;border-radius:8px;color:var(--muted);font-weight:650}
+.tc-nav-group{margin:8px 0 3px}.tc-nav-label{list-style:none;cursor:pointer;padding:7px 10px;color:var(--muted);font-size:10px;letter-spacing:.10em;text-transform:uppercase;font-weight:800;border-radius:7px}.tc-nav-label::-webkit-details-marker{display:none}.tc-nav-label:after{content:"›";float:right;font-size:14px;line-height:10px;transition:transform .14s}.tc-nav-group[open]>.tc-nav-label:after{transform:rotate(90deg)}.tc-nav-label:hover{background:var(--surface2);color:var(--text)}
+.tc-nav{display:grid;gap:2px;margin-top:2px}.tc-nav a{display:flex;align-items:center;min-height:36px;padding:8px 10px;border-radius:8px;color:var(--muted);font-weight:650}
 .tc-nav a:hover{background:var(--surface2);color:var(--text)}.tc-nav a.active{background:var(--accent-soft);color:var(--text);box-shadow:inset 3px 0 0 var(--accent)}
 .tc-sidebar-foot{margin-top:18px;padding:12px 8px 0;border-top:1px solid var(--line);font-size:12px;color:var(--muted)}
 .tc-main{min-width:0}.tc-topbar{position:sticky;top:0;z-index:25;height:64px;display:flex;align-items:center;gap:12px;padding:0 22px;background:color-mix(in srgb,var(--bg) 88%,transparent);backdrop-filter:blur(12px);border-bottom:1px solid var(--line)}
@@ -331,7 +331,8 @@ def page(title: str, body: str, user=None, active: str = "") -> HTMLResponse:
                 links.append(f'<a class="{cls}" href="{href}">{html.escape(label)}</a>')
                 palette.append(f'<a class="tc-palette-item" href="{href}" data-search="{html.escape((group+" "+label).lower())}"><span>{html.escape(label)}</span><span>{html.escape(group)}</span></a>')
             if links:
-                groups.append(f'<div class="tc-nav-group"><div class="tc-nav-label">{html.escape(group)}</div><nav class="tc-nav">{"".join(links)}</nav></div>')
+                opened = " open" if group in {"Overview", category} else ""
+                groups.append(f'<details class="tc-nav-group"{opened}><summary class="tc-nav-label">{html.escape(group)}</summary><nav class="tc-nav">{"".join(links)}</nav></details>')
         sidebar = "".join(groups)
         palette_items = "".join(palette)
         account = f'''<div class="tc-account"><button type="button" id="tcAccountBtn"><span>{html.escape(email)}</span> ▾</button><div class="tc-account-menu"><div style="padding:8px 10px"><strong>{html.escape(email)}</strong><div class="muted">{html.escape(role.title())}</div></div><a href="/account/password"><button type="button">Account & password</button></a><form method="post" action="/logout"><button>Sign out</button></form></div></div>'''
