@@ -366,7 +366,7 @@ def repair_router(router_id: int, actor: str = "guardian"):
             router_id,
             "guardian_repair",
             actor,
-            serialize_router=False,
+            serialize_router=True,
             fail_code="GUARDIAN_REPAIR_FAILED",
             fail_message="Guardian access repair failed",
         ) as job_id:
