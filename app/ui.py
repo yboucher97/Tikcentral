@@ -56,6 +56,37 @@ NAV_GROUPS = [
 NAV = [item for _, items in NAV_GROUPS for item in items]
 NAV_CATEGORY = {key: group for group, items in NAV_GROUPS for key, _, _ in items}
 
+PAGE_GUIDANCE = {
+    "dashboard": ("Fleet overview", "Start here: current fleet health, exceptions and operator access."),
+    "alerts": ("Exceptions", "Acknowledge, assign and resolve issues that need operator attention."),
+    "routers": ("Inventory", "Find a router, check health, then open its workspace for troubleshooting or changes."),
+    "fleet-search": ("Fleet search", "Search operational inventory across the whole MikroTik fleet."),
+    "customers": ("Customer view", "Move from customer → site → router without losing operational context."),
+    "cross-site-anomalies": ("Correlation", "Look for failures affecting multiple sites or providers at the same time."),
+    "operations": ("Router workspace", "Use this for day-to-day router health, troubleshooting and safe actions."),
+    "guardian": ("Management path", "Monitor and recover Tikcentral management reachability."),
+    "reliability": ("Reliability", "Review availability, transactions and recovery evidence."),
+    "compliance": ("Policy", "Compare routers against the expected Tikcentral management baseline."),
+    "rescue": ("Recovery", "Use controlled rescue access only when normal management is unavailable."),
+    "automation": ("Automation", "Run standard fleet maintenance and analysis jobs."),
+    "ssh": ("Advanced", "Direct RouterOS shell access. Prefer structured Tikcentral actions when available."),
+    "changes": ("Change history", "Understand what changed, who changed it and the measured impact."),
+    "change-calendar": ("Planning", "Schedule and track planned operational changes."),
+    "maintenance-automation": ("Post-change", "Control automatic verification after successful router changes."),
+    "upgrade-campaigns": ("Upgrades", "Plan canary approval and staged RouterOS upgrade campaigns."),
+    "replacements": ("Replacement", "Transfer site intent and metadata to a newly enrolled router safely."),
+    "lifecycle": ("Lifecycle", "Track routers from commissioning through production, maintenance and retirement."),
+    "config-search": ("Configuration intelligence", "Search retained RouterOS configuration snapshots across the fleet."),
+    "audit": ("Router audit", "Inspect configuration and management-policy differences."),
+    "operator-audit": ("Operator history", "Review who performed administrative actions in Tikcentral."),
+    "enroll": ("Enrollment", "Add a MikroTik router and generate its one-time enrollment script."),
+    "retention": ("Data lifecycle", "Control how long Tikcentral keeps each class of operational history."),
+    "system-health": ("Tikcentral health", "Verify services, backups and core management dependencies."),
+    "database-health": ("Database", "Monitor SQLite storage growth and capacity risk."),
+    "users": ("Access control", "Manage Tikcentral users, roles and account availability."),
+    "settings": ("Administration", "Account and platform settings."),
+}
+
 def _infer_active(title: str) -> str:
     t = (title or "").lower()
     for key, _, label in NAV:
