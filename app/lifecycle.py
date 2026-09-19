@@ -3,7 +3,7 @@
 import html
 from datetime import datetime, timezone
 
-from fastapi import Request
+from fastapi import HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app import events, main as core, migrations
@@ -78,7 +78,9 @@ def register(app,page_func):
         requested=str(data.get("state","production"))
         with core.db() as conn:
             current=conn.execute("SELECT lifecycle_state FROM routers WHERE id=?",(router_id,)).fetchone()
-        if requested=="retired" or (current and (current["lifecycle_state"] or "production")=="retired"):
+        if not current:
+            raise HTTPException(status_code=404,detail="router not found")
+        if requested=="retired" or (current["lifecycle_state"] or "production")=="retired":
             core.require_web_role(request,"admin")
         set_state(router_id,requested,user["email"])
         return RedirectResponse(f"/lifecycle/{router_id}",303)
