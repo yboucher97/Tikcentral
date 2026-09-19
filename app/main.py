@@ -351,6 +351,11 @@ def dashboard(request: Request):
         access_rows = conn.execute(
             "SELECT id,ip_address,label,always_allow,expires_at FROM authorized_ips ORDER BY always_allow DESC,ip_address"
         ).fetchall()
+        open_alerts = conn.execute("SELECT COUNT(*) FROM alert_queue WHERE status<>'resolved'").fetchone()[0]
+        management_healthy = conn.execute(
+            """SELECT COUNT(*) FROM routers r JOIN router_access_state a ON a.router_id=r.id
+               WHERE r.enabled=1 AND a.management_ok=1"""
+        ).fetchone()[0]
     from app import ip_enrichment
     router_rows = []
     for row in rows:
@@ -390,7 +395,19 @@ def dashboard(request: Request):
 
     from app import dashboard_attention
     attention_html = dashboard_attention.render()
-    body = f'''{attention_html}<div class="panel pad"><div class="inline" style="justify-content:space-between"><div><h2>Remote WinBox access</h2><div>Your current public IP: <code>{html.escape(current_ip or 'Unknown')}</code></div><div class="muted">Temporary authorization lasts {TEMP_ACCESS_DAYS} days.</div></div><form method="post" action="/dashboard/access/current"><input type="hidden" name="csrf" value="{csrf}"><button class="primary">Authorize my current IP for {TEMP_ACCESS_DAYS} days</button></form></div></div><div class="panel"><table><thead><tr><th>Status</th><th>Identity</th><th>Model</th><th>Serial</th><th>RouterOS</th><th>RouterBOOT</th><th>Public IP</th><th>ISP / ASN</th><th>VPN IP</th><th>Remote WinBox</th><th>VPN WinBox</th><th>Last handshake UTC</th><th>Troubleshooting</th></tr></thead><tbody>{''.join(router_rows)}</tbody></table></div><div class="panel pad"><h2>Always Authorized IPs</h2><form class="inline" method="post" action="/dashboard/access/always"><input type="hidden" name="csrf" value="{csrf}"><input name="ip_address" placeholder="203.0.113.10" required><input name="label" placeholder="Office / Home / Technician"><button>Add</button></form></div><div class="panel"><table><thead><tr><th>IP address</th><th>Label</th><th>Type</th><th>Expires</th><th></th></tr></thead><tbody>{''.join(access_html)}</tbody></table></div>'''
+    body = f'''<div class="cards">
+<div class="card"><div class="muted">Managed routers</div><div class="value">{len(rows)}</div><div class="muted">Enabled fleet</div></div>
+<div class="card"><div class="muted">Management healthy</div><div class="value">{management_healthy}/{len(rows)}</div><div class="muted">Guardian reachability</div></div>
+<div class="card"><div class="muted">Open alerts</div><div class="value">{open_alerts}</div><div><a href="/alerts">Open alert queue</a></div></div>
+<div class="card"><div class="muted">Current public IP</div><div style="margin-top:8px"><code>{html.escape(current_ip or 'Unknown')}</code></div><div class="muted">Operator access source</div></div>
+</div>
+{attention_html}
+<div class="panel pad"><div class="inline" style="justify-content:space-between"><div><h2>Remote access</h2><div>Authorize this workstation for public WinBox relay access.</div><div class="muted">Temporary authorization lasts {TEMP_ACCESS_DAYS} days.</div></div><form method="post" action="/dashboard/access/current"><input type="hidden" name="csrf" value="{csrf}"><button class="primary">Authorize current IP</button></form></div></div>
+<div class="tc-section-title"><h2>Fleet overview</h2><div class="muted">Operational fields first; use Columns for full inventory detail.</div></div>
+<div class="panel"><table data-default-hidden="3,5,6,10"><thead><tr><th>Status</th><th>Identity</th><th>Model</th><th>Serial</th><th>RouterOS</th><th>RouterBOOT</th><th>Public IP</th><th>ISP / ASN</th><th>VPN IP</th><th>Remote WinBox</th><th>VPN WinBox</th><th>Last handshake UTC</th><th>Troubleshooting</th></tr></thead><tbody>{''.join(router_rows)}</tbody></table></div>
+<details class="panel pad"><summary><strong>Authorized public IPs</strong> <span class="muted">· access administration</span></summary>
+<div style="margin-top:14px"><form class="inline" method="post" action="/dashboard/access/always"><input type="hidden" name="csrf" value="{csrf}"><input name="ip_address" placeholder="203.0.113.10" required><input name="label" placeholder="Office / Home / Technician"><button>Add permanent IP</button></form></div>
+<div style="margin-top:14px"><table><thead><tr><th>IP address</th><th>Label</th><th>Type</th><th>Expires</th><th></th></tr></thead><tbody>{''.join(access_html)}</tbody></table></div></details>'''
     return page("Dashboard", body, user, "dashboard")
 
 
