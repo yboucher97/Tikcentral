@@ -328,9 +328,15 @@ def run_codex(snapshot: dict) -> str:
     return report
 
 
-def queue_analysis(router_id: int, actor: str, focus_start: str = "", focus_end: str = "", focus_note: str = "") -> int:
-    """Queue at most one pending/running analysis per router."""
+def queue_analysis(router_id: int, actor: str, focus_start: str = "", focus_end: str = "", focus_note: str = "", *, human_requested: bool = False) -> int:
+    """Queue at most one pending/running analysis per router.
+
+    Codex usage is human-triggered only. Callers must explicitly identify an
+    authenticated operator request; scheduler/backend code is rejected by default.
+    """
     migrations.migrate()
+    if not human_requested:
+        raise errors.OperationError("AI_HUMAN_TRIGGER_REQUIRED", "AI analysis must be requested by an authenticated human operator")
     router = _router(router_id)
     if not router or not router["enabled"]:
         raise errors.OperationError("ROUTER_NOT_FOUND", "Enabled router not found")
@@ -343,8 +349,8 @@ def queue_analysis(router_id: int, actor: str, focus_start: str = "", focus_end:
             return int(existing["id"])
         cur = conn.execute(
             """INSERT INTO router_ai_analyses
-               (router_id,status,requested_by,created_at,focus_start,focus_end,focus_note)
-               VALUES(?, 'queued', ?, ?, ?, ?, ?)""",
+               (router_id,status,requested_by,created_at,focus_start,focus_end,focus_note,trigger_source)
+               VALUES(?, 'queued', ?, ?, ?, ?, ?, 'human_web')""",
             (router_id, actor, _now(), focus_start, focus_end, focus_note[:1000]),
         )
         return int(cur.lastrowid)
@@ -377,7 +383,7 @@ def register(app, page_func):
         csrf = core.csrf_token(request)
         with core.db() as conn:
             rows = conn.execute(
-                "SELECT id,status,requested_by,created_at,started_at,finished_at,report,error_code,error_detail,focus_start,focus_end,focus_note FROM router_ai_analyses WHERE router_id=? ORDER BY id DESC LIMIT 20",
+                "SELECT id,status,requested_by,created_at,started_at,finished_at,report,error_code,error_detail,focus_start,focus_end,focus_note,trigger_source FROM router_ai_analyses WHERE router_id=? ORDER BY id DESC LIMIT 20",
                 (router_id,),
             ).fetchall()
         requested = request.query_params.get("report", "")
@@ -407,7 +413,7 @@ def register(app, page_func):
                 detail = f'<div class="error"><strong>{html.escape(r["error_code"] or "AI_ANALYSIS_FAILED")}</strong> {html.escape(r["error_detail"] or "")}</div>'
             link = f'<a href="/ai/{router_id}?report={r["id"]}">View report</a>' if r["report"] else ""
             history_rows.append(
-                f'''<tr><td>#{r['id']}</td><td>{html.escape(r['created_at'] or '')}<div class="muted">{html.escape((r['focus_start'] or '') + (' → ' + r['focus_end'] if r['focus_end'] else ''))}</div></td><td>{html.escape(r['status'])}</td><td>{html.escape(r['requested_by'] or '-')}<div class="muted">{html.escape(r['focus_note'] or '')}</div></td><td>{link}{detail}</td></tr>'''
+                f'''<tr><td>#{r['id']}</td><td>{html.escape(r['created_at'] or '')}<div class="muted">{html.escape((r['focus_start'] or '') + (' → ' + r['focus_end'] if r['focus_end'] else ''))}</div></td><td>{html.escape(r['status'])}</td><td>{html.escape(r['requested_by'] or '-')}<div class="muted">{html.escape(r['trigger_source'] or 'legacy')} · {html.escape(r['focus_note'] or '')}</div></td><td>{link}{detail}</td></tr>'''
             )
         history = "".join(history_rows) or '<tr><td colspan="5">No AI analysis history.</td></tr>'
 
@@ -431,7 +437,7 @@ def register(app, page_func):
         focus_start = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat() if hours else ""
         focus_note = data.get("focus_note", "").strip()[:500]
         try:
-            queue_analysis(router_id, actor, focus_start, focus_end, focus_note)
+            queue_analysis(router_id, actor, focus_start, focus_end, focus_note, human_requested=True)
         except Exception:
             pass
         return RedirectResponse(f"/ai/{router_id}", status_code=303)
