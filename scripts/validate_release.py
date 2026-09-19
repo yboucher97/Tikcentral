@@ -125,6 +125,7 @@ REQUIRED_ROUTES = {
     ("GET", "/training"),
     ("GET", "/training/{lesson_id}"),
     ("POST", "/training/{lesson_id}/status"),
+    ("POST", "/training/track/{track_slug}/skip"),
     ("POST", "/training/reset"),
 }
 
@@ -258,6 +259,7 @@ def validate_routes():
         ("GET", "/training"): "app.training",
         ("GET", "/training/{lesson_id}"): "app.training",
         ("POST", "/training/{lesson_id}/status"): "app.training",
+        ("POST", "/training/track/{track_slug}/skip"): "app.training",
         ("POST", "/training/reset"): "app.training",
     }
     for path in (
@@ -669,6 +671,9 @@ def validate_source_boundaries():
         "NAV_GROUPS", "PAGE_GUIDANCE", "Overview", "Fleet", "Operations", "Changes", "Intelligence", "Administration",
         "openPalette", "organizeRouterWorkspace", "defaultHidden", "tc-filter-toggle", "installRouterContext",
         "installRecentRouters", "protectDirtyForms", "decorateEmptyStates", "classifyActions", "tcGotoPrefix",
+        "CATEGORY_SLUG", "CATEGORY_HOME", "tc-cat-fleet", "tc-cat-operations", "tc-cat-changes",
+        "tc-cat-intelligence", "tc-cat-administration", "installDisclosureState", "emphasizeNestedSections",
+        "tikcentral:disclosure",
     ):
         if marker not in shared_ui:
             fail(f"Professional UI shell missing: {marker}")
@@ -712,7 +717,7 @@ def validate_source_boundaries():
         if marker not in attention_quality:
             fail(f"Network quality attention integration missing: {marker}")
     training_text = (ROOT / "app/training.py").read_text(encoding="utf-8")
-    for marker in ("LESSONS", "Fast mode", "Complete mission", "I already know this", "user_training_progress", "XP earned", "Reset my training"):
+    for marker in ("LESSONS", "RANKS", "Fast mode", "Complete mission", "I already know this", "user_training_progress", "XP earned", "Reset my training", "Skip unfinished", "Tikcentral Expert"):
         if marker not in training_text:
             fail(f"Interactive training feature missing: {marker}")
     if "training.register(app, ui.page)" not in (ROOT / "app/final.py").read_text(encoding="utf-8"):
@@ -757,7 +762,8 @@ def validate_ui_and_assets():
         "tc-filter-toggle", "Columns", "tcCopy", "Copy field value", "organizeRouterWorkspace",
         "tc-router-toolbox", "tc-workspace-tabs", "data-default-hidden", "tc-page-intro",
         "tcObjectContext", "installRouterContext", "installRecentRouters", "protectDirtyForms",
-        "tcDensityToggle", "tcRestoreGuidance",
+        "tcDensityToggle", "tcRestoreGuidance", "tcDisclosureToggle", "installDisclosureState",
+        "tc-section-index", "data-workflow",
     ):
         if marker not in rendered:
             fail(f"Shared UI missing {marker}")
