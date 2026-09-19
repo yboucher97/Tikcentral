@@ -20,7 +20,7 @@ os.environ["DB_PATH"] = str(Path(_TMP.name) / "tikcentral.db")
 
 from app import ai_analysis, capabilities, errors, events, fleet, fleet_health, jobs, semantic_config
 from app import management_script, migrations, performance_profile, router_exec
-from app import scheduler, settings, ui
+from app import scheduler, settings, system_health, ui
 from app import main as core
 from app.final import app
 
@@ -728,6 +728,16 @@ def validate_source_boundaries():
     for marker in ('("training", "/training", "Training")', "tc-training-grid", "tc-mission-list", "tc-smart-kind", "Smart help", "/training/intelligence-guide", "smartKind", "tikcentral:density", "tcRestoreGuidance", "CATEGORY_HOME"):
         if marker not in shared_ui_training:
             fail(f"Training/refined UI integration missing: {marker}")
+    system_health_text = (ROOT / "app/system_health.py").read_text(encoding="utf-8")
+    for marker in (
+        "primary writable", "fallback writable", "scheduled backup not found; verified latest pre-update backup instead",
+        "var(--ok)", "results.append((True, str(path)", 'verified["status"] == "warning"',
+    ):
+        if marker not in system_health_text:
+            fail(f"System-health backup verification fix missing: {marker}")
+    ui_copy_text = (ROOT / "app/ui.py").read_text(encoding="utf-8")
+    if "hasAttribute('data-no-copy')" not in ui_copy_text:
+        fail("No-copy fields can still receive automatic Copy buttons")
     resource_text = (ROOT / "app/resource_monitor.py").read_text(encoding="utf-8")
     for marker in ("_uptime_seconds", "_memory_bytes", "_record_reboot", "RESOURCE_CPU_WARN", "Unexpected router reboot detected"):
         if marker not in resource_text:
@@ -979,9 +989,21 @@ def validate_provisioning_and_updater():
         if not (ROOT / unit).is_file():
             fail(f"AI worker unit missing: {unit}")
     backup_script = (ROOT / "scripts/backup.sh").read_text(encoding="utf-8")
-    for marker in ("chown root:tikcentral", "chmod 0640"):
+    for marker in ("install -d -o root -g tikcentral -m 0750", "chown root:tikcentral", "chmod 0640"):
         if marker not in backup_script:
             fail(f"Database backup verification permission missing: {marker}")
+    update_text = (ROOT / "update.sh").read_text(encoding="utf-8")
+    for marker in (
+        "install -d -o root -g tikcentral -m 0750 /var/backups/tikcentral",
+        "chown root:tikcentral \"$DB_BACKUP\"",
+        "systemctl start tikcentral-backup.service",
+        "find \"$ROUTER_BACKUP_DIR\" -type d -exec chmod 0750",
+    ):
+        if marker not in update_text:
+            fail(f"Atomic updater backup-permission repair missing: {marker}")
+    bootstrap_text = (ROOT / "bootstrap.sh").read_text(encoding="utf-8")
+    if 'install -d -o root -g tikcentral -m 0750 "$BACKUP_DIR"' not in bootstrap_text:
+        fail("Bootstrap backup-directory group permissions are unsafe for self-health verification")
     worker_text = (ROOT / "app/ai_worker.py").read_text(encoding="utf-8")
     if "router_ai_analyses" not in worker_text or "ai_analysis.run_codex" not in worker_text:
         fail("Persistent AI worker is not wired to the AI queue")
