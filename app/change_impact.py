@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 from fastapi import Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
-from app import main as core, migrations, semantic_config
+from app import events, main as core, migrations, semantic_config
 
 
 BEFORE_MINUTES=30
@@ -121,9 +121,9 @@ def assess(transaction_id:int,force=False):
         "wan_latency_increase_ms":_delta(before["wan_latency_increase_ms"],after["wan_latency_increase_ms"]),
     }
     evidence_count=sum(before["samples"].values())+sum(after["samples"].values())
-    if after_age<MIN_AFTER_MINUTES:
+    if after_age<AFTER_MINUTES:
         status="pending"
-        summary=f"Waiting for at least {MIN_AFTER_MINUTES} minutes of post-change observations"
+        summary=f"Collecting post-change observations · {after_age:.0f}/{AFTER_MINUTES} minutes"
     elif evidence_count<4:
         status="insufficient_data"
         summary="Not enough before/after telemetry to measure change impact"
@@ -162,6 +162,7 @@ def assess(transaction_id:int,force=False):
         "caution":"Temporal correlation only; this does not prove that the change caused the measured difference.",
     }
     with core.db() as conn:
+        previous=conn.execute("SELECT status FROM change_impact_analysis WHERE transaction_id=?",(transaction_id,)).fetchone()
         conn.execute(
             """INSERT INTO change_impact_analysis
                (transaction_id,router_id,assessed_at,window_before_minutes,window_after_minutes,status,impact_json,summary)
@@ -170,6 +171,8 @@ def assess(transaction_id:int,force=False):
                  impact_json=excluded.impact_json,summary=excluded.summary""",
             (transaction_id,tx["router_id"],now.isoformat(),BEFORE_MINUTES,AFTER_MINUTES,status,json.dumps(impact),summary),
         )
+    if status=="degraded" and (not previous or previous["status"]!="degraded"):
+        events.record(int(tx["router_id"]),"change-impact",f"Measured degradation after transaction #{transaction_id}",summary,"warning")
     return {"status":status,"summary":summary,"impact":impact}
 
 
