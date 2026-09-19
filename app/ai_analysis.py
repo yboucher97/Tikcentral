@@ -108,6 +108,21 @@ def collect_snapshot(router_id: int, focus_start: str = "", focus_end: str = "",
         local_utilization = conn.execute("SELECT * FROM router_local_utilization WHERE router_id=? ORDER BY id DESC LIMIT 1",(router_id,)).fetchone()
         model_capability = conn.execute("SELECT * FROM router_model_capability_observations WHERE router_id=?",(router_id,)).fetchone()
         hardware_lifecycle = conn.execute("SELECT * FROM router_hardware_lifecycle WHERE router_id=?",(router_id,)).fetchone()
+        wan_quality = conn.execute("SELECT * FROM router_wan_quality WHERE router_id=? ORDER BY id DESC LIMIT 1",(router_id,)).fetchone()
+        isp_gateway = conn.execute("SELECT * FROM router_isp_gateway_history WHERE router_id=? ORDER BY id DESC LIMIT 1",(router_id,)).fetchone()
+        pppoe_time = conn.execute("SELECT MAX(captured_at) t FROM router_pppoe_history WHERE router_id=?",(router_id,)).fetchone()["t"]
+        pppoe = conn.execute("SELECT * FROM router_pppoe_history WHERE router_id=? AND captured_at=? ORDER BY interface",(router_id,pppoe_time or "")).fetchall() if pppoe_time else []
+        dns_time = conn.execute("SELECT MAX(captured_at) t FROM router_dns_health WHERE router_id=?",(router_id,)).fetchone()["t"]
+        dns_health = conn.execute("SELECT * FROM router_dns_health WHERE router_id=? AND captured_at=? ORDER BY resolver",(router_id,dns_time or "")).fetchall() if dns_time else []
+        negotiation = conn.execute("SELECT * FROM router_interface_negotiation WHERE router_id=? ORDER BY interface",(router_id,)).fetchall()
+        active_cross_site = conn.execute(
+            """SELECT * FROM fleet_cross_site_anomalies WHERE status='active'
+               AND EXISTS (SELECT 1 FROM json_each(router_ids_json) WHERE CAST(value AS INTEGER)=?) ORDER BY id DESC LIMIT 20""",
+            (router_id,),
+        ).fetchall()
+        recent_change_impact = conn.execute(
+            "SELECT * FROM change_impact_analysis WHERE router_id=? ORDER BY transaction_id DESC LIMIT 20",(router_id,)
+        ).fetchall()
         identity_collision = conn.execute("SELECT * FROM router_identity_collisions WHERE identity=LOWER(TRIM(?))",(router["identity"] or "",)).fetchone() if router["identity"] else None
         log_pattern_time = conn.execute("SELECT MAX(captured_at) t FROM router_log_patterns WHERE router_id=?",(router_id,)).fetchone()["t"]
         log_patterns = conn.execute(
@@ -222,6 +237,13 @@ def collect_snapshot(router_id: int, focus_start: str = "", focus_end: str = "",
         "local_network_utilization": row_dict(local_utilization),
         "model_capability_observation": row_dict(model_capability),
         "hardware_lifecycle": row_dict(hardware_lifecycle),
+        "wan_quality": row_dict(wan_quality),
+        "isp_gateway": row_dict(isp_gateway),
+        "pppoe_current": [dict(r) for r in pppoe],
+        "dns_health": [dict(r) for r in dns_health],
+        "interface_negotiation": [dict(r) for r in negotiation],
+        "active_cross_site_anomalies": [dict(r) for r in active_cross_site],
+        "recent_change_impact": [dict(r) for r in recent_change_impact],
         "identity_collision": row_dict(identity_collision),
         "router_log_patterns": [dict(r) for r in log_patterns],
         "wan_probe": row_dict(wan_probe),
@@ -278,7 +300,7 @@ Return concise Markdown with these headings exactly:
 # Improvements to Consider
 # Data Gaps
 
-Prioritize management access, multi-target WAN probe evidence, public-IP churn, time/NTP health, MTU/path-MSS evidence, outage-domain evidence, ISP correlation, local-network utilization estimates and their confidence, router identity collisions, observed model capabilities, factual hardware lifecycle history, semantic configuration changes, desired-state results, external UniFi/Omada topology context, capacity-trend evidence, security exposure findings, RouterOS automation changes, traffic-rate/usage anomalies, interface errors/drops/link flaps, LTE signal/band/cell changes when present, routes, DHCP/PPPoE, CPU/memory, versions, golden-policy compliance, configuration drift, recent jobs/events, operator notes/tickets, and normalized RouterOS log patterns. Treat operator notes as human context, not measured evidence. Treat topology as dependency context only; do not assume Tikcentral manages external switches or APs. Use site/customer metadata only as operational context.
+Prioritize management access, multi-target WAN probe evidence, DNS resolver health/reachability latency, ISP gateway reachability/change, WAN saturation, bufferbloat evidence, PPPoE session changes, interface negotiation downgrades/flaps, active cross-site anomalies, measured change-impact before/after evidence, public-IP churn, time/NTP health, MTU/path-MSS evidence, outage-domain evidence, ISP correlation, local-network utilization estimates and their confidence, router identity collisions, observed model capabilities, factual hardware lifecycle history, semantic configuration changes, desired-state results, external UniFi/Omada topology context, capacity-trend evidence, security exposure findings, RouterOS automation changes, traffic-rate/usage anomalies, interface errors/drops/link flaps, LTE signal/band/cell changes when present, routes, DHCP/PPPoE, CPU/memory, versions, golden-policy compliance, configuration drift, recent jobs/events, operator notes/tickets, and normalized RouterOS log patterns. Treat operator notes as human context, not measured evidence. Treat topology as dependency context only; do not assume Tikcentral manages external switches or APs. Use site/customer metadata only as operational context.
 If incident_focus contains a time window or operator note, treat that as the primary investigation scope and distinguish evidence inside that window from current live state.
 Use access-history timing, maintenance windows, correlated incidents, configuration diffs and change transactions to explain what likely changed and when. Distinguish a Tikcentral-attributed change from a change that has no matching Tikcentral job. Treat previous AI reports only as historical context, not as authoritative evidence.
 End with: **No action was taken.**
