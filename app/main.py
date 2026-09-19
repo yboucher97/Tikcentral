@@ -204,7 +204,11 @@ def session_user(request: Request):
         ).fetchone()
         if not row:
             return None
-        if not row["enabled"] or datetime.fromisoformat(row["expires_at"]) <= utcnow():
+        try:
+            expired = datetime.fromisoformat(row["expires_at"]) <= utcnow()
+        except (TypeError, ValueError):
+            expired = True
+        if not row["enabled"] or expired:
             conn.execute("DELETE FROM sessions WHERE id=?", (row["session_id"],))
             return None
         return row
@@ -258,12 +262,17 @@ def next_router_ip(conn: sqlite3.Connection, reserved_networks=()) -> str:
 
 
 def wg_helper(*args: str) -> str:
-    p = subprocess.run(
-        ["sudo", "-n", WG_HELPER, *args],
-        capture_output=True,
-        text=True,
-        timeout=settings.WG_HELPER_TIMEOUT,
-    )
+    try:
+        p = subprocess.run(
+            ["sudo", "-n", WG_HELPER, *args],
+            capture_output=True,
+            text=True,
+            timeout=settings.WG_HELPER_TIMEOUT,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise HTTPException(status_code=504, detail="WireGuard helper timed out") from exc
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail="WireGuard helper unavailable") from exc
     if p.returncode != 0:
         raise HTTPException(status_code=500, detail="WireGuard helper failed")
     return p.stdout.strip()
