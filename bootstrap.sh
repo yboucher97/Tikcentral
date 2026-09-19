@@ -52,7 +52,8 @@ fi
 id tikcentral >/dev/null 2>&1 || useradd --system --home "$DATA_DIR" --shell /usr/sbin/nologin tikcentral
 install -d -o root -g root -m 0755 "$ROOT" "$ROOT/releases" "$ENV_DIR" /etc/wireguard
 install -d -o tikcentral -g tikcentral -m 0750 "$DATA_DIR" "$DATA_DIR/router-backups"
-install -d -o root -g root -m 0750 "$BACKUP_DIR"
+install -d -o root -g tikcentral -m 0750 "$BACKUP_DIR"
+install -d -o tikcentral -g tikcentral -m 0750 "$BACKUP_DIR/routers"
 
 # The bare mirror is the only Git checkout used by production. For a private
 # repository, --repo must be an origin the root updater can authenticate to
