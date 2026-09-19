@@ -3,6 +3,7 @@ import hmac
 import html
 import ipaddress
 import json
+import re
 import secrets
 import sqlite3
 import subprocess
@@ -685,7 +686,14 @@ def routers(x_api_key: str = Header(default="")):
 @app.post("/api/enroll")
 def enroll(req: EnrollRequest, request: Request):
     now = utcnow()
+    if not re.fullmatch(r"[A-Za-z0-9+/]{43}=", req.public_key):
+        raise HTTPException(status_code=400, detail="invalid WireGuard public key")
     with db() as conn:
+        # Serialize token consumption plus VPN/WinBox allocation. Without this,
+        # concurrent enrollments can choose the same free address/port before
+        # either transaction writes, leaving an orphan WireGuard peer when the
+        # database uniqueness check rejects the loser.
+        conn.execute("BEGIN IMMEDIATE")
         token = conn.execute(
             "SELECT id,site_name,expires_at,used_at FROM enrollment_tokens WHERE token_hash=?",
             (hash_token(req.token),),
@@ -716,12 +724,14 @@ def enroll(req: EnrollRequest, request: Request):
             }
         vpn_ip = next_router_ip(conn)
         public_port = allocate_public_port(conn)
-        wg_helper("add", req.public_key, vpn_ip)
         conn.execute(
             "INSERT INTO routers(site_name,identity,serial,model,routeros_version,routerboot_version,public_key,vpn_ip,public_winbox_port,created_at,lifecycle_state,lifecycle_updated_at,lifecycle_updated_by) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (token["site_name"], req.identity, req.serial, req.model, req.routeros_version, req.routerboot_version, req.public_key, vpn_ip, public_port, iso(now), "new", iso(now), "enrollment"),
         )
         conn.execute("UPDATE enrollment_tokens SET used_at=? WHERE id=?", (iso(now), token["id"]))
+        # The DB reservation is still uncommitted here. If WireGuard setup
+        # fails, closing the connection rolls the enrollment back cleanly.
+        wg_helper("add", req.public_key, vpn_ip)
     return {
         "vpn_ip": vpn_ip,
         "server_public_key": WG_SERVER_PUBLIC_KEY,
