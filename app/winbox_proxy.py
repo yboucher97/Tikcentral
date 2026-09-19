@@ -62,13 +62,29 @@ async def relay(reader: asyncio.StreamReader, writer: asyncio.StreamWriter, vpn_
                 await dst.drain()
         except Exception:
             pass
-        finally:
-            try:
-                dst.close()
-            except Exception:
-                pass
 
-    await asyncio.gather(pipe(reader, target_writer), pipe(target_reader, writer))
+    async def authorization_watch():
+        interval = max(5, int(settings.WINBOX_RESCAN_SECONDS))
+        while not writer.is_closing() and not target_writer.is_closing():
+            await asyncio.sleep(interval)
+            if not authorized(source_ip):
+                return
+
+    tasks = {
+        asyncio.create_task(pipe(reader, target_writer)),
+        asyncio.create_task(pipe(target_reader, writer)),
+        asyncio.create_task(authorization_watch()),
+    }
+    done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+    for task in pending:
+        task.cancel()
+    await asyncio.gather(*pending, return_exceptions=True)
+    for stream in (target_writer, writer):
+        try:
+            stream.close()
+            await stream.wait_closed()
+        except Exception:
+            pass
 
 
 def desired_ports() -> dict[int, str]:
