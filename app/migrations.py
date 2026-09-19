@@ -1301,7 +1301,151 @@ def _m30(conn):
     """)
 
 
-MIGRATIONS = [_m1, _m2, _m3, _m4, _m5, _m6, _m7, _m8, _m9, _m10, _m11, _m12, _m13, _m14, _m15, _m16, _m17, _m18, _m19, _m20, _m21, _m22, _m23, _m24, _m25, _m26, _m27, _m28, _m29, _m30]
+def _m31(conn):
+    """Network-quality intelligence and change-impact correlation."""
+    conn.executescript("""
+    CREATE TABLE IF NOT EXISTS router_dns_health (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        router_id INTEGER NOT NULL,
+        captured_at TEXT NOT NULL,
+        resolver TEXT NOT NULL DEFAULT '',
+        test_name TEXT NOT NULL DEFAULT 'cloudflare.com',
+        ok INTEGER,
+        latency_ms REAL,
+        source TEXT NOT NULL DEFAULT 'configured',
+        summary TEXT NOT NULL DEFAULT '',
+        FOREIGN KEY(router_id) REFERENCES routers(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_router_dns_health_time
+      ON router_dns_health(router_id,captured_at DESC,id DESC);
+
+    CREATE TABLE IF NOT EXISTS router_interface_negotiation (
+        router_id INTEGER NOT NULL,
+        interface TEXT NOT NULL,
+        checked_at TEXT NOT NULL,
+        current_rate TEXT NOT NULL DEFAULT '',
+        current_full_duplex INTEGER,
+        current_auto_negotiation TEXT NOT NULL DEFAULT '',
+        previous_rate TEXT NOT NULL DEFAULT '',
+        previous_full_duplex INTEGER,
+        previous_auto_negotiation TEXT NOT NULL DEFAULT '',
+        changed INTEGER NOT NULL DEFAULT 0,
+        downgrade INTEGER NOT NULL DEFAULT 0,
+        flaps_24h INTEGER NOT NULL DEFAULT 0,
+        status TEXT NOT NULL DEFAULT 'unknown',
+        summary TEXT NOT NULL DEFAULT '',
+        PRIMARY KEY(router_id,interface),
+        FOREIGN KEY(router_id) REFERENCES routers(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS router_wan_quality (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        router_id INTEGER NOT NULL,
+        captured_at TEXT NOT NULL,
+        wan_interface TEXT NOT NULL DEFAULT '',
+        capacity_source TEXT NOT NULL DEFAULT 'unknown',
+        down_capacity_bps REAL,
+        up_capacity_bps REAL,
+        rx_bps REAL,
+        tx_bps REAL,
+        rx_utilization_percent REAL,
+        tx_utilization_percent REAL,
+        idle_latency_ms REAL,
+        observed_latency_ms REAL,
+        latency_increase_ms REAL,
+        saturation INTEGER NOT NULL DEFAULT 0,
+        bufferbloat_status TEXT NOT NULL DEFAULT 'unknown',
+        status TEXT NOT NULL DEFAULT 'unknown',
+        summary TEXT NOT NULL DEFAULT '',
+        FOREIGN KEY(router_id) REFERENCES routers(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_router_wan_quality_time
+      ON router_wan_quality(router_id,captured_at DESC,id DESC);
+
+    CREATE TABLE IF NOT EXISTS router_pppoe_history (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        router_id INTEGER NOT NULL,
+        captured_at TEXT NOT NULL,
+        interface TEXT NOT NULL DEFAULT '',
+        running INTEGER,
+        disabled INTEGER,
+        uptime TEXT NOT NULL DEFAULT '',
+        service_name TEXT NOT NULL DEFAULT '',
+        ac_name TEXT NOT NULL DEFAULT '',
+        local_address TEXT NOT NULL DEFAULT '',
+        remote_address TEXT NOT NULL DEFAULT '',
+        mtu INTEGER,
+        mru INTEGER,
+        status TEXT NOT NULL DEFAULT 'unknown',
+        fingerprint TEXT NOT NULL DEFAULT '',
+        summary TEXT NOT NULL DEFAULT '',
+        FOREIGN KEY(router_id) REFERENCES routers(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_router_pppoe_time
+      ON router_pppoe_history(router_id,captured_at DESC,id DESC);
+
+    CREATE TABLE IF NOT EXISTS router_isp_gateway_history (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        router_id INTEGER NOT NULL,
+        captured_at TEXT NOT NULL,
+        gateway TEXT NOT NULL DEFAULT '',
+        interface TEXT NOT NULL DEFAULT '',
+        reachable INTEGER,
+        latency_ms REAL,
+        mac_address TEXT NOT NULL DEFAULT '',
+        changed INTEGER NOT NULL DEFAULT 0,
+        summary TEXT NOT NULL DEFAULT '',
+        FOREIGN KEY(router_id) REFERENCES routers(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_router_isp_gateway_time
+      ON router_isp_gateway_history(router_id,captured_at DESC,id DESC);
+
+    CREATE TABLE IF NOT EXISTS fleet_cross_site_anomalies (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        detected_at TEXT NOT NULL,
+        anomaly_key TEXT NOT NULL,
+        provider TEXT NOT NULL DEFAULT '',
+        kind TEXT NOT NULL DEFAULT 'wan',
+        router_count INTEGER NOT NULL DEFAULT 0,
+        router_ids_json TEXT NOT NULL DEFAULT '[]',
+        status TEXT NOT NULL DEFAULT 'active',
+        summary TEXT NOT NULL DEFAULT '',
+        resolved_at TEXT NOT NULL DEFAULT '',
+        UNIQUE(anomaly_key,status)
+    );
+    CREATE INDEX IF NOT EXISTS idx_cross_site_anomaly_status
+      ON fleet_cross_site_anomalies(status,detected_at DESC,id DESC);
+
+    CREATE TABLE IF NOT EXISTS change_impact_analysis (
+        transaction_id INTEGER PRIMARY KEY,
+        router_id INTEGER NOT NULL,
+        assessed_at TEXT NOT NULL,
+        window_before_minutes INTEGER NOT NULL DEFAULT 30,
+        window_after_minutes INTEGER NOT NULL DEFAULT 30,
+        status TEXT NOT NULL DEFAULT 'insufficient_data',
+        impact_json TEXT NOT NULL DEFAULT '{}',
+        summary TEXT NOT NULL DEFAULT '',
+        FOREIGN KEY(transaction_id) REFERENCES change_transactions(id) ON DELETE CASCADE,
+        FOREIGN KEY(router_id) REFERENCES routers(id) ON DELETE CASCADE
+    );
+    """)
+    for name,definition in {
+        "circuit_down_mbps":"REAL",
+        "circuit_up_mbps":"REAL",
+    }.items():
+        if not _has_column(conn,"router_site_metadata",name):
+            conn.execute(f"ALTER TABLE router_site_metadata ADD COLUMN {name} {definition}")
+    for name,default in {
+        "dns_health_days":180,
+        "wan_quality_days":180,
+        "pppoe_days":365,
+        "isp_gateway_days":365,
+    }.items():
+        if not _has_column(conn,"retention_settings",name):
+            conn.execute(f"ALTER TABLE retention_settings ADD COLUMN {name} INTEGER NOT NULL DEFAULT {default}")
+
+
+MIGRATIONS = [_m1, _m2, _m3, _m4, _m5, _m6, _m7, _m8, _m9, _m10, _m11, _m12, _m13, _m14, _m15, _m16, _m17, _m18, _m19, _m20, _m21, _m22, _m23, _m24, _m25, _m26, _m27, _m28, _m29, _m30, _m31]
 
 
 def migrate() -> int:
