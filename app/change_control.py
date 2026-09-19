@@ -76,18 +76,28 @@ def step(transaction_id: int, phase: str, status: str, message: str, details: st
 
 
 def finish(transaction_id: int, *, post_access: dict | None = None):
+    finished_at = now_iso()
     with core.db() as conn:
         tx = conn.execute(
-            "SELECT router_id,kind,actor FROM change_transactions WHERE id=?",
+            "SELECT router_id,kind,actor,status FROM change_transactions WHERE id=?",
             (transaction_id,),
         ).fetchone()
+        if not tx:
+            raise errors.OperationError("TRANSACTION_NOT_FOUND", "Change transaction not found", f"id={transaction_id}")
+        if tx["status"] != "running":
+            raise errors.OperationError("INVALID_TRANSACTION_STATE", "Change transaction is not running", f"id={transaction_id} status={tx['status']}")
         conn.execute(
             """UPDATE change_transactions
                SET status='succeeded',finished_at=?,post_access=?
-               WHERE id=? AND status='running'""",
-            (now_iso(), json.dumps(post_access or {}, sort_keys=True), transaction_id),
+               WHERE id=?""",
+            (finished_at, json.dumps(post_access or {}, sort_keys=True), transaction_id),
         )
-    step(transaction_id, "complete", "ok", "Transaction committed")
+        conn.execute(
+            """INSERT INTO change_transaction_steps
+               (transaction_id,step_at,phase,status,message,details)
+               VALUES(?,?,?,?,?,?)""",
+            (transaction_id, finished_at, "complete", "ok", "Transaction committed", ""),
+        )
 
     # A successful, verified mutation is the safest moment to refresh both the
     # attributed configuration snapshot and the last-known-good management
@@ -126,14 +136,24 @@ def finish(transaction_id: int, *, post_access: dict | None = None):
 
 def fail(transaction_id: int, exc: Exception, *, post_access: dict | None = None):
     err = errors.from_exception(exc)
+    failed_at = now_iso()
     with core.db() as conn:
+        tx = conn.execute("SELECT status FROM change_transactions WHERE id=?", (transaction_id,)).fetchone()
+        if not tx or tx["status"] != "running":
+            return False
         conn.execute(
             """UPDATE change_transactions
                SET status='failed',finished_at=?,post_access=?,error_code=?,error_detail=?
-               WHERE id=? AND status='running'""",
-            (now_iso(), json.dumps(post_access or {}, sort_keys=True), err.code, err.detail or err.message, transaction_id),
+               WHERE id=?""",
+            (failed_at, json.dumps(post_access or {}, sort_keys=True), err.code, err.detail or err.message, transaction_id),
         )
-    step(transaction_id, "complete", "failed", err.message, err.detail)
+        conn.execute(
+            """INSERT INTO change_transaction_steps
+               (transaction_id,step_at,phase,status,message,details)
+               VALUES(?,?,?,?,?,?)""",
+            (transaction_id, failed_at, "complete", "failed", err.message[:500], (err.detail or "")[-4000:]),
+        )
+    return True
 
 
 def require_management(router, operation: str, *, allow_degraded: bool = False):
