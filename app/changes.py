@@ -7,6 +7,7 @@ from fastapi import HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app import main as core
+from app import semantic_config
 
 
 def _pick_snapshot(snaps, raw_id, fallback):
@@ -181,8 +182,21 @@ def register(app, page_func):
             if snaps else '<span class="muted">No snapshots available.</span>'
         )
         added, removed = _diff_counts(diff_text)
+        semantic_changes = semantic_config.compare(old["content"], new["content"]) if old and new else []
+        semantic_rows = "".join(
+            f'<tr><td>{html.escape(x["area"])}</td><td>{html.escape(x["action"])}</td><td>{html.escape(x["detail"])}</td><td><code>{html.escape(x["path"])}</code></td></tr>'
+            for x in semantic_changes
+        ) or '<tr><td colspan="4">No semantic configuration changes detected.</td></tr>'
+        semantic_counts={}
+        for x in semantic_changes:
+            semantic_counts[x["action"]]=semantic_counts.get(x["action"],0)+1
+        semantic_summary=" · ".join(f'{html.escape(k)} {v}' for k,v in sorted(semantic_counts.items())) or "No semantic changes"
         rendered_diff = _render_diff(diff_text)
         body = f'''<div class="panel pad"><h2>{html.escape(router['site_name'])}</h2><div class="muted">{html.escape(router['model'] or '')} · <code>{html.escape(router['vpn_ip'])}</code></div><div style="margin-top:12px">{selector}</div></div>
+<div class="panel pad"><h2>Semantic configuration diff</h2>
+<div class="muted">RouterOS export changes grouped into configuration areas and actions. This is an interpretation layer; the raw diff remains the source of truth.</div>
+<div style="margin-top:8px"><strong>{semantic_summary}</strong></div></div>
+<div class="panel"><table><thead><tr><th>Area</th><th>Action</th><th>Meaning / properties</th><th>RouterOS path</th></tr></thead><tbody>{semantic_rows}</tbody></table></div>
 <div class="panel pad"><h2>Configuration diff</h2>
 <div class="inline" style="margin-bottom:10px"><span class="tc-status ok">+{added} added</span><span class="tc-status bad">-{removed} removed</span><button type="button" onclick="tcCopy(document.getElementById('config-diff'),this)">Copy diff</button><a href="/reliability/{router_id}/support"><button>Download support package</button></a></div>
 <div id="config-diff" class="tc-diff" style="max-height:62vh;overflow:auto;border:1px solid var(--line);border-radius:8px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;user-select:text">{rendered_diff}</div></div>
