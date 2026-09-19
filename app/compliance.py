@@ -37,7 +37,7 @@ def _now():
 def _router(router_id):
     with core.db() as conn:
         return conn.execute(
-            "SELECT id,site_name,identity,model,vpn_ip,enabled FROM routers WHERE id=?",
+            "SELECT id,site_name,identity,model,vpn_ip,enabled,lifecycle_state FROM routers WHERE id=?",
             (router_id,),
         ).fetchone()
 
@@ -59,7 +59,7 @@ def _count(markers, name):
 def evaluate(router_id: int):
     migrations.migrate()
     router = _router(router_id)
-    if not router or not router["enabled"]:
+    if not router or not router["enabled"] or (router["lifecycle_state"] or "production")=="retired":
         return None
     raw = router_exec.read(router["vpn_ip"], POLICY_COMMAND, timeout=35, label="Golden policy compliance")
     m = _markers(raw)
