@@ -140,6 +140,37 @@ def render() -> str:
         identity_collisions = conn.execute(
             "SELECT * FROM router_identity_collisions ORDER BY router_count DESC,identity LIMIT 30"
         ).fetchall()
+        network_quality = conn.execute(
+            """SELECT r.id,r.site_name,q.status,q.bufferbloat_status,q.summary
+               FROM router_wan_quality q JOIN routers r ON r.id=q.router_id
+               WHERE r.enabled=1 AND COALESCE(r.lifecycle_state,'production') NOT IN ('retired','maintenance')
+                 AND q.id=(SELECT MAX(q2.id) FROM router_wan_quality q2 WHERE q2.router_id=q.router_id)
+                 AND q.status IN ('warning','saturated')
+               ORDER BY q.id DESC LIMIT 30"""
+        ).fetchall()
+        negotiation = conn.execute(
+            """SELECT r.id,r.site_name,n.interface,n.summary
+               FROM router_interface_negotiation n JOIN routers r ON r.id=n.router_id
+               WHERE r.enabled=1 AND COALESCE(r.lifecycle_state,'production') NOT IN ('retired','maintenance')
+                 AND n.status='warning' ORDER BY n.checked_at DESC LIMIT 30"""
+        ).fetchall()
+        dns_failures = conn.execute(
+            """SELECT r.id,r.site_name,COUNT(*) failures
+               FROM router_dns_health d JOIN routers r ON r.id=d.router_id
+               WHERE d.ok=0 AND d.captured_at=(SELECT MAX(d2.captured_at) FROM router_dns_health d2 WHERE d2.router_id=d.router_id)
+                 AND r.enabled=1 AND COALESCE(r.lifecycle_state,'production') NOT IN ('retired','maintenance')
+               GROUP BY r.id,r.site_name HAVING COUNT(*)>0 ORDER BY failures DESC LIMIT 30"""
+        ).fetchall()
+        gateway_failures = conn.execute(
+            """SELECT r.id,r.site_name,g.summary
+               FROM router_isp_gateway_history g JOIN routers r ON r.id=g.router_id
+               WHERE g.id=(SELECT MAX(g2.id) FROM router_isp_gateway_history g2 WHERE g2.router_id=g.router_id)
+                 AND g.reachable=0 AND r.enabled=1 AND COALESCE(r.lifecycle_state,'production') NOT IN ('retired','maintenance')
+               ORDER BY g.id DESC LIMIT 30"""
+        ).fetchall()
+        cross_site = conn.execute(
+            "SELECT * FROM fleet_cross_site_anomalies WHERE status='active' ORDER BY id DESC LIMIT 20"
+        ).fetchall()
         sys = conn.execute("SELECT checked_at,overall_status,checks_json FROM system_health_history ORDER BY id DESC LIMIT 1").fetchone()
         db_health = conn.execute(
             "SELECT * FROM database_health_history ORDER BY id DESC LIMIT 1"
@@ -215,6 +246,17 @@ def render() -> str:
         items.append(("warning",r["site_name"],f'Public IP churn: {r["summary"]}',f'/public-ip-analysis/{r["id"]}'))
     for r in identity_collisions:
         items.append(("warning","Fleet",r["summary"],"/identity-collisions"))
+    for r in network_quality:
+        level="critical" if r["bufferbloat_status"]=="severe" else "warning"
+        items.append((level,r["site_name"],f'WAN quality: {r["summary"]}',f'/network-quality/{r["id"]}'))
+    for r in negotiation:
+        items.append(("warning",r["site_name"],f'Interface negotiation {r["interface"]}: {r["summary"]}',f'/network-quality/{r["id"]}'))
+    for r in dns_failures:
+        items.append(("warning",r["site_name"],f'DNS health: {r["failures"]} resolver check(s) failed',f'/network-quality/{r["id"]}'))
+    for r in gateway_failures:
+        items.append(("critical",r["site_name"],f'ISP gateway: {r["summary"]}',f'/network-quality/{r["id"]}'))
+    for r in cross_site:
+        items.append(("critical" if r["kind"]=="multi-provider" else "warning","Fleet",r["summary"],"/cross-site-anomalies"))
     if sys and sys["overall_status"] != "ok":
         items.append(("critical", "Tikcentral", f'System self-health: {sys["overall_status"]}', "/system-health"))
     if db_health and db_health["status"] in {"warning","critical"}:
