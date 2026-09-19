@@ -223,13 +223,14 @@ html[data-theme="light"] .tc-logo-dark{display:none}html[data-theme="light"] .tc
 
 .tc-table-wrap{position:relative}.tc-table-tools{display:flex;gap:7px;align-items:center;flex-wrap:wrap;padding:8px 10px;border-bottom:1px solid var(--line);background:var(--surface2);border-radius:11px 11px 0 0;position:relative;z-index:4}
 .tc-table-tools .tc-local-search{flex:1;min-width:220px}.tc-table-tools .tc-advanced{display:none;gap:7px;align-items:center;flex-wrap:wrap;width:100%;padding-top:8px;border-top:1px solid var(--line)}.tc-table-tools.filter-open .tc-advanced{display:flex}
-.tc-filter-column,.tc-filter-op{max-width:220px}.tc-filter-value{min-width:150px;flex:0 1 240px}.tc-count{font-size:11px;color:var(--muted);white-space:nowrap;margin-left:auto}
+.tc-filter-column,.tc-filter-op,.tc-date-column{max-width:220px}.tc-filter-value{min-width:150px;flex:0 1 240px}.tc-date-range{display:none;gap:7px;align-items:center;flex-wrap:wrap;width:100%;padding-top:8px}.tc-table-tools.has-date.filter-open .tc-date-range{display:flex}.tc-date-range label{display:flex;gap:5px;align-items:center;color:var(--muted);font-size:11px}.tc-date-range input{min-height:34px}.tc-timezone-hint{font-size:10px;color:var(--muted)}.tc-count{font-size:11px;color:var(--muted);white-space:nowrap;margin-left:auto}
 .tc-colbox{position:relative}.tc-colmenu{display:none;position:absolute;right:0;top:calc(100% + 5px);z-index:100;width:230px;max-height:350px;overflow:auto;background:var(--surface);border:1px solid var(--line);border-radius:9px;padding:8px;box-shadow:var(--shadow)}.tc-colbox.open .tc-colmenu{display:block}.tc-colmenu label{display:flex;gap:8px;align-items:center;padding:6px}
 .tc-scroll{overflow:auto;max-width:100%;border-radius:0 0 11px 11px}table{width:100%;border-collapse:collapse;min-width:760px}th,td{padding:10px 12px;text-align:left;border-bottom:1px solid var(--line);vertical-align:top}
 th{font-size:10px;text-transform:uppercase;letter-spacing:.045em;color:var(--muted);background:var(--surface2);position:sticky;top:0;z-index:2;cursor:pointer;white-space:nowrap}th[data-sort]::after{content:" ↕";opacity:.3}
 tbody tr:hover{background:var(--surface2)}
 
 .tc-copy-btn{margin-left:5px;padding:3px 6px;font-size:10px}.tc-copy-ok{border-color:var(--accent)!important;color:var(--accent)!important}
+td.tc-copyable-cell{position:relative;padding-right:34px}.tc-cell-copy{position:absolute;right:5px;top:5px;opacity:0;padding:2px 5px;font-size:9px;line-height:1.2;background:var(--surface3);z-index:3}.tc-copyable-cell:hover>.tc-cell-copy,.tc-cell-copy:focus{opacity:1}.tc-copy-priority>.tc-cell-copy{opacity:.72;border-color:color-mix(in srgb,var(--accent) 35%,var(--line));color:var(--accent)}
 .tc-toast{border-left:3px solid var(--accent)}.tc-toast.bad{border-left-color:var(--danger)}
 .tc-diff-line{padding:3px 9px;white-space:pre-wrap;word-break:break-word;border-bottom:1px solid color-mix(in srgb,var(--line) 45%,transparent)}.tc-diff-line.ok{background:color-mix(in srgb,var(--ok) 9%,transparent);color:var(--ok)}.tc-diff-line.bad{background:color-mix(in srgb,var(--danger) 9%,transparent);color:var(--danger)}.tc-diff-line.warn{background:color-mix(in srgb,var(--warn) 9%,transparent);color:var(--warn)}
 
@@ -298,31 +299,74 @@ JS = r'''
      el.dataset.tcCopyReady='1';const b=document.createElement('button');b.type='button';b.className='tc-copy-btn';b.textContent='Copy';b.title='Copy field value';
      b.onclick=e=>{e.preventDefault();e.stopPropagation();window.tcCopy(el,b)};el.insertAdjacentElement('afterend',b);
    });
-   const copyables=[...rootEl.querySelectorAll('[data-copy],code.tc-copy,pre.tc-copy')];
+   const copyables=[...rootEl.querySelectorAll('[data-copy],code:not([data-no-copy]),pre.tc-copy')];
    copyables.forEach(el=>{if(el.dataset.tcCopyReady)return;el.dataset.tcCopyReady='1';const b=document.createElement('button');b.type='button';b.className='tc-copy-btn';b.textContent='Copy';b.onclick=e=>{e.preventDefault();e.stopPropagation();window.tcCopy(el,b)};el.insertAdjacentElement('afterend',b)});
  }
  document.addEventListener('click',e=>{const b=e.target.closest('[data-copy-target]');if(!b)return;const t=document.querySelector(b.dataset.copyTarget);if(t)window.tcCopy(t,b)});
 
  function numeric(s){const v=Number(String(s).replace(/[^0-9+-.]/g,''));return Number.isFinite(v)?v:null}
- function sortTable(table,idx,dir){const tb=table.tBodies[0];if(!tb)return;const rows=[...tb.rows];rows.sort((a,b)=>{let x=(a.cells[idx]?.innerText||'').trim(),y=(b.cells[idx]?.innerText||'').trim();const nx=numeric(x),ny=numeric(y);let cmp=(nx!==null&&ny!==null)?nx-ny:x.localeCompare(y,undefined,{numeric:true,sensitivity:'base'});return dir*cmp});rows.forEach(row=>tb.appendChild(row))}
- function comparable(v){const s=String(v??'').trim();const d=Date.parse(s);if(s&&Number.isFinite(d)&&(/\d{4}-\d{1,2}-\d{1,2}/.test(s)||s.includes('T')))return {type:'date',value:d};const n=numeric(s);if(s&&n!==null)return {type:'number',value:n};return {type:'text',value:s.toLowerCase()}}
+ function localWallTime(s){
+   const m=String(s??'').trim().match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2})(?::(\d{2}))?)?/);
+   if(!m)return null;
+   return Number(m[1]+m[2]+m[3]+(m[4]||'00')+(m[5]||'00')+(m[6]||'00'));
+ }
+ function sortTable(table,idx,dir){const tb=table.tBodies[0];if(!tb)return;const rows=[...tb.rows];rows.sort((a,b)=>{let x=(a.cells[idx]?.innerText||'').trim(),y=(b.cells[idx]?.innerText||'').trim();const dx=localWallTime(x),dy=localWallTime(y);if(dx!==null&&dy!==null)return dir*(dx-dy);const nx=numeric(x),ny=numeric(y);let cmp=(nx!==null&&ny!==null)?nx-ny:x.localeCompare(y,undefined,{numeric:true,sensitivity:'base'});return dir*cmp});rows.forEach(row=>tb.appendChild(row))}
+ function comparable(v){const s=String(v??'').trim();const wall=localWallTime(s);if(wall!==null)return {type:'date',value:wall};const n=numeric(s);if(s&&n!==null)return {type:'number',value:n};return {type:'text',value:s.toLowerCase()}}
  function matchOperator(cell,op,wanted){const raw=String(cell??'').trim();if(op==='contains')return raw.toLowerCase().includes(String(wanted??'').toLowerCase());if(op==='!contains')return !raw.toLowerCase().includes(String(wanted??'').toLowerCase());const a=comparable(raw),b=comparable(wanted);let av=a.value,bv=b.value;if(a.type!==b.type){av=raw.toLowerCase();bv=String(wanted??'').toLowerCase()}return op==='='?av===bv:op==='!='?av!==bv:op==='>'?av>bv:op==='>='?av>=bv:op==='<'?av<bv:op==='<='?av<=bv:true}
- function filterTable(wrap){const q=(wrap.querySelector('.tc-local-search')?.value||'').toLowerCase();const col=Number(wrap.querySelector('.tc-filter-column')?.value??-1);const op=wrap.querySelector('.tc-filter-op')?.value||'contains';const wanted=wrap.querySelector('.tc-filter-value')?.value||'';let shown=0,total=0;wrap.querySelectorAll('tbody tr').forEach(r=>{total++;const textOk=!q||(r.innerText||'').toLowerCase().includes(q);const filterOk=!wanted||col<0||matchOperator(r.cells[col]?.innerText||'',op,wanted);const ok=textOk&&filterOk;r.style.display=ok?'':'none';if(ok)shown++});const count=wrap.querySelector('.tc-count');if(count)count.textContent=shown+' / '+total}
+ function isDateHeader(label){return /(^|\b)(time|date|timestamp|seen|created|updated|captured|checked|detected|started|finished|occurred|resolved|acknowledged|handshake)(\b|$)/i.test(label)}
+ function cellTextForCopy(td){const clone=td.cloneNode(true);clone.querySelectorAll('button,form,.tc-cell-copy,.tc-copy-btn').forEach(x=>x.remove());return (clone.innerText||clone.textContent||'').trim()}
+ function installCellCopy(table,headers){
+   const priority=/identity|model|serial|public ip|vpn ip|winbox|hostname|address|gateway|mac|ticket|source ip/i;
+   const skip=/workflow|action|troubleshooting|controls?$/i;
+   [...table.tBodies].flatMap(tb=>[...tb.rows]).forEach(row=>{
+     [...row.cells].forEach((td,i)=>{
+       const label=(headers[i]?.innerText||'').trim();
+       if(!label||skip.test(label)||td.querySelector('form,button')||td.classList.contains('tc-empty'))return;
+       const value=cellTextForCopy(td);if(!value||value==='-')return;
+       td.classList.add('tc-copyable-cell');if(priority.test(label))td.classList.add('tc-copy-priority');
+       const b=document.createElement('button');b.type='button';b.className='tc-cell-copy';b.textContent='Copy';b.title='Copy '+label;
+       b.onclick=e=>{e.preventDefault();e.stopPropagation();window.tcCopy(cellTextForCopy(td),b)};td.appendChild(b);
+     });
+   });
+ }
+ function filterTable(wrap){
+   const q=(wrap.querySelector('.tc-local-search')?.value||'').toLowerCase();
+   const col=Number(wrap.querySelector('.tc-filter-column')?.value??-1),op=wrap.querySelector('.tc-filter-op')?.value||'contains',wanted=wrap.querySelector('.tc-filter-value')?.value||'';
+   const dateCol=Number(wrap.querySelector('.tc-date-column')?.value??-1),from=wrap.querySelector('.tc-date-from')?.value||'',to=wrap.querySelector('.tc-date-to')?.value||'';
+   const fromVal=from?localWallTime(from):null,toVal=to?localWallTime(to):null;
+   let shown=0,total=0;
+   wrap.querySelectorAll('tbody tr').forEach(r=>{
+     total++;const textOk=!q||(r.innerText||'').toLowerCase().includes(q);
+     const filterOk=!wanted||col<0||matchOperator(cellTextForCopy(r.cells[col]||document.createElement('td')),op,wanted);
+     let dateOk=true;if(dateCol>=0&&(fromVal!==null||toVal!==null)){const v=localWallTime(cellTextForCopy(r.cells[dateCol]||document.createElement('td')));dateOk=v!==null&&(fromVal===null||v>=fromVal)&&(toVal===null||v<=toVal)}
+     const ok=textOk&&filterOk&&dateOk;r.style.display=ok?'':'none';if(ok)shown++;
+   });
+   const count=wrap.querySelector('.tc-count');if(count)count.textContent=shown+' / '+total;
+ }
  function enhanceTable(table,index){
    if(table.dataset.tcReady)return;table.dataset.tcReady='1';
    const panel=table.parentElement,wrap=document.createElement('div');wrap.className='tc-table-wrap';panel.insertBefore(wrap,table);
    const tools=document.createElement('div');tools.className='tc-table-tools';
-   tools.innerHTML='<input class="tc-local-search" data-no-copy placeholder="Search rows…"><button type="button" class="tc-filter-toggle">Filter</button><span class="tc-count"></span><div class="tc-colbox"><button type="button" class="tc-colbtn">Columns</button><div class="tc-colmenu"></div></div><button type="button" class="tc-reset">Reset</button><div class="tc-advanced"><select class="tc-filter-column" data-no-copy></select><select class="tc-filter-op" data-no-copy><option value="contains">contains</option><option value="!contains">does not contain</option><option value="=">=</option><option value="!=">!=</option><option value=">">&gt;</option><option value=">=">&gt;=</option><option value="<">&lt;</option><option value="<=">&lt;=</option></select><input class="tc-filter-value" data-no-copy placeholder="Filter value…"></div>';
+   tools.innerHTML='<input class="tc-local-search" data-no-copy placeholder="Search rows…"><button type="button" class="tc-filter-toggle">Filter</button><span class="tc-count"></span><div class="tc-colbox"><button type="button" class="tc-colbtn">Columns</button><div class="tc-colmenu"></div></div><button type="button" class="tc-reset">Reset</button><div class="tc-advanced"><select class="tc-filter-column" data-no-copy></select><select class="tc-filter-op" data-no-copy><option value="contains">contains</option><option value="!contains">does not contain</option><option value="=">=</option><option value="!=">!=</option><option value=">">&gt;</option><option value=">=">&gt;=</option><option value="<">&lt;</option><option value="<=">&lt;=</option></select><input class="tc-filter-value" data-no-copy placeholder="Filter value…"></div><div class="tc-date-range"><select class="tc-date-column" data-no-copy></select><label>From <input type="datetime-local" class="tc-date-from" data-no-copy></label><label>To <input type="datetime-local" class="tc-date-to" data-no-copy></label><span class="tc-timezone-hint">Montréal local time</span></div>';
    wrap.appendChild(tools);const scroll=document.createElement('div');scroll.className='tc-scroll';wrap.appendChild(scroll);scroll.appendChild(table);
    const key='tikcentral:columns:'+location.pathname+':'+index;let hidden=[];const stored=localStorage.getItem(key);try{hidden=stored!==null?JSON.parse(stored):(table.dataset.defaultHidden||'').split(',').map(x=>Number(x.trim())).filter(Number.isFinite)}catch(_){hidden=[]}
-   const headers=[...table.querySelectorAll('thead th')],menu=tools.querySelector('.tc-colmenu'),filterColumn=tools.querySelector('.tc-filter-column');
-   headers.forEach((th,i)=>{th.dataset.sort='1';let dir=1;th.onclick=e=>{if(e.target.closest('input,button,select'))return;sortTable(table,i,dir);dir*=-1};const label=(th.innerText||('Column '+(i+1))).trim()||('Column '+(i+1));const opt=document.createElement('option');opt.value=String(i);opt.textContent=label;filterColumn.appendChild(opt);const row=document.createElement('label');row.innerHTML='<input type="checkbox" '+(hidden.includes(i)?'':'checked')+'><span></span>';row.querySelector('span').textContent=label;const cb=row.querySelector('input');cb.onchange=()=>setCol(i,cb.checked);menu.appendChild(row);setCol(i,!hidden.includes(i),false)});
+   const headers=[...table.querySelectorAll('thead th')],menu=tools.querySelector('.tc-colmenu'),filterColumn=tools.querySelector('.tc-filter-column'),dateColumn=tools.querySelector('.tc-date-column');
+   const dateIndexes=[];
+   headers.forEach((th,i)=>{
+     th.dataset.sort='1';let dir=1;th.onclick=e=>{if(e.target.closest('input,button,select'))return;sortTable(table,i,dir);dir*=-1};
+     const label=(th.innerText||('Column '+(i+1))).trim()||('Column '+(i+1));
+     const opt=document.createElement('option');opt.value=String(i);opt.textContent=label;filterColumn.appendChild(opt);
+     if(isDateHeader(label)){const dopt=document.createElement('option');dopt.value=String(i);dopt.textContent=label;dateColumn.appendChild(dopt);dateIndexes.push(i)}
+     const row=document.createElement('label');row.innerHTML='<input type="checkbox" '+(hidden.includes(i)?'':'checked')+'><span></span>';row.querySelector('span').textContent=label;const cb=row.querySelector('input');cb.onchange=()=>setCol(i,cb.checked);menu.appendChild(row);setCol(i,!hidden.includes(i),false);
+   });
+   if(dateIndexes.length)tools.classList.add('has-date');else tools.querySelector('.tc-date-range')?.remove();
+   installCellCopy(table,headers);
    function setCol(i,show,save=true){[...table.rows].forEach(r=>{if(r.cells[i])r.cells[i].style.display=show?'':'none'});hidden=hidden.filter(x=>x!==i);if(!show)hidden.push(i);if(save)localStorage.setItem(key,JSON.stringify(hidden))}
    tools.querySelector('.tc-filter-toggle').onclick=()=>tools.classList.toggle('filter-open');
    tools.querySelector('.tc-colbtn').onclick=e=>{e.stopPropagation();tools.querySelector('.tc-colbox').classList.toggle('open')};
-   ['input','change'].forEach(ev=>{tools.querySelector('.tc-local-search').addEventListener(ev,()=>filterTable(wrap));tools.querySelector('.tc-filter-value').addEventListener(ev,()=>filterTable(wrap))});
-   filterColumn.onchange=()=>filterTable(wrap);tools.querySelector('.tc-filter-op').onchange=()=>filterTable(wrap);
-   tools.querySelector('.tc-reset').onclick=()=>{tools.querySelector('.tc-local-search').value='';tools.querySelector('.tc-filter-value').value='';tools.querySelector('.tc-filter-op').value='contains';hidden=[];localStorage.removeItem(key);headers.forEach((_,i)=>setCol(i,true,false));menu.querySelectorAll('input').forEach(x=>x.checked=true);filterTable(wrap)};
+   ['input','change'].forEach(ev=>{tools.querySelector('.tc-local-search').addEventListener(ev,()=>filterTable(wrap));tools.querySelector('.tc-filter-value').addEventListener(ev,()=>filterTable(wrap));tools.querySelector('.tc-date-from')?.addEventListener(ev,()=>filterTable(wrap));tools.querySelector('.tc-date-to')?.addEventListener(ev,()=>filterTable(wrap))});
+   filterColumn.onchange=()=>filterTable(wrap);tools.querySelector('.tc-filter-op').onchange=()=>filterTable(wrap);if(dateColumn)dateColumn.onchange=()=>filterTable(wrap);
+   tools.querySelector('.tc-reset').onclick=()=>{tools.querySelector('.tc-local-search').value='';tools.querySelector('.tc-filter-value').value='';tools.querySelector('.tc-filter-op').value='contains';if(tools.querySelector('.tc-date-from'))tools.querySelector('.tc-date-from').value='';if(tools.querySelector('.tc-date-to'))tools.querySelector('.tc-date-to').value='';hidden=[];localStorage.removeItem(key);headers.forEach((_,i)=>setCol(i,true,false));menu.querySelectorAll('input').forEach(x=>x.checked=true);filterTable(wrap)};
    filterTable(wrap);
  }
 
@@ -546,7 +590,7 @@ def page(title: str, body: str, user=None, active: str = "") -> HTMLResponse:
     light = settings.ASSETS["logo_light"]
     dark = settings.ASSETS["logo_dark"]
     icon = settings.ASSETS["icon"]
-    localized = localize_html_iso_timestamps(body or "").replace(" UTC", " Montréal")
+    localized = localize_html_iso_timestamps(body or "")
     if not user:
         html_doc = f'''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{html.escape(title)} - Tikcentral</title><link rel="icon" href="{icon}"><script>(function(){{try{{document.documentElement.dataset.theme=localStorage.getItem('tikcentral:theme')||(matchMedia('(prefers-color-scheme: light)').matches?'light':'dark')}}catch(e){{document.documentElement.dataset.theme='dark'}}}})();</script><style>{CSS}</style></head><body><main class="tc-content" style="max-width:520px;margin:auto;padding-top:7vh"><div class="tc-brand" style="justify-content:center;border:0"><img class="tc-logo tc-logo-light" src="{light}" alt="Opticable"><img class="tc-logo tc-logo-dark" src="{dark}" alt="Opticable"></div>{localized}</main><script>{JS}</script></body></html>'''
         return HTMLResponse(html_doc)
