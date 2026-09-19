@@ -459,7 +459,22 @@ JS = r'''
    filterTable(wrap);
  }
 
- function globalFilter(){const q=(document.getElementById('tcGlobalSearch')?.value||'').toLowerCase();const sections=[...document.querySelectorAll('.tc-workspace-section')];if(sections.length){if(q)sections.forEach(s=>s.classList.add('active'));else{sections.forEach(s=>s.classList.remove('active'));const active=document.querySelector('.tc-workspace-tabs button.active');const name=active?.textContent;if(name)document.querySelector('.tc-workspace-section[data-tab="'+CSS.escape(name)+'"]')?.classList.add('active')}}document.querySelectorAll('.tc-content .panel,.tc-content .card').forEach(el=>{if(el.querySelector('.tc-table-wrap'))return;el.style.display=!q||(el.innerText||'').toLowerCase().includes(q)?'':'none'});document.querySelectorAll('.tc-table-wrap').forEach(w=>{const inp=w.querySelector('.tc-local-search');if(inp){inp.value=q;filterTable(w)}})}
+ function globalFilter(){
+   const q=(document.getElementById('tcGlobalSearch')?.value||'').toLowerCase();
+   const sections=[...document.querySelectorAll('.tc-workspace-section')];
+   if(sections.length){if(q)sections.forEach(s=>s.classList.add('active'));else{sections.forEach(s=>s.classList.remove('active'));const active=document.querySelector('.tc-workspace-tabs button.active');const name=active?.textContent;if(name)document.querySelector('.tc-workspace-section[data-tab="'+CSS.escape(name)+'"]')?.classList.add('active')}}
+   document.querySelectorAll('.tc-content .panel,.tc-content .card').forEach(el=>{if(el.querySelector('.tc-table-wrap'))return;el.style.display=!q||(el.innerText||'').toLowerCase().includes(q)?'':'none'});
+   document.querySelectorAll('.tc-table-wrap').forEach(w=>{
+     const inp=w.querySelector('.tc-local-search');if(!inp)return;
+     if(q){
+       if(inp.dataset.globalSearchActive!=='1'){inp.dataset.globalSearchPrior=inp.value;inp.dataset.globalSearchActive='1'}
+       inp.value=q;
+     }else if(inp.dataset.globalSearchActive==='1'){
+       inp.value=inp.dataset.globalSearchPrior||'';delete inp.dataset.globalSearchPrior;delete inp.dataset.globalSearchActive;
+     }
+     filterTable(w);
+   });
+ }
 
  function openPalette(){const p=document.getElementById('tcPalette');if(!p)return;p.classList.add('open');const i=document.getElementById('tcPaletteSearch');if(i){i.value='';filterPalette();setTimeout(()=>i.focus(),0)}}
  function closePalette(){document.getElementById('tcPalette')?.classList.remove('open')}
@@ -535,9 +550,10 @@ JS = r'''
    const tabColors={'Summary':'#45bd7a','Connectivity':'#4d98e8','Configuration':'#9b7de0','Assets':'#d7a84d','Activity':'#7f8b84'};
    const tabs=document.createElement('div');tabs.className='tc-workspace-tabs';
    const desc=document.createElement('div');desc.className='tc-tab-description';
-   Object.keys(sections).forEach((name,i)=>{const b=document.createElement('button');b.type='button';b.textContent=name;b.dataset.tab=name;b.className=i===0?'active':'';b.onclick=()=>{tabs.querySelectorAll('button').forEach(x=>x.classList.remove('active'));b.classList.add('active');Object.values(sections).forEach(s=>s.classList.remove('active'));sections[name].classList.add('active');desc.textContent=tabHelp[name]||'';desc.style.setProperty('--tab-description-accent',tabColors[name]||'var(--section-accent)');localStorage.setItem('tikcentral:router-tab',name);prefSet('ui:router-tab',name)};tabs.appendChild(b)});
+   Object.keys(sections).forEach((name,i)=>{const b=document.createElement('button');b.type='button';b.textContent=name;b.dataset.tab=name;b.className=i===0?'active':'';b.onclick=()=>{tabs.querySelectorAll('button').forEach(x=>x.classList.remove('active'));b.classList.add('active');Object.values(sections).forEach(s=>s.classList.remove('active'));sections[name].classList.add('active');desc.textContent=tabHelp[name]||'';desc.style.setProperty('--tab-description-accent',tabColors[name]||'var(--section-accent)');prefSet('ui:router-tab',name)};tabs.appendChild(b)});
    hero.insertAdjacentElement('afterend',tabs);tabs.insertAdjacentElement('afterend',desc);Object.values(sections).forEach(s=>content.appendChild(s));
-   const saved=prefGet('ui:router-tab',localStorage.getItem('tikcentral:router-tab'));const target=sections[saved]?saved:Object.keys(sections)[0];[...tabs.children].find(b=>b.textContent===target)?.click();
+   let routerTabFallback=null;try{routerTabFallback=JSON.parse(localStorage.getItem(localPrefKey('ui:router-tab'))||'null')}catch(_){}
+   const saved=prefGet('ui:router-tab',routerTabFallback);const target=sections[saved]?saved:Object.keys(sections)[0];[...tabs.children].find(b=>b.textContent===target)?.click();
  }
 
  function routerIdFromPath(){
@@ -649,13 +665,16 @@ JS = r'''
  }
 
  function installGuidancePreference(){
-   const hidden=prefGet('ui:hide-guidance',localStorage.getItem('tikcentral:hide-guidance')==='1');
-   const density=prefGet('ui:density',localStorage.getItem('tikcentral:density')||'comfortable');
+   let hiddenFallback=false,densityFallback='comfortable';
+   try{hiddenFallback=JSON.parse(localStorage.getItem(localPrefKey('ui:hide-guidance'))||'false')===true}catch(_){}
+   try{densityFallback=JSON.parse(localStorage.getItem(localPrefKey('ui:density'))||'"comfortable"')}catch(_){}
+   const hidden=prefGet('ui:hide-guidance',hiddenFallback);
+   const density=prefGet('ui:density',densityFallback);
    if(hidden)document.body.classList.add('tc-hide-guidance');
    if(density==='compact')document.body.classList.add('tc-compact');
-   document.querySelector('.tc-intro-dismiss')?.addEventListener('click',()=>{document.body.classList.add('tc-hide-guidance');localStorage.setItem('tikcentral:hide-guidance','1');prefSet('ui:hide-guidance',true)});
-   document.getElementById('tcRestoreGuidance')?.addEventListener('click',()=>{document.body.classList.remove('tc-hide-guidance');localStorage.removeItem('tikcentral:hide-guidance');prefSet('ui:hide-guidance',false)});
-   document.getElementById('tcDensityToggle')?.addEventListener('click',()=>{document.body.classList.toggle('tc-compact');const d=document.body.classList.contains('tc-compact')?'compact':'comfortable';localStorage.setItem('tikcentral:density',d);prefSet('ui:density',d)});
+   document.querySelector('.tc-intro-dismiss')?.addEventListener('click',()=>{document.body.classList.add('tc-hide-guidance');prefSet('ui:hide-guidance',true)});
+   document.getElementById('tcRestoreGuidance')?.addEventListener('click',()=>{document.body.classList.remove('tc-hide-guidance');prefSet('ui:hide-guidance',false)});
+   document.getElementById('tcDensityToggle')?.addEventListener('click',()=>{document.body.classList.toggle('tc-compact');const d=document.body.classList.contains('tc-compact')?'compact':'comfortable';prefSet('ui:density',d)});
  }
 
  function decorateStatuses(){document.querySelectorAll('td').forEach(td=>{if(td.children.length)return;const s=(td.innerText||'').trim().toLowerCase();let tone='';if(['healthy','online','passed','success','succeeded','enabled','ready','commissioned','matches baseline','ok','up'].includes(s))tone='ok';else if(['warning','partial','degraded','pending','queued','running','verifying','drift','drift detected','saturated'].includes(s))tone='warn';else if(['failed','error','critical','offline','down'].includes(s))tone='bad';if(tone){const text=td.innerText;td.innerHTML='<span class="tc-status '+tone+'"><span class="tc-status-dot"></span><span></span></span>';td.firstChild.lastChild.textContent=text}})}
