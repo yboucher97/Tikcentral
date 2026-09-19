@@ -66,6 +66,16 @@ CATEGORY_SLUG = {
     "Workspace":"workspace",
 }
 
+CATEGORY_HOME = {
+    "Overview":"/",
+    "Fleet":"/routers",
+    "Operations":"/operations",
+    "Changes":"/changes",
+    "Intelligence":"/config-search",
+    "Administration":"/system-health",
+    "Workspace":"/",
+}
+
 PAGE_GUIDANCE = {
     "dashboard": ("Fleet overview", "Start here: current fleet health, exceptions and operator access."),
     "alerts": ("Exceptions", "Acknowledge, assign and resolve issues that need operator attention."),
@@ -535,7 +545,7 @@ def page(title: str, body: str, user=None, active: str = "") -> HTMLResponse:
     category_slug = CATEGORY_SLUG.get(category, "workspace")
     shell = f'''<div class="tc-shell tc-cat-{category_slug}" data-workflow="{html.escape(category_slug)}">
 <aside class="tc-sidebar" id="tcSidebar"><div class="tc-brand"><a href="/"><img class="tc-logo tc-logo-light" src="{light}" alt="Opticable"><img class="tc-logo tc-logo-dark" src="{dark}" alt="Opticable"><img class="tc-icon" src="{icon}" alt="Opticable"></a></div>{sidebar}<div class="tc-sidebar-foot">Tikcentral · Opticable<br>Management plane</div></aside>
-<div class="tc-main"><header class="tc-topbar"><button class="tc-menu-btn" id="tcMenuBtn" type="button">☰</button><div class="tc-page-meta"><div class="tc-page-title">{html.escape(title)}</div><div class="tc-breadcrumb"><span style="color:var(--section-accent);font-weight:750">{html.escape(category)}</span> · {html.escape(guide_title)}</div></div>
+<div class="tc-main"><header class="tc-topbar"><button class="tc-menu-btn" id="tcMenuBtn" type="button">☰</button><div class="tc-page-meta"><div class="tc-page-title">{html.escape(title)}</div><div class="tc-breadcrumb"><a href="{CATEGORY_HOME.get(category,'/')}" style="color:var(--section-accent);font-weight:750">{html.escape(category)}</a> · {html.escape(guide_title)}</div></div>
 <div class="tc-top-actions">{f'<button class="tc-command-btn" id="tcCommandBtn" type="button"><span class="tc-command-label">Go to…</span><span class="tc-kbd">Ctrl K</span></button><button id="tcTheme" type="button" onclick="tcToggleTheme()">Theme</button>{account}' if user else ''}</div></header>
 <main class="tc-content">{page_intro}<div id="tcObjectContext"></div>{page_tools}{localized}</main></div></div>'''
     palette = f'''<div class="tc-palette" id="tcPalette"><div class="tc-palette-card"><div class="tc-palette-search"><input id="tcPaletteSearch" data-no-copy placeholder="Go to a feature…"></div><div class="tc-palette-list">{palette_items}</div></div></div>''' if user else ""
