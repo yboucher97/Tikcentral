@@ -43,7 +43,8 @@ def register(app,page_func):
         if not router: return RedirectResponse("/operations",303)
         row=get(router_id)
         def val(name):
-            return html.escape(row[name] if row else "")
+            value=row[name] if row else ""
+            return html.escape("" if value is None else str(value))
         csrf=core.csrf_token(request)
         body=f'''<div class="panel pad"><h2>Site / customer · {html.escape(router["site_name"])}</h2>
 <div class="muted">{html.escape(router["model"] or "")} · <code>{html.escape(router["vpn_ip"])}</code></div></div>
