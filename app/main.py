@@ -284,7 +284,7 @@ def login_page(request: Request):
     if session_user(request):
         return RedirectResponse("/", status_code=303)
     error = '<div class="error">Invalid email or password.</div>' if request.query_params.get("error") else ""
-    body = f'''<div class="login"><div class="panel pad"><h2>Sign in</h2>{error}<form method="post" action="/login"><div><input style="width:100%;margin-bottom:10px" type="email" name="email" placeholder="Email" required></div><div><input style="width:100%;margin-bottom:14px" type="password" name="password" placeholder="Password" required></div><button class="primary" style="width:100%">Sign in</button></form></div></div>'''
+    body = f'''<div class="login"><div class="panel pad"><h2>Sign in</h2>{error}<form method="post" action="/login"><div><input style="width:100%;margin-bottom:10px" type="email" name="email" placeholder="Email" required></div><div><div class="inline" style="align-items:stretch"><input id="loginPassword" style="flex:1;min-width:0" type="password" name="password" placeholder="Password" required data-no-copy><button type="button" id="loginPasswordToggle" onclick="const p=document.getElementById('loginPassword');const show=p.type==='password';p.type=show?'text':'password';this.textContent=show?'Hide password':'Show password'">Show password</button></div></div><button class="primary" style="width:100%;margin-top:14px">Sign in</button></form></div></div>'''
     return page("Login", body)
 
 
