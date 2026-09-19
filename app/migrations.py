@@ -1499,7 +1499,29 @@ def _m35(conn):
     )
 
 
-MIGRATIONS = [_m1, _m2, _m3, _m4, _m5, _m6, _m7, _m8, _m9, _m10, _m11, _m12, _m13, _m14, _m15, _m16, _m17, _m18, _m19, _m20, _m21, _m22, _m23, _m24, _m25, _m26, _m27, _m28, _m29, _m30, _m31, _m32, _m33, _m34, _m35]
+def _m36(conn):
+    """Enforce one public WinBox relay port per router."""
+    duplicates = conn.execute(
+        """SELECT public_winbox_port FROM routers
+           WHERE public_winbox_port IS NOT NULL
+           GROUP BY public_winbox_port HAVING COUNT(*)>1"""
+    ).fetchall()
+    for row in duplicates:
+        ids = [
+            int(r[0]) for r in conn.execute(
+                "SELECT id FROM routers WHERE public_winbox_port=? ORDER BY id",
+                (row[0],),
+            ).fetchall()
+        ]
+        for router_id in ids[1:]:
+            conn.execute("UPDATE routers SET public_winbox_port=NULL WHERE id=?", (router_id,))
+    conn.execute(
+        """CREATE UNIQUE INDEX IF NOT EXISTS idx_routers_public_winbox_port_unique
+           ON routers(public_winbox_port) WHERE public_winbox_port IS NOT NULL"""
+    )
+
+
+MIGRATIONS = [_m1, _m2, _m3, _m4, _m5, _m6, _m7, _m8, _m9, _m10, _m11, _m12, _m13, _m14, _m15, _m16, _m17, _m18, _m19, _m20, _m21, _m22, _m23, _m24, _m25, _m26, _m27, _m28, _m29, _m30, _m31, _m32, _m33, _m34, _m35, _m36]
 
 
 def migrate() -> int:
