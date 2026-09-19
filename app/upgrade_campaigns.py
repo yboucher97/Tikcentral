@@ -172,16 +172,16 @@ def register(app,page_func):
             raise HTTPException(status_code=400,detail="campaign contains an invalid, disabled or retired router")
         now=_now()
         with core.db() as conn:
-            cur=conn.execute("INSERT INTO upgrade_campaigns(name,target_version,status,created_by,created_at,notes) VALUES(?,?,'canary_pending',?,?,?)",
+            cur=conn.execute("INSERT INTO upgrade_campaigns(name,target_version,status,created_by,created_at,notes) VALUES(?,?,'canary_running',?,?,?)",
                              (name,target,user["email"],now,str(data.get("notes",""))[:2000]))
             cid=cur.lastrowid
             for rid in sorted(set(ids)):
                 stage="canary" if rid==canary else "rollout"
                 conn.execute("INSERT OR IGNORE INTO upgrade_campaign_members(campaign_id,router_id,stage,status,updated_at) VALUES(?,?,?,'pending',?)",
                              (cid,rid,stage,now))
+        # Campaign state is recoverable before queueing. If the immediate queue
+        # attempt fails, the scheduler sees canary_running + pending and retries.
         _queue_stage(cid,"canary",user["email"])
-        with core.db() as conn:
-            conn.execute("UPDATE upgrade_campaigns SET status='canary_running' WHERE id=?",(cid,))
         return RedirectResponse(f"/upgrade-campaigns/{cid}",303)
 
     @app.get("/upgrade-campaigns/{campaign_id}",response_class=HTMLResponse)
@@ -222,8 +222,16 @@ def register(app,page_func):
         if not canaries or not all(x["status"]=="succeeded" for x in canaries):
             return RedirectResponse(f"/upgrade-campaigns/{campaign_id}",303)
         with core.db() as conn:
-            conn.execute("UPDATE upgrade_campaigns SET status='approved',approved_by=?,approved_at=? WHERE id=?",(user["email"],_now(),campaign_id))
+            campaign=conn.execute("SELECT status FROM upgrade_campaigns WHERE id=?",(campaign_id,)).fetchone()
+            if not campaign:
+                raise HTTPException(status_code=404,detail="campaign not found")
+            if campaign["status"] in {"failed","cancelled","completed"}:
+                raise HTTPException(status_code=409,detail=f"campaign is {campaign['status']}")
+            conn.execute(
+                "UPDATE upgrade_campaigns SET status='rollout_running',approved_by=?,approved_at=? WHERE id=?",
+                (user["email"],_now(),campaign_id),
+            )
+        # Persist rollout_running first so scheduler recovery can queue a pending
+        # rollout member even if this immediate queue attempt fails.
         _queue_stage(campaign_id,"rollout",user["email"])
-        with core.db() as conn:
-            conn.execute("UPDATE upgrade_campaigns SET status='rollout_running' WHERE id=?",(campaign_id,))
         return RedirectResponse(f"/upgrade-campaigns/{campaign_id}",303)
