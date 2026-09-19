@@ -22,6 +22,7 @@ from app import certificate_monitor
 from app import compliance
 from app import commissioning_checklist
 from app import change_control
+from app import change_impact
 from app import change_preview
 from app import enrollment
 from app import errors
@@ -41,6 +42,7 @@ from app import lte_monitor
 from app import main as core
 from app import maintenance_automation
 from app import maintenance_history
+from app import network_quality
 from app import model_capabilities
 from app import mtu_diagnostics
 from app import management_script
@@ -56,6 +58,7 @@ from app import database_health
 from app import desired_state
 from app import customer_overview
 from app import customer_reports
+from app import cross_site_anomaly
 from app import config_search
 from app import rescue
 from app import retention_policy
@@ -208,6 +211,8 @@ capacity_forecast.register(app, ui.page)
 operator_notes.register(app, ui.page)
 alert_queue.register(app, ui.page)
 customer_reports.register(app, ui.page)
+cross_site_anomaly.register(app, ui.page)
+change_impact.register(app, ui.page)
 customer_overview.register(app, ui.page)
 config_search.register(app, ui.page)
 retention_policy.register(app, ui.page)
@@ -234,6 +239,7 @@ interface_monitor.register(app, ui.page)
 site_metadata.register(app, ui.page)
 lifecycle.register(app, ui.page)
 maintenance_history.register(app, ui.page)
+network_quality.register(app, ui.page)
 maintenance_automation.register(app, ui.page)
 router_replacement.register(app, ui.page)
 upgrade_campaigns.register(app, ui.page)
