@@ -32,7 +32,9 @@ def _router(router_id: int):
 
 
 def _sanitize(text: str) -> str:
-    value = router_exec.sanitize(text or "")
+    # router_exec.sanitize defaults to a short operator-log limit (1200 chars).
+    # AI snapshots/reports have separate, much larger explicit caps.
+    value = router_exec.sanitize(text or "", limit=settings.AI_MAX_SECTION_CHARS)
     patterns = (
         r'(?i)(password|passwd|passphrase|secret|token|private[-_ ]?key|preshared[-_ ]?key|community)\s*[=:]\s*([^\s;]+)',
         r'(?i)(pppoe[^\n]{0,80}password\s*[=:]\s*)([^\s;]+)',
