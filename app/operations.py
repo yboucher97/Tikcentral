@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 
 from fastapi import Request
 from fastapi.responses import HTMLResponse, RedirectResponse
+from starlette.concurrency import run_in_threadpool
 
 from app import capabilities
 from app import change_control
@@ -926,7 +927,7 @@ def register(app, page_func):
     async def telemetry_action(router_id: int, request: Request):
         user = await auth(request)
         if not user: return RedirectResponse("/login", status_code=303)
-        try: collect_telemetry(router_id, True)
+        try: await run_in_threadpool(collect_telemetry, router_id, True)
         except Exception as exc: return _error_page(page_func,user,router_id,"Refresh telemetry",exc)
         return RedirectResponse(f"/operations/{router_id}", status_code=303)
 
@@ -934,7 +935,7 @@ def register(app, page_func):
     async def commission_action(router_id: int, request: Request):
         user = await auth(request)
         if not user: return RedirectResponse("/login", status_code=303)
-        try: validate_commissioning(router_id,_actor(user))
+        try: await run_in_threadpool(validate_commissioning, router_id, _actor(user))
         except Exception as exc: return _error_page(page_func,user,router_id,"Commissioning validation",exc)
         return RedirectResponse(f"/operations/{router_id}", status_code=303)
 
@@ -942,7 +943,7 @@ def register(app, page_func):
     async def profile_action(router_id: int, profile: str, request: Request):
         user = await auth(request)
         if not user: return RedirectResponse("/login", status_code=303)
-        try: switch_profile(router_id,profile,_actor(user))
+        try: await run_in_threadpool(switch_profile, router_id, profile, _actor(user))
         except Exception as exc: return _error_page(page_func,user,router_id,"Performance profile change",exc)
         return RedirectResponse(f"/operations/{router_id}", status_code=303)
 
@@ -950,7 +951,7 @@ def register(app, page_func):
     async def backup_action(router_id: int, tier: str, request: Request):
         user = await auth(request)
         if not user: return RedirectResponse("/login", status_code=303)
-        try: backup_router(router_id,tier,_actor(user))
+        try: await run_in_threadpool(backup_router, router_id, tier, _actor(user))
         except Exception as exc: return _error_page(page_func,user,router_id,"Router backup",exc)
         return RedirectResponse(f"/operations/{router_id}", status_code=303)
 
@@ -958,7 +959,7 @@ def register(app, page_func):
     async def drift_action(router_id: int, request: Request):
         user = await auth(request)
         if not user: return RedirectResponse("/login", status_code=303)
-        try: check_drift(router_id)
+        try: await run_in_threadpool(check_drift, router_id)
         except Exception as exc: return _error_page(page_func,user,router_id,"Configuration drift check",exc)
         return RedirectResponse(f"/operations/{router_id}", status_code=303)
 
@@ -966,7 +967,7 @@ def register(app, page_func):
     async def baseline_action(router_id: int, request: Request):
         user = await auth(request)
         if not user: return RedirectResponse("/login", status_code=303)
-        try: accept_baseline(router_id,_actor(user))
+        try: await run_in_threadpool(accept_baseline, router_id, _actor(user))
         except Exception as exc: return _error_page(page_func,user,router_id,"Accept configuration baseline",exc)
         return RedirectResponse(f"/operations/{router_id}", status_code=303)
 
@@ -974,7 +975,7 @@ def register(app, page_func):
     async def update_action(router_id: int, request: Request):
         user = await auth(request)
         if not user: return RedirectResponse("/login", status_code=303)
-        try: check_update(router_id)
+        try: await run_in_threadpool(check_update, router_id)
         except Exception as exc: return _error_page(page_func,user,router_id,"RouterOS update check",exc)
         return RedirectResponse(f"/operations/{router_id}", status_code=303)
 

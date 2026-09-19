@@ -6,12 +6,17 @@ atomic release can become current.
 """
 
 import ast
+import asyncio
 import ipaddress
+import json
 import os
 import sqlite3
 import sys
 import tempfile
 from pathlib import Path
+from unittest.mock import patch
+
+from starlette.requests import Request
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -508,9 +513,7 @@ def validate_source_boundaries():
     for marker in ("lifecycle_state", "upgrade_campaigns.sync_all"):
         if marker not in scheduler_lifecycle:
             fail(f"Lifecycle/campaign scheduler integration missing: {marker}")
-    main_lifecycle = (ROOT / "app/main.py").read_text(encoding="utf-8")
-    if '"new", iso(now), "enrollment"' not in main_lifecycle:
-        fail("New enrollments do not start in New lifecycle state")
+    validate_enrollment_lifecycle()
     calendar_text = (ROOT / "app/change_calendar.py").read_text(encoding="utf-8")
     for marker in ("planned_changes", "Plan a change", "Recorded changes this month", "change_transactions", "_normalize_datetime", "datetime-local"):
         if marker not in calendar_text:
@@ -833,6 +836,39 @@ def validate_source_boundaries():
     for path in (ROOT / "app").glob("*.py"):
         if "show-sensitive=no" in path.read_text(encoding="utf-8"):
             fail(f"Invalid RouterOS show-sensitive=no syntax returned: {path.name}")
+
+
+def validate_enrollment_lifecycle():
+    """Exercise enrollment instead of matching the spelling of an INSERT tuple."""
+    from datetime import timedelta
+
+    token = "offline-release-validation-token"
+    public_key = "B" * 43 + "="
+    now = core.utcnow()
+    with core.db() as conn:
+        conn.execute(
+            "INSERT INTO enrollment_tokens(token_hash,site_name,expires_at,created_at) VALUES(?,?,?,?)",
+            (core.hash_token(token), "Release validation", core.iso(now + timedelta(hours=1)), core.iso(now)),
+        )
+
+    body = json.dumps({"token": token, "public_key": public_key, "identity": "validation"}).encode()
+    async def receive():
+        return {"type": "http.request", "body": body, "more_body": False}
+
+    request = Request({"type": "http", "method": "POST", "path": "/api/enroll", "headers": []}, receive)
+    try:
+        with patch.object(core, "wireguard_peers", return_value={}), patch.object(core, "wg_helper") as helper:
+            result = asyncio.run(core.enroll(request))
+            helper.assert_called_once_with("add", public_key, result["vpn_ip"])
+        with core.db() as conn:
+            router = conn.execute("SELECT * FROM routers WHERE public_key=?", (public_key,)).fetchone()
+            used = conn.execute("SELECT used_at FROM enrollment_tokens WHERE token_hash=?", (core.hash_token(token),)).fetchone()[0]
+        if not router or (router["enabled"], router["lifecycle_state"], router["lifecycle_updated_by"]) != (1, "new", "enrollment") or not used or used.startswith("pending:"):
+            fail("New enrollment was not finalized in New lifecycle state")
+    finally:
+        with core.db() as conn:
+            conn.execute("DELETE FROM routers WHERE public_key=?", (public_key,))
+            conn.execute("DELETE FROM enrollment_tokens WHERE token_hash=?", (core.hash_token(token),))
 
 
 def validate_ui_and_assets():

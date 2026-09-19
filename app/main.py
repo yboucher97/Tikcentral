@@ -16,6 +16,7 @@ from urllib.parse import parse_qs
 from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from pydantic import BaseModel, Field
+from starlette.concurrency import run_in_threadpool
 
 from app import migrations
 from app import settings
@@ -417,7 +418,9 @@ async def update_ui_preference(request: Request):
         raise
     except Exception as exc:
         raise HTTPException(status_code=400, detail="invalid JSON") from exc
-    key = str(payload.get("key", "")).strip()
+    if not isinstance(payload, dict) or not isinstance(payload.get("key"), str) or "value" not in payload:
+        raise HTTPException(status_code=400, detail="expected a preference object with key and value")
+    key = payload["key"].strip()
     if not key or len(key) > 500 or not (key.startswith("table:") or key.startswith("ui:")):
         raise HTTPException(status_code=400, detail="invalid preference key")
     value = payload.get("value")
@@ -429,7 +432,10 @@ async def update_ui_preference(request: Request):
                 (user["id"], key),
             )
         else:
-            encoded = json.dumps(value, separators=(",", ":"), ensure_ascii=False)
+            try:
+                encoded = json.dumps(value, separators=(",", ":"), ensure_ascii=False, allow_nan=False)
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail="preference values must be valid JSON") from exc
             if len(encoded) > 20000:
                 raise HTTPException(status_code=413, detail="preference value too large")
             existing = conn.execute(
@@ -835,6 +841,12 @@ async def enroll(request: Request):
         raise
     except Exception as exc:
         raise HTTPException(status_code=422, detail="invalid enrollment payload") from exc
+    # WireGuard subprocesses and SQLite reservations must not block all other
+    # requests while an enrollment is waiting for the host network service.
+    return await run_in_threadpool(_enroll, req)
+
+
+def _enroll(req: EnrollRequest):
     now = utcnow()
     if not re.fullmatch(r"[A-Za-z0-9+/]{43}=", req.public_key):
         raise HTTPException(status_code=400, detail="invalid WireGuard public key")

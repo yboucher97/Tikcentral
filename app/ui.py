@@ -120,10 +120,10 @@ def _infer_active(title: str) -> str:
 
 CSS = r'''
 :root{
- --bg:#0b100d;--surface:#111713;--surface2:#161e19;--surface3:#1d2721;--line:#29352e;
- --text:#eef3ef;--muted:#94a099;--accent:#45bd7a;--accent2:#23885a;--accent-soft:color-mix(in srgb,#45bd7a 13%,transparent);
+ --bg:#101416;--surface:#171c1f;--surface2:#1c2226;--surface3:#242c30;--line:#343e43;
+ --text:#e7ecee;--muted:#a3afb5;--accent:#58c68d;--accent2:#23885a;--accent-soft:color-mix(in srgb,#45bd7a 13%,transparent);
  --danger:#e66d7c;--warn:#d7a84d;--ok:#56ce8a;--input:#0e1511;--shadow:0 10px 30px rgba(0,0,0,.20);
- --sidebar:252px;--radius:12px;--content:1640px;
+ --sidebar:228px;--radius:10px;--content:100%;
 }
 html[data-theme="light"]{
  --bg:#f3f6f4;--surface:#ffffff;--surface2:#f7f9f8;--surface3:#eef3f0;--line:#d9e1dc;
@@ -188,12 +188,12 @@ html[data-theme="light"] .tc-logo-dark{display:none}html[data-theme="light"] .tc
 .tc-menu-btn{display:none}.tc-page-meta{min-width:0;flex:1}.tc-page-title{font-size:17px;font-weight:780;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.tc-breadcrumb{font-size:11px;color:var(--muted);margin-top:2px}
 .tc-top-actions{display:flex;align-items:center;gap:8px}.tc-command-btn{min-width:220px;text-align:left;color:var(--muted);display:flex;justify-content:space-between;gap:12px}.tc-kbd{font-size:10px;border:1px solid var(--line);background:var(--surface3);padding:2px 5px;border-radius:5px;color:var(--muted)}
 .tc-account{position:relative}.tc-account>button{max-width:210px}.tc-account-menu{display:none;position:absolute;right:0;top:calc(100% + 7px);width:240px;background:var(--surface);border:1px solid var(--line);border-radius:10px;box-shadow:var(--shadow);padding:8px;z-index:80}.tc-account.open .tc-account-menu{display:block}.tc-account-menu a,.tc-account-menu form{display:block}.tc-account-menu button{width:100%;text-align:left;border:0;background:transparent}
-.tc-content{max-width:var(--content);margin:0 auto;padding:22px 24px 56px}
+.tc-content{max-width:var(--content);margin:0 auto;padding:16px 20px 40px}
 .tc-page-tools{display:flex;gap:8px;align-items:center;margin-bottom:16px}.tc-page-tools input{flex:1;max-width:420px}.tc-page-tools .hint{margin-left:auto;color:var(--muted);font-size:11px}
 
 .tc-page-intro{display:flex;justify-content:space-between;gap:14px;align-items:flex-start;padding:12px 14px;margin-bottom:12px;border:1px solid color-mix(in srgb,var(--section-accent) 22%,var(--line));border-left:4px solid var(--section-accent);border-radius:4px 10px 10px 4px;background:color-mix(in srgb,var(--section-soft) 60%,var(--surface2));color:var(--muted)}.tc-page-intro strong{display:block;color:var(--text);margin-bottom:2px}.tc-intro-dismiss{border:0;background:transparent;padding:0 4px;font-size:18px;color:var(--muted)}body.tc-hide-guidance .tc-page-intro{display:none}
 .tc-contextbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 12px;margin-bottom:12px;border:1px solid color-mix(in srgb,var(--section-accent) 18%,var(--line));border-radius:10px;background:linear-gradient(90deg,color-mix(in srgb,var(--section-soft) 52%,var(--surface)),var(--surface) 28%)}.tc-context-main{display:flex;align-items:center;gap:8px;margin-right:auto}.tc-context-title{font-weight:780}.tc-context-links{display:flex;gap:5px;flex-wrap:wrap}.tc-context-links a{display:inline-flex;padding:6px 8px;border:1px solid var(--line);border-radius:7px;color:var(--muted);font-size:12px}.tc-context-links a:hover{background:var(--surface2);color:var(--text)}.tc-context-links a.active{background:var(--section-soft);color:var(--text);border-color:color-mix(in srgb,var(--section-accent) 38%,var(--line));box-shadow:inset 0 -2px 0 var(--section-accent)}
-.tc-empty{padding:22px!important;text-align:center!important;color:var(--muted)!important;background:var(--surface2)}.tc-empty:before{content:"No data yet";display:block;color:var(--text);font-weight:750;margin-bottom:3px}
+.tc-empty{padding:22px!important;text-align:center!important;color:var(--muted)!important;background:var(--surface2)}
 .tc-danger-action{border-color:color-mix(in srgb,var(--danger) 40%,var(--line))!important;color:var(--danger)!important}.tc-warning-action{border-color:color-mix(in srgb,var(--warn) 42%,var(--line))!important;color:var(--warn)!important}
 .tc-dirty{box-shadow:0 0 0 2px color-mix(in srgb,var(--warn) 22%,transparent)}.tc-readonly-form{opacity:.68}.tc-readonly-form button,.tc-readonly-form input,.tc-readonly-form select,.tc-readonly-form textarea{cursor:not-allowed}kbd{font:10px ui-monospace,SFMono-Regular,Menlo,monospace;border:1px solid var(--line);background:var(--surface3);border-bottom-width:2px;padding:1px 4px;border-radius:4px;color:var(--muted)}
 
@@ -265,7 +265,56 @@ td.tc-copyable-cell{position:relative;padding-right:48px}.tc-cell-copy{position:
  .tc-cell-copy{opacity:.65}.tc-copy-priority>.tc-cell-copy{opacity:1}.tc-date-range{align-items:flex-start}.tc-date-range label{width:100%}.tc-date-range input{flex:1}
  .tc-smart-explain{grid-template-columns:1fr}.tc-smart-card>summary .muted{width:100%}
 }
-@media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important;transition:none!important}}
+/* Shared workspace layout: more room for data, fewer competing controls. */
+[hidden]{display:none!important}
+:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+input[type=checkbox],input[type=radio]{min-height:0;width:16px;height:16px;accent-color:var(--accent)}
+.tc-topbar{height:56px;padding:0 18px;box-shadow:none;background:var(--bg)}
+.tc-menu-btn{display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;padding:0;flex-shrink:0}
+.tc-command-btn{min-width:165px}.tc-command-icon{display:none}
+.tc-account>button{max-width:180px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tc-brand{height:48px}.tc-logo{width:174px}.tc-sidebar{padding:12px 10px}
+.tc-nav a{min-height:33px;padding:6px 10px;font-size:13px}.tc-nav-label{font-size:11px;letter-spacing:.055em}
+.tc-page-intro{padding:9px 12px;font-size:12px;background:var(--surface);border-left-width:3px}
+.tc-page-intro strong{display:inline;margin-right:8px}.tc-page-intro>div>div{display:inline}
+.tc-page-tools{margin-bottom:12px}.tc-page-tools input{max-width:360px;min-width:0}
+.tc-page-tools .hint{margin-left:auto}.tc-density{margin-left:auto;white-space:nowrap}
+.tc-table-tools{padding:8px;gap:6px;border-radius:var(--radius) var(--radius) 0 0}
+.tc-table-tools>button,.tc-colbtn{font-size:12px;padding:6px 9px;min-height:32px}
+.tc-table-tools .tc-local-search{min-width:150px;max-width:400px;min-height:32px;padding:6px 9px}
+.tc-count{font-variant-numeric:tabular-nums}.tc-filter-toggle[aria-pressed=true]{color:var(--accent);border-color:var(--accent);background:var(--accent-soft)}
+.tc-advanced select,.tc-advanced input,.tc-date-range select,.tc-date-range input{font-size:12px;min-height:32px;max-width:100%}
+.tc-table-empty{padding:24px;text-align:center;color:var(--muted);border-top:1px solid var(--line)}
+.tc-table-empty strong{display:block;color:var(--text);margin-bottom:8px}
+.tc-colmenu{max-height:min(420px,65vh);width:250px}
+th{font-size:11px;text-transform:none;letter-spacing:0;font-weight:650;cursor:default}
+th[data-sort]{cursor:pointer}th[aria-sort=ascending]::after{content:' ↑';opacity:1;color:var(--accent)}th[aria-sort=descending]::after{content:' ↓';opacity:1;color:var(--accent)}
+td{font-size:13px}td .muted{font-size:12px;margin-top:3px}td code{white-space:nowrap;font-size:12px}
+td.tc-copyable-cell{padding-right:32px}.tc-cell-copy{width:23px;height:23px;font-size:14px;padding:1px;top:7px;right:3px;border-color:transparent;background:transparent}
+.tc-copy-priority>.tc-cell-copy{opacity:.8;border-color:transparent;color:var(--muted)}.tc-cell-copy:hover{color:var(--accent);background:var(--surface3)}
+.tc-cell-copy svg{width:14px;height:14px;display:block;margin:auto;pointer-events:none}.tc-router-inventory td:nth-child(4){white-space:nowrap}.tc-router-inventory td:nth-child(2){min-width:155px}
+.tc-scroll{scrollbar-width:thin;scrollbar-color:var(--line) transparent}
+.tc-content details.panel[open]{overflow:visible}
+.tc-pref-status{font-size:11px;color:var(--muted);padding:8px 10px}.tc-pref-status[data-state=error]{color:var(--warn)}
+.tc-toast-region{position:fixed;right:18px;bottom:18px;z-index:220;max-width:min(400px,calc(100vw - 36px));padding:11px 15px;background:var(--surface3);color:var(--text);border:1px solid var(--line);border-radius:9px;box-shadow:var(--shadow)}
+.tc-nav-backdrop{display:none}.tc-skip{position:fixed;top:-70px;left:16px;z-index:250;padding:10px;background:var(--surface);border:1px solid var(--accent);border-radius:6px}.tc-skip:focus{top:8px}
+.tc-workspace-section .panel.pad>h3{margin-top:0}.tc-workspace-section[data-tab=Summary].active,.tc-workspace-section[data-tab=Assets].active{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;align-items:start}.tc-workspace-section[data-tab=Summary]>.panel,.tc-workspace-section[data-tab=Assets]>.panel{margin-bottom:0}
+@media(min-width:821px){body.tc-sidebar-collapsed .tc-shell{grid-template-columns:minmax(0,1fr)}body.tc-sidebar-collapsed .tc-sidebar{display:none}}
+@media(min-width:1800px){.tc-workspace-section[data-tab=Summary].active{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media(max-width:1050px){.tc-workspace-section[data-tab=Summary].active,.tc-workspace-section[data-tab=Assets].active{grid-template-columns:minmax(0,1fr)}}
+@media(max-width:820px){
+ .tc-topbar{gap:8px;padding:0 10px}.tc-top-actions{gap:5px}.tc-page-title{font-size:15px}
+ .tc-command-btn{width:32px;min-width:32px;height:34px;padding:0;justify-content:center}.tc-command-icon{display:inline;font-size:20px}
+ .tc-smart-help{display:none}.tc-account>button{padding:6px 8px}.tc-page-tools .hint{display:none}
+ .tc-page-tools input{width:auto;flex:1;max-width:none}.tc-density{font-size:12px;padding:7px}
+ .cards{grid-template-columns:repeat(2,minmax(0,1fr))}.card{padding:12px}.card .value{font-size:23px}
+ .tc-table-tools .tc-local-search{min-width:100%;max-width:none}.tc-table-tools .tc-count{margin-left:auto}
+ .tc-nav-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:29;border:0;border-radius:0}body.tc-nav-open .tc-nav-backdrop{display:block}body.tc-nav-open{overflow:hidden}
+ .tc-content input:not([type=checkbox]):not([type=radio]),.tc-content select,.tc-content textarea{max-width:100%;min-width:0!important}
+ .tc-table-tools .tc-local-search{flex-basis:100%}
+ .tc-date-range label{display:grid;grid-template-columns:32px minmax(0,1fr)}.tc-colmenu{position:fixed;right:12px;top:70px;max-width:calc(100vw - 24px)}
+}
+@media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important;transition:none!important;animation:none!important}}
 '''
 
 JS = r'''
@@ -278,7 +327,28 @@ JS = r'''
    saved=raw&&raw.startsWith('"')?JSON.parse(raw):raw;
  }catch(_){}
  root.dataset.theme=(saved==='light'||saved==='dark')?saved:(matchMedia('(prefers-color-scheme: light)').matches?'light':'dark');
- let tcUserPrefs={},tcPrefsCsrf='',tcPrefControllers={};
+ let tcUserPrefs={},tcPrefsCsrf='',tcPrefPending={},tcPrefSaving=new Set(),tcPrefState='loading';
+ try{const pending=JSON.parse(localStorage.getItem(localPrefKey('__pending'))||'{}');if(pending&&typeof pending==='object'&&!Array.isArray(pending))tcPrefPending=pending}catch(_){}
+
+ function preferenceStatus(state){
+   tcPrefState=state;
+   const label=state==='saved'?'Views saved to your account':state==='saving'?'Saving view…':state==='loading'?'Loading saved views…':'View saved on this device · account sync unavailable';
+   document.querySelectorAll('.tc-pref-status,.tc-view-saved').forEach(el=>{el.textContent=label;el.dataset.state=state});
+ }
+ function persistPending(){try{localStorage.setItem(localPrefKey('__pending'),JSON.stringify(tcPrefPending))}catch(_){}}
+ async function savePreference(key){
+   if(!tcPrefsCsrf||tcPrefSaving.has(key))return;
+   tcPrefSaving.add(key);preferenceStatus('saving');
+   try{
+     while(Object.prototype.hasOwnProperty.call(tcPrefPending,key)){
+       const value=tcPrefPending[key],encoded=JSON.stringify(value);
+       const r=await fetch('/api/ui/preferences',{method:'PUT',credentials:'same-origin',keepalive:true,headers:{'Content-Type':'application/json','X-CSRF-Token':tcPrefsCsrf},body:JSON.stringify({key,value})});
+       if(!r.ok)throw new Error('Preference save failed');
+       if(JSON.stringify(tcPrefPending[key])===encoded){delete tcPrefPending[key];persistPending()}
+     }
+   }catch(_){preferenceStatus('error')}
+   finally{tcPrefSaving.delete(key);if(!tcPrefSaving.size)preferenceStatus(Object.keys(tcPrefPending).length?'error':'saved')}
+ }
 
  function localPrefKey(key){const who=document.body?.dataset?.tcUser||'anonymous';return 'tikcentral:account-pref:'+who+':'+key}
  function prefGet(key,fallback){
@@ -287,26 +357,25 @@ JS = r'''
    return fallback;
  }
  function prefSet(key,value){
+   if(Object.prototype.hasOwnProperty.call(tcUserPrefs,key)&&JSON.stringify(tcUserPrefs[key])===JSON.stringify(value)&&!Object.prototype.hasOwnProperty.call(tcPrefPending,key))return;
    tcUserPrefs[key]=value;
    try{if(value===null)localStorage.removeItem(localPrefKey(key));else localStorage.setItem(localPrefKey(key),JSON.stringify(value))}catch(_){}
-   if(!tcPrefsCsrf)return;
-   try{
-     tcPrefControllers[key]?.abort();
-     const controller=new AbortController();tcPrefControllers[key]=controller;
-     fetch('/api/ui/preferences',{
-       method:'PUT',credentials:'same-origin',keepalive:true,signal:controller.signal,
-       headers:{'Content-Type':'application/json','X-CSRF-Token':tcPrefsCsrf},
-       body:JSON.stringify({key,value})
-     }).catch(()=>{}).finally(()=>{if(tcPrefControllers[key]===controller)delete tcPrefControllers[key]});
-   }catch(_){}
+   tcPrefPending[key]=value;persistPending();
+   if(tcPrefsCsrf)savePreference(key);else preferenceStatus('error');
  }
  async function loadUserPreferences(){
+   if(!tcUserScope)return;
+   const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),1500);
    try{
-     const r=await fetch('/api/ui/preferences',{credentials:'same-origin',cache:'no-store'});
-     if(!r.ok)return;
-     const data=await r.json();tcUserPrefs=data.preferences||{};tcPrefsCsrf=data.csrf||'';
+     const r=await fetch('/api/ui/preferences',{credentials:'same-origin',cache:'no-store',signal:controller.signal});
+     if(!r.ok)throw new Error('Preferences unavailable');
+     const data=await r.json();
+     if(!data.preferences||typeof data.preferences!=='object'||Array.isArray(data.preferences)||!data.csrf)throw new Error('Invalid preferences');
+     tcUserPrefs={...data.preferences,...tcPrefPending};tcPrefsCsrf=data.csrf;
      Object.entries(tcUserPrefs).forEach(([k,v])=>{try{localStorage.setItem(localPrefKey(k),JSON.stringify(v))}catch(_){}});
-   }catch(_){}
+     preferenceStatus('saved');Object.keys(tcPrefPending).forEach(savePreference);
+   }catch(_){tcUserPrefs={...tcPrefPending};preferenceStatus('error')}
+   finally{clearTimeout(timeout)}
  }
  function themeLabel(){const b=document.getElementById('tcTheme');if(b)b.textContent=root.dataset.theme==='light'?'Dark':'Light'}
  window.tcToggleTheme=function(){root.dataset.theme=root.dataset.theme==='light'?'dark':'light';prefSet('ui:theme',root.dataset.theme);themeLabel()};
@@ -321,7 +390,8 @@ JS = r'''
    if(valueOrElement&&typeof valueOrElement==='object')text=('value' in valueOrElement)?valueOrElement.value:(valueOrElement.innerText||valueOrElement.textContent||'');
    else text=String(valueOrElement??'');
    const ok=await tcWriteClipboard(text);
-   if(button){const old=button.textContent;button.textContent=ok?'Copied':'Failed';button.classList.toggle('tc-copy-ok',ok);setTimeout(()=>{button.textContent=old;button.classList.remove('tc-copy-ok')},1100)}
+   if(button){const old=button._copyOriginal??button.innerHTML;button._copyOriginal=old;button.textContent=button.classList.contains('tc-cell-copy')?(ok?'✓':'!'):(ok?'Copied':'Failed');button.classList.toggle('tc-copy-ok',ok);clearTimeout(button._copyTimer);button._copyTimer=setTimeout(()=>{button.innerHTML=old;button.classList.remove('tc-copy-ok')},1100)}
+   const toast=document.getElementById('tcToast');if(toast){toast.textContent=ok?'Copied to clipboard':'Copy failed. Select the value and copy it manually.';toast.hidden=false;clearTimeout(toast._timer);toast._timer=setTimeout(()=>toast.hidden=true,2200)}
    return ok;
  };
  function installCopyButtons(rootNode=document){
@@ -335,7 +405,7 @@ JS = r'''
      b.onclick=e=>{e.preventDefault();e.stopPropagation();window.tcCopy(el,b)};el.insertAdjacentElement('afterend',b);
    });
    const copyables=[...rootEl.querySelectorAll('[data-copy],code:not([data-no-copy]),pre.tc-copy')];
-   copyables.forEach(el=>{if(el.dataset.tcCopyReady)return;el.dataset.tcCopyReady='1';const b=document.createElement('button');b.type='button';b.className='tc-copy-btn';b.textContent='Copy';b.onclick=e=>{e.preventDefault();e.stopPropagation();window.tcCopy(el,b)};el.insertAdjacentElement('afterend',b)});
+   copyables.forEach(el=>{if(el.dataset.tcCopyReady||el.closest('table')?.tHead)return;el.dataset.tcCopyReady='1';const b=document.createElement('button');b.type='button';b.className='tc-copy-btn';b.textContent='Copy';b.onclick=e=>{e.preventDefault();e.stopPropagation();window.tcCopy(el,b)};el.insertAdjacentElement('afterend',b)});
  }
  document.addEventListener('click',e=>{const b=e.target.closest('[data-copy-target]');if(!b)return;const t=document.querySelector(b.dataset.copyTarget);if(t)window.tcCopy(t,b)});
 
@@ -354,23 +424,23 @@ JS = r'''
  function comparable(v){const s=String(v??'').trim();const wall=localWallTime(s);if(wall!==null)return {type:'date',value:wall};const n=numeric(s);if(s&&n!==null)return {type:'number',value:n};return {type:'text',value:s.toLowerCase()}}
  function matchOperator(cell,op,wanted){const raw=String(cell??'').trim();if(op==='contains')return raw.toLowerCase().includes(String(wanted??'').toLowerCase());if(op==='!contains')return !raw.toLowerCase().includes(String(wanted??'').toLowerCase());const a=comparable(raw),b=comparable(wanted);let av=a.value,bv=b.value;if(a.type!==b.type){av=raw.toLowerCase();bv=String(wanted??'').toLowerCase()}return op==='='?av===bv:op==='!='?av!==bv:op==='>'?av>bv:op==='>='?av>=bv:op==='<'?av<bv:op==='<='?av<=bv:true}
  function isDateHeader(label){return /(^|\b)(time|date|timestamp|when|seen|created|updated|captured|checked|check|detected|started|finished|occurred|resolved|acknowledged|handshake|opened|closed|expires|expiry|approved|scheduled|generated|snapshot|start|end)(\b|$)/i.test(label)}
- function cellTextForCopy(td){const clone=td.cloneNode(true);clone.querySelectorAll('button,form,.tc-cell-copy,.tc-copy-btn').forEach(x=>x.remove());return (clone.innerText||clone.textContent||'').trim()}
+ function cellTextForCopy(td){const clone=td.cloneNode(true);clone.querySelectorAll('button,form,.tc-cell-copy,.tc-copy-btn').forEach(x=>x.remove());clone.querySelectorAll('br').forEach(x=>x.replaceWith('\n'));clone.querySelectorAll('div,p,pre,li').forEach(x=>{x.prepend('\n');x.append('\n')});return (clone.textContent||'').replace(/\n[ \t]*\n/g,'\n').trim()}
  function installCellCopy(table,headers){
    const priority=/identity|model|serial|public ip|vpn ip|winbox|hostname|address|gateway|mac|ticket|source ip/i;
    const skip=/workflow|actions?|troubleshooting|controls?$/i;
    [...table.tBodies].flatMap(tb=>[...tb.rows]).forEach(row=>{
      [...row.cells].forEach((td,i)=>{
        const label=(headers[i]?.innerText||'').trim();
-       if(!label||skip.test(label)||td.classList.contains('tc-empty')||td.querySelector(':scope > .tc-cell-copy'))return;
+       if(!label||skip.test(label)||td.colSpan>1||td.classList.contains('tc-empty')||td.querySelector(':scope > .tc-cell-copy'))return;
        const value=cellTextForCopy(td);if(!value||value==='-')return;
        td.classList.add('tc-copyable-cell');if(priority.test(label))td.classList.add('tc-copy-priority');
-       const b=document.createElement('button');b.type='button';b.className='tc-cell-copy';b.textContent='Copy';b.title='Copy '+label;
+       const b=document.createElement('button');b.type='button';b.className='tc-cell-copy';b.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><rect x="8" y="8" width="12" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/></svg>';b.title='Copy '+label;b.setAttribute('aria-label','Copy '+label);
        b.onclick=e=>{e.preventDefault();e.stopPropagation();window.tcCopy(cellTextForCopy(td),b)};td.appendChild(b);
      });
    });
  }
  function visibleTableRows(table){
-   return [...table.tBodies].flatMap(tb=>[...tb.rows]).filter(r=>r.style.display!=='none');
+   return [...table.tBodies].flatMap(tb=>[...tb.rows]).filter(r=>r.style.display!=='none'&&!r.dataset.tcPlaceholder);
  }
  function visibleColumnIndexes(table,headers){
    return headers.map((_,i)=>i).filter(i=>[...table.rows].some(r=>r.cells[i]&&r.cells[i].style.display!=='none'));
@@ -378,7 +448,7 @@ JS = r'''
  async function copyVisibleTable(table,headers,button){
    const cols=visibleColumnIndexes(table,headers);
    const lines=[cols.map(i=>(headers[i]?.innerText||('Column '+(i+1))).trim()).join('\t')];
-   visibleTableRows(table).forEach(r=>lines.push(cols.map(i=>cellTextForCopy(r.cells[i]||document.createElement('td'))).join('\t')));
+   visibleTableRows(table).forEach(r=>lines.push(cols.map(i=>{const v=cellTextForCopy(r.cells[i]||document.createElement('td'));return /[\t\n\r"]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v}).join('\t')));
    await window.tcCopy(lines.join('\n'),button);
  }
  async function copyVisibleColumn(table,headers,index,button){
@@ -395,13 +465,20 @@ JS = r'''
    let toVal=to?localWallTime(to):null;
    if(toVal!==null&&/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(to))toVal+=59;
    let shown=0,total=0;
-   wrap.querySelectorAll('tbody tr').forEach(r=>{
+   const table=wrap.querySelector('table');
+   [...table.tBodies].flatMap(tb=>[...tb.rows]).forEach(r=>{
+     if(r.dataset.tcPlaceholder)return;
      total++;const rowText=[...r.cells].map(cellTextForCopy).join(' ').toLowerCase();const textOk=!q||rowText.includes(q);
      const filterOk=!wanted||col<0||matchOperator(cellTextForCopy(r.cells[col]||document.createElement('td')),op,wanted);
      let dateOk=true;if(dateCol>=0&&(fromVal!==null||toVal!==null)){const v=localWallTime(cellTextForCopy(r.cells[dateCol]||document.createElement('td')));dateOk=v!==null&&(fromVal===null||v>=fromVal)&&(toVal===null||v<=toVal)}
      const ok=textOk&&filterOk&&dateOk;r.style.display=ok?'':'none';if(ok)shown++;
    });
-   const count=wrap.querySelector('.tc-count');if(count)count.textContent=shown+' / '+total;
+   const count=wrap.querySelector('.tc-count');if(count)count.textContent=shown===total?total+' rows':shown+' of '+total+' rows';
+   const active=Number(!!q)+Number(!!wanted)+Number(!!(from||to));
+   const filterButton=wrap.querySelector('.tc-filter-toggle');filterButton.textContent=active?'Filters · '+active:'Filters';filterButton.setAttribute('aria-pressed',String(active>0));
+   wrap.querySelector('.tc-reset').hidden=!active;
+   const empty=wrap.querySelector('.tc-table-empty');if(empty)empty.hidden=shown>0||total===0;
+   wrap.querySelector('.tc-copy-table').disabled=shown===0;
  }
  function viewPath(){return location.pathname.replace(/\/\d+(?=\/|$)/g,'/:id')}
  function defaultHiddenColumns(table){
@@ -417,23 +494,33 @@ JS = r'''
  }
  function enhanceTable(table,index){
    if(table.dataset.tcReady)return;table.dataset.tcReady='1';
+   if(!table.tHead||!table.tHead.querySelector('th'))return;
+   const headers=[...table.tHead.querySelectorAll('th')];
+   [...table.tBodies].flatMap(tb=>[...tb.rows]).forEach(r=>{if(r.cells.length===1&&r.cells[0].colSpan>1){r.dataset.tcPlaceholder='1';r.cells[0].classList.add('tc-empty')}});
    const panel=table.parentElement,wrap=document.createElement('div');wrap.className='tc-table-wrap';panel.insertBefore(wrap,table);
    const tools=document.createElement('div');tools.className='tc-table-tools';
    tools.innerHTML='<input class="tc-local-search" data-no-copy placeholder="Search rows…"><button type="button" class="tc-filter-toggle">Filter</button><span class="tc-count"></span><button type="button" class="tc-copy-table">Copy visible</button><div class="tc-colbox"><button type="button" class="tc-colbtn">Columns</button><div class="tc-colmenu"></div></div><button type="button" class="tc-reset">Clear filters</button><div class="tc-advanced"><select class="tc-filter-column" data-no-copy></select><select class="tc-filter-op" data-no-copy><option value="contains">contains</option><option value="!contains">does not contain</option><option value="=">=</option><option value="!=">!=</option><option value=">">&gt;</option><option value=">=">&gt;=</option><option value="<">&lt;</option><option value="<=">&lt;=</option></select><input class="tc-filter-value" data-no-copy placeholder="Filter value…"><button type="button" class="tc-copy-column">Copy selected column</button></div><div class="tc-date-range"><select class="tc-date-column" data-no-copy></select><label>From <input type="datetime-local" class="tc-date-from" data-no-copy></label><label>To <input type="datetime-local" class="tc-date-to" data-no-copy></label><span class="tc-timezone-hint">Montréal local time</span></div>';
    wrap.appendChild(tools);const scroll=document.createElement('div');scroll.className='tc-scroll';wrap.appendChild(scroll);scroll.appendChild(table);
-   const headers=[...table.querySelectorAll('thead th')],menu=tools.querySelector('.tc-colmenu'),filterColumn=tools.querySelector('.tc-filter-column'),dateColumn=tools.querySelector('.tc-date-column');
-   const defaults=defaultHiddenColumns(table),viewKey=tableViewKey(table,headers,index),savedHidden=prefGet(viewKey,null);
+   const menu=tools.querySelector('.tc-colmenu'),filterColumn=tools.querySelector('.tc-filter-column'),dateColumn=tools.querySelector('.tc-date-column');
+   const labels={'.tc-local-search':'Search rows','.tc-filter-column':'Filter column','.tc-filter-op':'Filter operator','.tc-filter-value':'Filter value','.tc-date-column':'Date column'};
+   Object.entries(labels).forEach(([selector,label])=>tools.querySelector(selector)?.setAttribute('aria-label',label));
+   tools.querySelector('.tc-filter-toggle').setAttribute('aria-expanded','false');
+   tools.querySelector('.tc-colbtn').setAttribute('aria-expanded','false');
+   const noResults=document.createElement('div');noResults.className='tc-table-empty';noResults.hidden=true;noResults.innerHTML='<strong>No matching rows</strong><button type="button">Clear filters</button>';noResults.querySelector('button').onclick=()=>{const g=document.getElementById('tcGlobalSearch');if(g?.value){g.value='';globalFilter()}tools.querySelector('.tc-reset').click()};wrap.appendChild(noResults);
+   const defaults=[...new Set(defaultHiddenColumns(table))].filter(i=>Number.isInteger(i)&&i>=0&&i<headers.length),viewKey=tableViewKey(table,headers,index),savedHidden=prefGet(viewKey,null);
+   if(defaults.length>=headers.length)defaults.length=0;
    const legacyKey='tikcentral:columns:'+location.pathname+':'+index;let legacyHidden=null;
    try{const raw=localStorage.getItem(legacyKey);legacyHidden=raw===null?null:JSON.parse(raw)}catch(_){}
    const legacyLooksLikeColumnZeroBug=defaults.length===0&&Array.isArray(legacyHidden)&&legacyHidden.length===1&&Number(legacyHidden[0])===0;
    let hidden=Array.isArray(savedHidden)?savedHidden.map(Number).filter(Number.isFinite):(Array.isArray(legacyHidden)&&!legacyLooksLikeColumnZeroBug?legacyHidden.map(Number).filter(Number.isFinite):defaults.slice());
-   hidden=[...new Set(hidden)].filter(i=>i>=0&&i<headers.length);
+   hidden=[...new Set(hidden)].filter(i=>Number.isInteger(i)&&i>=0&&i<headers.length);
    if(headers.length&&hidden.length>=headers.length)hidden=[];
    if(savedHidden===null&&Array.isArray(legacyHidden)){prefSet(viewKey,hidden.slice());try{localStorage.removeItem(legacyKey)}catch(_){}}
    const head=document.createElement('div');head.className='tc-colmenu-head';head.innerHTML='<strong>Visible columns</strong><div class="tc-view-saved">Saved to your account</div><div class="tc-colmenu-actions"><button type="button" class="tc-show-all">Show all</button><button type="button" class="tc-reset-columns">Reset defaults</button></div>';menu.appendChild(head);
    const dateIndexes=[];
    headers.forEach((th,i)=>{
-     th.dataset.sort='1';let dir=1;th.onclick=e=>{if(e.target.closest('input,button,select'))return;sortTable(table,i,dir);dir*=-1};
+     th.dataset.sort='1';th.tabIndex=0;th.setAttribute('aria-sort','none');let dir=1;th.onclick=e=>{if(e.target.closest('input,button,select'))return;sortTable(table,i,dir);headers.forEach(h=>h.setAttribute('aria-sort','none'));th.setAttribute('aria-sort',dir===1?'ascending':'descending');dir*=-1};
+     th.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();th.click()}};
      const label=(th.innerText||('Column '+(i+1))).trim()||('Column '+(i+1));
      const opt=document.createElement('option');opt.value=String(i);opt.textContent=label;filterColumn.appendChild(opt);
      if(isDateHeader(label)){const dopt=document.createElement('option');dopt.value=String(i);dopt.textContent=label;dateColumn.appendChild(dopt);dateIndexes.push(i)}
@@ -444,17 +531,18 @@ JS = r'''
    function syncColumnChecks(){menu.querySelectorAll('label input').forEach((cb,i)=>cb.checked=!hidden.includes(i))}
    function setCol(i,show,save=true){
      const visibleCount=headers.length-hidden.length;
-     if(!show&&visibleCount<=1){syncColumnChecks();return}
-     [...table.rows].forEach(r=>{if(r.cells[i])r.cells[i].style.display=show?'':'none'});
+     if(!show&&!hidden.includes(i)&&visibleCount<=1){syncColumnChecks();return}
+     [...table.rows].forEach(r=>{if(!r.dataset.tcPlaceholder&&r.cells[i])r.cells[i].style.display=show?'':'none'});
      hidden=hidden.filter(x=>x!==i);if(!show)hidden.push(i);hidden.sort((a,b)=>a-b);
+     [...table.tBodies].flatMap(tb=>[...tb.rows]).filter(r=>r.dataset.tcPlaceholder).forEach(r=>r.cells[0].colSpan=Math.max(1,headers.length-hidden.length));
      if(save)prefSet(viewKey,hidden.slice());
    }
    tools.querySelector('.tc-show-all').onclick=()=>{hidden=[];headers.forEach((_,i)=>setCol(i,true,false));syncColumnChecks();prefSet(viewKey,[])};
    tools.querySelector('.tc-reset-columns').onclick=()=>{hidden=defaults.slice();headers.forEach((_,i)=>setCol(i,!hidden.includes(i),false));syncColumnChecks();prefSet(viewKey,hidden.slice())};
-   tools.querySelector('.tc-filter-toggle').onclick=()=>tools.classList.toggle('filter-open');
+   tools.querySelector('.tc-filter-toggle').onclick=e=>{const open=tools.classList.toggle('filter-open');e.currentTarget.setAttribute('aria-expanded',String(open));if(open)filterColumn.focus()};
    tools.querySelector('.tc-copy-table').onclick=e=>{e.preventDefault();copyVisibleTable(table,headers,e.currentTarget)};
    tools.querySelector('.tc-copy-column').onclick=e=>{e.preventDefault();copyVisibleColumn(table,headers,Number(filterColumn.value??-1),e.currentTarget)};
-   tools.querySelector('.tc-colbtn').onclick=e=>{e.stopPropagation();tools.querySelector('.tc-colbox').classList.toggle('open')};
+   tools.querySelector('.tc-colbtn').onclick=e=>{e.stopPropagation();const open=tools.querySelector('.tc-colbox').classList.toggle('open');e.currentTarget.setAttribute('aria-expanded',String(open))};
    ['input','change'].forEach(ev=>{tools.querySelector('.tc-local-search').addEventListener(ev,()=>filterTable(wrap));tools.querySelector('.tc-filter-value').addEventListener(ev,()=>filterTable(wrap));tools.querySelector('.tc-date-from')?.addEventListener(ev,()=>filterTable(wrap));tools.querySelector('.tc-date-to')?.addEventListener(ev,()=>filterTable(wrap))});
    filterColumn.onchange=()=>filterTable(wrap);tools.querySelector('.tc-filter-op').onchange=()=>filterTable(wrap);if(dateColumn)dateColumn.onchange=()=>filterTable(wrap);
    tools.querySelector('.tc-reset').onclick=()=>{tools.querySelector('.tc-local-search').value='';tools.querySelector('.tc-filter-value').value='';tools.querySelector('.tc-filter-op').value='contains';if(tools.querySelector('.tc-date-from'))tools.querySelector('.tc-date-from').value='';if(tools.querySelector('.tc-date-to'))tools.querySelector('.tc-date-to').value='';filterTable(wrap)};
@@ -478,9 +566,10 @@ JS = r'''
    });
  }
 
- function openPalette(){const p=document.getElementById('tcPalette');if(!p)return;p.classList.add('open');const i=document.getElementById('tcPaletteSearch');if(i){i.value='';filterPalette();setTimeout(()=>i.focus(),0)}}
- function closePalette(){document.getElementById('tcPalette')?.classList.remove('open')}
- function filterPalette(){const q=(document.getElementById('tcPaletteSearch')?.value||'').trim().toLowerCase();document.querySelectorAll('.tc-palette-item').forEach(x=>x.style.display=!q||(x.dataset.search||'').includes(q)?'flex':'none')}
+ let paletteReturnFocus=null;
+ function openPalette(){const p=document.getElementById('tcPalette');if(!p)return;paletteReturnFocus=document.activeElement;p.classList.add('open');const i=document.getElementById('tcPaletteSearch');if(i){i.value='';filterPalette();setTimeout(()=>i.focus(),0)}}
+ function closePalette(){const p=document.getElementById('tcPalette');if(p?.classList.contains('open')){p.classList.remove('open');paletteReturnFocus?.focus()}}
+ function filterPalette(){const q=(document.getElementById('tcPaletteSearch')?.value||'').trim().toLowerCase();let matches=0;document.querySelectorAll('.tc-palette-item').forEach(x=>{const show=!q||(x.dataset.search||'').includes(q);x.style.display=show?'flex':'none';x.classList.remove('active');if(show)matches++});const empty=document.getElementById('tcPaletteEmpty');if(empty)empty.hidden=matches>0}
 
  const smartKind=(href)=>{
    if(/\/ai\//.test(href))return 'AI';
@@ -676,13 +765,23 @@ JS = r'''
    if(density==='compact')document.body.classList.add('tc-compact');
    document.querySelector('.tc-intro-dismiss')?.addEventListener('click',()=>{document.body.classList.add('tc-hide-guidance');prefSet('ui:hide-guidance',true)});
    document.getElementById('tcRestoreGuidance')?.addEventListener('click',()=>{document.body.classList.remove('tc-hide-guidance');prefSet('ui:hide-guidance',false)});
-   document.getElementById('tcDensityToggle')?.addEventListener('click',()=>{document.body.classList.toggle('tc-compact');const d=document.body.classList.contains('tc-compact')?'compact':'comfortable';prefSet('ui:density',d)});
+   const densityButtons=[...document.querySelectorAll('[data-density-toggle]')];
+   const syncDensity=()=>densityButtons.forEach(b=>{const compact=document.body.classList.contains('tc-compact');b.textContent=compact?'Compact view':'Comfortable view';b.setAttribute('aria-pressed',String(compact));b.title=compact?'Switch to comfortable spacing':'Switch to compact spacing'});
+   densityButtons.forEach(b=>b.addEventListener('click',()=>{document.body.classList.toggle('tc-compact');prefSet('ui:density',document.body.classList.contains('tc-compact')?'compact':'comfortable');syncDensity()}));syncDensity();
  }
+
+ function setNavigation(open){
+   const mobile=matchMedia('(max-width:820px)').matches;
+   if(mobile)document.body.classList.toggle('tc-nav-open',open);
+   else{document.body.classList.toggle('tc-sidebar-collapsed',!open);prefSet('ui:sidebar-collapsed',!open)}
+   const button=document.getElementById('tcMenuBtn');button?.setAttribute('aria-expanded',String(open));button?.setAttribute('aria-label',open?'Close navigation':'Open navigation');
+ }
+ function closeColumnMenus(){document.querySelectorAll('.tc-colbox.open').forEach(x=>{x.classList.remove('open');x.querySelector('.tc-colbtn')?.setAttribute('aria-expanded','false')})}
 
  function decorateStatuses(){document.querySelectorAll('td').forEach(td=>{if(td.children.length)return;const s=(td.innerText||'').trim().toLowerCase();let tone='';if(['healthy','online','passed','success','succeeded','enabled','ready','commissioned','matches baseline','ok','up'].includes(s))tone='ok';else if(['warning','partial','degraded','pending','queued','running','verifying','drift','drift detected','saturated'].includes(s))tone='warn';else if(['failed','error','critical','offline','down'].includes(s))tone='bad';if(tone){const text=td.innerText;td.innerHTML='<span class="tc-status '+tone+'"><span class="tc-status-dot"></span><span></span></span>';td.firstChild.lastChild.textContent=text}})}
 
  document.addEventListener('click',e=>{
-   if(!e.target.closest('.tc-colbox'))document.querySelectorAll('.tc-colbox.open').forEach(x=>x.classList.remove('open'));
+   if(!e.target.closest('.tc-colbox'))closeColumnMenus();
    if(!e.target.closest('.tc-account'))document.querySelector('.tc-account')?.classList.remove('open');
    if(e.target.id==='tcPalette')closePalette();
  });
@@ -690,7 +789,14 @@ JS = r'''
  document.addEventListener('keydown',e=>{
    const tag=(e.target?.tagName||'').toLowerCase();const typing=['input','textarea','select'].includes(tag)||e.target?.isContentEditable;
    if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='k'){e.preventDefault();openPalette();return}
-   if(e.key==='Escape'){closePalette();document.body.classList.remove('tc-nav-open');tcGotoPrefix=false;return}
+   if(e.key==='Escape'){closePalette();closeColumnMenus();document.querySelector('.tc-account')?.classList.remove('open');if(document.body.classList.contains('tc-nav-open')){setNavigation(false);document.getElementById('tcMenuBtn')?.focus()}tcGotoPrefix=false;return}
+   const palette=document.querySelector('.tc-palette.open');
+   if(palette){
+     const items=[...palette.querySelectorAll('.tc-palette-item')].filter(x=>x.style.display!=='none'),input=document.getElementById('tcPaletteSearch');
+     if(e.key==='ArrowDown'||e.key==='ArrowUp'){e.preventDefault();const current=items.indexOf(document.activeElement),next=(current+(e.key==='ArrowDown'?1:-1)+items.length)%items.length;items[next]?.focus();return}
+     if(e.key==='Enter'&&document.activeElement===input){e.preventDefault();items[0]?.click();return}
+     if(e.key==='Tab'){const focusable=[input,...items],i=focusable.indexOf(document.activeElement);if(e.shiftKey&&i<=0){e.preventDefault();focusable.at(-1)?.focus()}else if(!e.shiftKey&&i===focusable.length-1){e.preventDefault();input.focus()}return}
+   }
    if(!typing&&e.key==='/'){e.preventDefault();document.getElementById('tcGlobalSearch')?.focus();return}
    if(!typing&&e.key.toLowerCase()==='g'){tcGotoPrefix=true;setTimeout(()=>tcGotoPrefix=false,1200);return}
    if(!typing&&tcGotoPrefix){
@@ -705,11 +811,16 @@ JS = r'''
    themeLabel();installCopyButtons();installGuidancePreference();installRouterContext();installRecentRouters();organizeRouterWorkspace();emphasizeNestedSections();installDisclosureState();decorateStatuses();decorateEmptyStates();classifyActions();applyRoleUX();protectDirtyForms();
    const observer=new MutationObserver(ms=>ms.forEach(m=>m.addedNodes.forEach(node=>{if(node.nodeType===1)installCopyButtons(node)})));observer.observe(document.body,{childList:true,subtree:true});
    document.querySelectorAll('table').forEach(enhanceTable);
+   preferenceStatus(tcPrefState);
    const g=document.getElementById('tcGlobalSearch');if(g)g.oninput=globalFilter;
    const clear=document.getElementById('tcPageSearchClear');if(clear)clear.onclick=()=>{if(g){g.value='';globalFilter()}};
    document.getElementById('tcCommandBtn')?.addEventListener('click',openPalette);
    document.getElementById('tcPaletteSearch')?.addEventListener('input',filterPalette);
-   document.getElementById('tcMenuBtn')?.addEventListener('click',()=>document.body.classList.toggle('tc-nav-open'));
+   const mobile=matchMedia('(max-width:820px)');
+   const syncNavigation=()=>{document.body.classList.remove('tc-nav-open');document.body.classList.toggle('tc-sidebar-collapsed',prefGet('ui:sidebar-collapsed',false)===true);const open=!mobile.matches&&!document.body.classList.contains('tc-sidebar-collapsed');const button=document.getElementById('tcMenuBtn');button?.setAttribute('aria-expanded',String(open));button?.setAttribute('aria-label',open?'Close navigation':'Open navigation')};
+   syncNavigation();mobile.addEventListener('change',syncNavigation);
+   document.getElementById('tcMenuBtn')?.addEventListener('click',()=>{const open=mobile.matches?document.body.classList.contains('tc-nav-open'):!document.body.classList.contains('tc-sidebar-collapsed');setNavigation(!open)});
+   document.getElementById('tcNavBackdrop')?.addEventListener('click',()=>{setNavigation(false);document.getElementById('tcMenuBtn')?.focus()});
    document.getElementById('tcAccountBtn')?.addEventListener('click',e=>{e.stopPropagation();document.querySelector('.tc-account')?.classList.toggle('open')});
  });
 })();
@@ -752,17 +863,17 @@ def page(title: str, body: str, user=None, active: str = "") -> HTMLResponse:
         sidebar = "".join(groups)
         palette.append('<a class="tc-palette-item" href="/training/intelligence-guide" data-search="smart intelligence analysis explain compare correlate estimate ai help"><span>Smart Features Map</span><span>Training</span></a>')
         palette_items = "".join(palette)
-        account = f'''<div class="tc-account"><button type="button" id="tcAccountBtn"><span>{html.escape(email)}</span> ▾</button><div class="tc-account-menu"><div style="padding:8px 10px"><strong>{html.escape(email)}</strong><div class="muted">{html.escape(role.title())}</div></div><a href="/account/password"><button type="button">Account & password</button></a><a href="/training"><button type="button">Training & progress</button></a><button type="button" id="tcDensityToggle">Toggle compact density</button><button type="button" id="tcRestoreGuidance">Show page tips</button><form method="post" action="/logout" id="tcLogoutForm"><button disabled>Sign out</button></form></div></div>'''
+        account = f'''<div class="tc-account"><button type="button" id="tcAccountBtn"><span>{html.escape(email)}</span> ▾</button><div class="tc-account-menu"><div style="padding:8px 10px"><strong>{html.escape(email)}</strong><div class="muted">{html.escape(role.title())}</div></div><a href="/account/password"><button type="button">Account & password</button></a><a href="/training"><button type="button">Training & progress</button></a><button type="button" data-density-toggle>Comfortable view</button><div class="tc-pref-status" role="status"></div><button type="button" id="tcRestoreGuidance">Show page tips</button><form method="post" action="/logout" id="tcLogoutForm"><button disabled>Sign out</button></form></div></div>'''
     guide_title, guide_text = PAGE_GUIDANCE.get(active, (category, "Use page search or Ctrl/⌘ K to move quickly through Tikcentral."))
     page_intro = f'<div class="tc-page-intro"><div><strong>{html.escape(guide_title)}</strong><div>{html.escape(guide_text)}</div></div><button type="button" class="tc-intro-dismiss" title="Hide page guidance">×</button></div>'
-    page_tools = '<div class="tc-page-tools"><input id="tcGlobalSearch" data-no-copy placeholder="Search this page…"><button type="button" id="tcPageSearchClear">Clear</button><span class="hint"><kbd>/</kbd> search · <kbd>Ctrl/⌘ K</kbd> go to</span></div>' if user else ''
+    page_tools = '<div class="tc-page-tools"><input id="tcGlobalSearch" type="search" data-no-copy aria-label="Search this page" placeholder="Search this page…"><button type="button" id="tcPageSearchClear">Clear</button><span class="hint"><kbd>/</kbd> search</span><button type="button" id="tcDensityToggle" class="tc-density" data-density-toggle>Comfortable view</button></div>' if user else ''
     category_slug = CATEGORY_SLUG.get(category, "workspace")
-    shell = f'''<div class="tc-shell tc-cat-{category_slug}" data-workflow="{html.escape(category_slug)}">
+    shell = f'''<a class="tc-skip" href="#tcMainContent">Skip to content</a><button type="button" id="tcNavBackdrop" class="tc-nav-backdrop" aria-label="Close navigation"></button><div class="tc-shell tc-cat-{category_slug}" data-workflow="{html.escape(category_slug)}">
 <aside class="tc-sidebar" id="tcSidebar"><div class="tc-brand"><a href="/"><img class="tc-logo tc-logo-light" src="{light}" alt="Opticable"><img class="tc-logo tc-logo-dark" src="{dark}" alt="Opticable"><img class="tc-icon" src="{icon}" alt="Opticable"></a></div>{sidebar}<div class="tc-sidebar-foot">Tikcentral · Opticable<br>Management plane</div></aside>
-<div class="tc-main"><header class="tc-topbar"><button class="tc-menu-btn" id="tcMenuBtn" type="button">☰</button><div class="tc-page-meta"><div class="tc-page-title">{html.escape(title)}</div><div class="tc-breadcrumb"><a href="{CATEGORY_HOME.get(category,'/')}" style="color:var(--section-accent);font-weight:750">{html.escape(category)}</a> · {html.escape(guide_title)}</div></div>
-<div class="tc-top-actions">{f'<button class="tc-command-btn" id="tcCommandBtn" type="button"><span class="tc-command-label">Go to…</span><span class="tc-kbd">Ctrl K</span></button><a href="/training/intelligence-guide"><button type="button" title="Simple explanations for Tikcentral intelligence">Smart help</button></a><button id="tcTheme" type="button" onclick="tcToggleTheme()">Theme</button>{account}' if user else ''}</div></header>
-<main class="tc-content">{page_intro}<div id="tcObjectContext"></div>{page_tools}{localized}</main></div></div>'''
-    palette = f'''<div class="tc-palette" id="tcPalette"><div class="tc-palette-card"><div class="tc-palette-search"><input id="tcPaletteSearch" data-no-copy placeholder="Go to a feature…"></div><div class="tc-palette-list">{palette_items}</div></div></div>''' if user else ""
+<div class="tc-main"><header class="tc-topbar"><button class="tc-menu-btn" id="tcMenuBtn" type="button" aria-label="Toggle navigation" aria-controls="tcSidebar" aria-expanded="true">☰</button><div class="tc-page-meta"><div class="tc-page-title">{html.escape(title)}</div><div class="tc-breadcrumb"><a href="{CATEGORY_HOME.get(category,'/')}" style="color:var(--section-accent);font-weight:750">{html.escape(category)}</a> · {html.escape(guide_title)}</div></div>
+<div class="tc-top-actions">{f'<button class="tc-command-btn" id="tcCommandBtn" type="button" aria-label="Go to a feature"><span class="tc-command-icon" aria-hidden="true">⌕</span><span class="tc-command-label">Go to…</span><span class="tc-kbd">Ctrl K</span></button><a href="/training/intelligence-guide" class="tc-smart-help"><button type="button" title="Simple explanations for Tikcentral intelligence">Smart help</button></a><button id="tcTheme" type="button" onclick="tcToggleTheme()">Theme</button>{account}' if user else ''}</div></header>
+<main class="tc-content" id="tcMainContent" tabindex="-1">{page_intro}<div id="tcObjectContext"></div>{page_tools}{localized}</main></div></div>'''
+    palette = f'''<div class="tc-palette" id="tcPalette"><div class="tc-palette-card" role="dialog" aria-modal="true" aria-label="Go to a feature"><div class="tc-palette-search"><input id="tcPaletteSearch" aria-label="Search features" data-no-copy placeholder="Go to a feature…"></div><div class="tc-palette-list">{palette_items}<div id="tcPaletteEmpty" class="tc-table-empty" hidden>No matching features</div></div></div></div>''' if user else ""
     user_scope = ""
     if user:
         try:
@@ -772,5 +883,5 @@ def page(title: str, body: str, user=None, active: str = "") -> HTMLResponse:
                 user_scope = str(user["email"])
             except Exception:
                 user_scope = "authenticated"
-    html_doc = f'''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{html.escape(title)} - Tikcentral</title><link rel="icon" href="{icon}"><script>(function(){{try{{var r=localStorage.getItem('tikcentral:account-pref:{html.escape(user_scope)}:ui:theme');var t=r?(r.charAt(0)==='"'?JSON.parse(r):r):null;document.documentElement.dataset.theme=(t==='light'||t==='dark')?t:(matchMedia('(prefers-color-scheme: light)').matches?'light':'dark')}}catch(e){{document.documentElement.dataset.theme='dark'}}}})();</script><style>{CSS}</style></head><body data-tc-user="{html.escape(user_scope)}" data-tc-role="{html.escape(role if user else '')}">{shell}{palette}<script>{JS}</script></body></html>'''
+    html_doc = f'''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{html.escape(title)} - Tikcentral</title><link rel="icon" href="{icon}"><script>(function(){{try{{var r=localStorage.getItem('tikcentral:account-pref:{html.escape(user_scope)}:ui:theme');var t=r?(r.charAt(0)==='"'?JSON.parse(r):r):null;document.documentElement.dataset.theme=(t==='light'||t==='dark')?t:(matchMedia('(prefers-color-scheme: light)').matches?'light':'dark')}}catch(e){{document.documentElement.dataset.theme='dark'}}}})();</script><style>{CSS}</style></head><body data-tc-user="{html.escape(user_scope)}" data-tc-role="{html.escape(role if user else '')}">{shell}{palette}<div id="tcToast" class="tc-toast-region" role="status" hidden></div><script>{JS}</script></body></html>'''
     return HTMLResponse(html_doc)
