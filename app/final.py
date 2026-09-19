@@ -30,6 +30,7 @@ from app import fleet_explorer
 from app import fleet_web  # noqa: F401
 from app import guardian
 from app import hardware_inventory
+from app import hardware_lifecycle
 from app import identity_collision
 from app import interface_monitor
 from app import lifecycle
@@ -226,6 +227,7 @@ topology.register(app, ui.page)
 wan_probe.register(app, ui.page)
 desired_state.register(app, ui.page)
 hardware_inventory.register(app, ui.page)
+hardware_lifecycle.register(app, ui.page)
 compliance.register(app, ui.page)
 lte_monitor.register(app, ui.page)
 interface_monitor.register(app, ui.page)
