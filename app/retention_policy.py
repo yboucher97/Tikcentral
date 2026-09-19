@@ -64,7 +64,7 @@ def _stats(conn,s):
         eligible=0
         if days>0:
             cutoff=(now-timedelta(days=days)).isoformat()
-            condition=f"{where} AND {ts}<?" if where else f"{ts}<?"
+            condition=f"{where} AND datetime({ts})<datetime(?)" if where else f"datetime({ts})<datetime(?)"
             eligible=int(conn.execute(f"SELECT COUNT(*) FROM {table} WHERE {condition}",(cutoff,)).fetchone()[0])
         stats.append((key,label,days,total,eligible))
         total_rows+=total; eligible_rows+=eligible
@@ -93,7 +93,7 @@ def cleanup(force=False):
             if days<=0:
                 details[key]={"days":0,"deleted":0}; continue
             cutoff=(now-timedelta(days=days)).isoformat()
-            condition=f"{where} AND {ts}<?" if where else f"{ts}<?"
+            condition=f"{where} AND datetime({ts})<datetime(?)" if where else f"datetime({ts})<datetime(?)"
             cur=conn.execute(f"DELETE FROM {table} WHERE {condition}",(cutoff,))
             deleted=max(0,int(cur.rowcount or 0)); deleted_total+=deleted
             details[key]={"days":days,"deleted":deleted}
