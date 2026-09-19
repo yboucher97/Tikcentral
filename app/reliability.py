@@ -304,7 +304,7 @@ def _availability_svg(rows):
     rects = []
     for i, row in enumerate(rows):
         x = pad + i * step
-        cls = "var(--green)" if row["management_ok"] else "var(--danger)"
+        cls = "var(--ok)" if row["management_ok"] else "var(--danger)"
         rects.append(
             f'<rect x="{x:.2f}" y="35" width="{max(1.0, step + .25):.2f}" height="70" rx="1" fill="{cls}" opacity=".9"><title>{html.escape(row["checked_at"])} · {"Healthy" if row["management_ok"] else "Failed"}</title></rect>'
         )
@@ -321,7 +321,7 @@ def _latency_svg(rows):
     if not rows:
         return '<div class="muted">No latency history in this window.</div>'
     series = [
-        ("WinBox", "winbox_latency_ms", "var(--green)"),
+        ("WinBox", "winbox_latency_ms", "var(--ok)"),
         ("SSH", "ssh_latency_ms", "var(--warn)"),
         ("API", "api_latency_ms", "var(--danger)"),
     ]
@@ -392,7 +392,7 @@ def _wan_svg(rows):
         internet_ok = (row["internet_ping"] or 0) > 0
         dns_ok = row["dns_ok"] == 1
         route_ok = (row["active_default_routes"] or 0) > 0
-        color = "var(--green)" if internet_ok and dns_ok and route_ok else ("var(--warn)" if route_ok else "var(--danger)")
+        color = "var(--ok)" if internet_ok and dns_ok and route_ok else ("var(--warn)" if route_ok else "var(--danger)")
         title = (
             f'{row["captured_at"]} · routes={row["active_default_routes"]} · '
             f'ping={row["internet_ping"]} · dns={row["dns_ok"]}'
