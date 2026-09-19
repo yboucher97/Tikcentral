@@ -248,10 +248,11 @@ def request_public_ip(request: Request) -> str:
     return str(ip) if ip.version == 4 else ""
 
 
-def next_router_ip(conn: sqlite3.Connection) -> str:
+def next_router_ip(conn: sqlite3.Connection, reserved_networks=()) -> str:
     used = {ipaddress.ip_address(r[0]) for r in conn.execute("SELECT vpn_ip FROM routers")}
+    networks = tuple(reserved_networks or ())
     for host in WG_ROUTER_POOL.hosts():
-        if host not in used:
+        if host not in used and not any(host in network for network in networks):
             return str(host)
     raise HTTPException(status_code=409, detail="router address pool exhausted")
 
@@ -277,10 +278,12 @@ def parse_public_ip(endpoint: str) -> str:
     return endpoint.rsplit(":", 1)[0] if ":" in endpoint else endpoint
 
 
-def wireguard_peers() -> dict[str, dict]:
+def wireguard_peers(*, strict: bool = False) -> dict[str, dict]:
     try:
         output = wg_helper("dump")
     except HTTPException:
+        if strict:
+            raise
         return {}
     peers = {}
     for line in output.splitlines()[1:]:
@@ -294,6 +297,7 @@ def wireguard_peers() -> dict[str, dict]:
         peers[fields[0]] = {
             "endpoint": fields[2],
             "public_ip": parse_public_ip(fields[2]),
+            "allowed_ips": fields[3],
             "latest_handshake": latest,
             "online": latest > 0 and (int(time.time()) - latest) <= ONLINE_SECONDS,
         }
@@ -755,17 +759,27 @@ async def toggle_user(user_id: int, request: Request):
 
 
 @app.post("/admin/tokens")
-def create_token(req: TokenCreate, x_api_key: str = Header(default="")):
+async def create_token(request: Request, x_api_key: str = Header(default="")):
     require_api_admin(x_api_key)
+    try:
+        payload = json.loads((await _read_limited_body(request, 4096)).decode("utf-8", "replace"))
+        req = TokenCreate(**payload)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail="invalid token request payload") from exc
+    site_name = req.site_name.strip()
+    if not site_name:
+        raise HTTPException(status_code=400, detail="site name is required")
     raw = secrets.token_urlsafe(24)
     now = utcnow()
     expires = now + timedelta(hours=TOKEN_TTL_HOURS)
     with db() as conn:
         conn.execute(
             "INSERT INTO enrollment_tokens(token_hash,site_name,created_at,expires_at) VALUES(?,?,?,?)",
-            (hash_token(raw), req.site_name, iso(now), iso(expires)),
+            (hash_token(raw), site_name, iso(now), iso(expires)),
         )
-    return {"token": raw, "site_name": req.site_name, "expires_at": iso(expires)}
+    return {"token": raw, "site_name": site_name, "expires_at": iso(expires)}
 
 
 @app.get("/admin/routers")
@@ -788,7 +802,14 @@ def routers(x_api_key: str = Header(default="")):
 
 
 @app.post("/api/enroll")
-def enroll(req: EnrollRequest, request: Request):
+async def enroll(request: Request):
+    try:
+        payload = json.loads((await _read_limited_body(request, 8192)).decode("utf-8", "replace"))
+        req = EnrollRequest(**payload)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail="invalid enrollment payload") from exc
     now = utcnow()
     if not re.fullmatch(r"[A-Za-z0-9+/]{43}=", req.public_key):
         raise HTTPException(status_code=400, detail="invalid WireGuard public key")
@@ -831,7 +852,20 @@ def enroll(req: EnrollRequest, request: Request):
                     "allowed_network": WG_ALLOWED_NETWORK,
                     "remote_winbox": f'{PUBLIC_HOSTNAME}:{existing["public_winbox_port"]}',
                 }
-            vpn_ip = next_router_ip(conn)
+            live_peers = wireguard_peers(strict=True)
+            if req.public_key in live_peers:
+                raise HTTPException(status_code=409, detail="WireGuard peer exists without a matching router record")
+            reserved_networks = []
+            for peer in live_peers.values():
+                for allowed in str(peer.get("allowed_ips") or "").split(","):
+                    allowed = allowed.strip()
+                    if not allowed:
+                        continue
+                    try:
+                        reserved_networks.append(ipaddress.ip_network(allowed, strict=False))
+                    except ValueError:
+                        continue
+            vpn_ip = next_router_ip(conn, reserved_networks)
             public_port = allocate_public_port(conn)
             conn.execute(
                 "INSERT INTO routers(site_name,identity,serial,model,routeros_version,routerboot_version,public_key,vpn_ip,public_winbox_port,created_at,lifecycle_state,lifecycle_updated_at,lifecycle_updated_by) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
