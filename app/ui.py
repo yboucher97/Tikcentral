@@ -56,6 +56,14 @@ NAV_GROUPS = [
 
 NAV = [item for _, items in NAV_GROUPS for item in items]
 NAV_CATEGORY = {key: group for group, items in NAV_GROUPS for key, _, _ in items}
+PRIMARY_NAV = ("dashboard", "routers", "alerts", "customers")
+GROUP_GUIDANCE = {
+    "Fleet": "Search inventory and review hardware",
+    "Operations": "Monitor, troubleshoot and recover routers",
+    "Changes": "Plan work and review change history",
+    "Intelligence": "Search configurations and audit activity",
+    "Administration": "Manage access and platform settings",
+}
 CATEGORY_SLUG = {
     "Overview":"overview",
     "Fleet":"fleet",
@@ -314,6 +322,30 @@ td.tc-copyable-cell{padding-right:32px}.tc-cell-copy{width:23px;height:23px;font
  .tc-table-tools .tc-local-search{flex-basis:100%}
  .tc-date-range label{display:grid;grid-template-columns:32px minmax(0,1fr)}.tc-colmenu{position:fixed;right:12px;top:70px;max-width:calc(100vw - 24px)}
 }
+/* Navigation hierarchy: daily work first, specialist tools on demand. */
+.tc-primary-nav{gap:5px;margin:14px 0 18px}.tc-primary-nav a{padding:10px 12px;font-size:14px;color:var(--text);min-height:40px}.tc-primary-nav a.active{background:var(--accent-soft);box-shadow:inset 3px 0 0 var(--accent);color:var(--text)}
+.tc-nav-section-label{padding:0 10px 6px;font-size:11px;color:var(--muted);font-weight:650}
+.tc-nav-group{margin:3px 0}.tc-nav-label{font-size:12px;letter-spacing:0;text-transform:none;font-weight:600;padding:10px}.tc-nav-group[class*="tc-nav-"][open]{background:transparent;border-color:var(--line)}
+.tc-nav-group[class*="tc-nav-"][open]>.tc-nav-label{color:var(--text);background:var(--surface2)}.tc-nav-group .tc-nav{margin-left:10px}.tc-nav-group .tc-nav a{font-size:12px;font-weight:500}
+.tc-help-nav{margin:20px 0 0;border-top:1px solid var(--line);padding-top:10px}.tc-help-nav a{font-size:12px;font-weight:500}.tc-sidebar-foot{margin-top:10px;font-size:11px}
+.tc-page-title{margin:0;line-height:1.25}.tc-command-btn{min-width:190px}
+.tc-palette-item{align-items:center;padding:11px 12px}.tc-palette-item>span:first-child{min-width:0}.tc-palette-item strong{display:block;font-size:13px;font-weight:600}.tc-palette-item small{display:block;font-size:11px;color:var(--muted);margin-top:3px;line-height:1.5}.tc-palette-item>span:last-child{flex-shrink:0}
+.tc-router-workspace .tc-page-tools{margin:12px 0}.tc-router-workspace .tc-page-tools input{max-width:460px}.tc-router-hero{padding:16px 18px!important}
+.tc-router-back{display:inline-block;color:var(--muted);font-size:12px;margin-bottom:10px}.tc-router-back:hover{color:var(--text)}
+.tc-router-header{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 18px;align-items:center}.tc-router-header h2{margin:0;overflow-wrap:anywhere}.tc-router-header>.muted{grid-column:1;font-size:12px;overflow-wrap:anywhere}.tc-router-header .tc-router-primary{grid-column:2;grid-row:1 / 3;margin-top:0!important}
+.tc-router-toolbox{border-top:1px solid var(--line);margin-top:14px;padding-top:10px}.tc-router-toolbox>summary{color:var(--text);font-size:12px;font-weight:600;list-style:none;display:flex;align-items:center;gap:8px;width:fit-content;padding:5px 0}.tc-router-toolbox>summary:before{content:'+';font-size:16px;color:var(--muted);width:14px}.tc-router-toolbox[open]>summary:before{content:'−'}.tc-router-toolbox summary::-webkit-details-marker{display:none}.tc-tool-count{padding:1px 6px;border-radius:5px;background:var(--surface3);color:var(--muted);font-size:10px;font-variant-numeric:tabular-nums}
+.tc-tool-search{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:12px 0 6px}.tc-tool-search label{font-size:12px;font-weight:600}.tc-tool-search input{flex:1;min-width:150px;max-width:440px}.tc-tool-search span{color:var(--muted);font-size:11px;margin-left:auto}.tc-tool-empty{padding:16px;color:var(--muted)}
+.tc-router-primary a button{height:100%}.tc-router-tool-groups{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;align-items:start}.tc-router-tool-group[data-tool-group="Troubleshoot"]{grid-row:span 2}.tc-router-tool-group{min-width:0;border:1px solid var(--line);padding:12px;border-radius:8px}.tc-router-tool-group h3{margin:0 0 7px;color:var(--text);font-size:12px}.tc-router-tool-group a{display:block;padding:8px 5px;color:var(--text);font-size:12px;border-radius:5px;overflow-wrap:anywhere}.tc-router-tool-group a:hover{background:var(--surface3)}.tc-router-tool-group a small{display:block;font-size:11px;color:var(--muted);margin-top:2px;line-height:1.4}
+.tc-router-guide{margin-top:14px;font-size:12px;color:var(--muted)}.tc-router-guide summary{cursor:pointer}.tc-router-guide .tc-page-intro{margin:8px 0 0}.tc-hide-guidance .tc-router-guide{display:none}
+.tc-workspace-tabs{gap:3px;padding:3px;margin-bottom:8px;background:var(--surface);border-radius:8px}.tc-workspace-tabs button{padding:9px 15px;font-size:13px}.tc-workspace-tabs button.active[data-tab]{box-shadow:inset 0 -2px 0 var(--tab-accent)}
+.tc-tab-description{background:transparent;border:0;padding:2px 0 0;margin:0 0 14px;font-size:12px}.tc-search-section-label{display:none}.tc-search-status{font-size:12px;color:var(--muted);width:100%}body.tc-searching .tc-search-section-label{display:block;font-size:16px;margin:16px 0 10px}body.tc-searching .tc-workspace-section.active{display:block}
+.tc-workspace-section[data-tab=Connectivity].active,.tc-workspace-section[data-tab=Configuration].active{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;align-items:start}.tc-workspace-section[data-tab=Connectivity]>.panel,.tc-workspace-section[data-tab=Configuration]>.panel{margin-bottom:0}.tc-workspace-section>.panel{min-width:0;overflow-wrap:anywhere}.tc-table-heading{padding-bottom:8px}.tc-table-heading h3{margin:0}
+.tc-dashboard-utilities{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.5fr);gap:12px;margin-bottom:14px}.tc-dashboard-utilities>.panel{margin-bottom:0}.tc-dashboard-utilities h2{font-size:15px;margin:0 0 8px}.tc-dashboard-access .inline{gap:14px}
+html[data-theme="light"] .tc-nav-overview{--group-accent:#21865a}html[data-theme="light"] .tc-nav-fleet{--group-accent:#2e72b8}html[data-theme="light"] .tc-nav-operations{--group-accent:#167e75}html[data-theme="light"] .tc-nav-changes{--group-accent:#986813}html[data-theme="light"] .tc-nav-intelligence{--group-accent:#6d53ad}
+html[data-theme="light"] .tc-workspace-tabs button[data-tab="Summary"]{--tab-accent:#21865a}html[data-theme="light"] .tc-workspace-tabs button[data-tab="Connectivity"]{--tab-accent:#2e72b8}html[data-theme="light"] .tc-workspace-tabs button[data-tab="Configuration"]{--tab-accent:#6d53ad}html[data-theme="light"] .tc-workspace-tabs button[data-tab="Assets"]{--tab-accent:#986813}html[data-theme="light"] .tc-workspace-tabs button[data-tab="Activity"]{--tab-accent:#5e6962}
+@media(max-width:1100px){.tc-router-header{grid-template-columns:minmax(0,1fr)}.tc-router-header .tc-router-primary{grid-column:1;grid-row:auto;margin-top:5px!important}.tc-router-tool-groups{grid-template-columns:repeat(2,minmax(0,1fr))}.tc-router-tool-group[data-tool-group="Troubleshoot"]{grid-row:auto}}
+@media(max-width:820px){.tc-command-btn{min-width:32px}.tc-router-tool-groups{grid-template-columns:minmax(0,1fr)}.tc-dashboard-utilities{grid-template-columns:minmax(0,1fr)}.tc-router-primary{display:flex}.tc-router-header .tc-router-primary a{flex:1;min-width:100px}.tc-router-primary a button{font-size:12px;padding:8px}.tc-router-hero{padding:12px!important}.tc-workspace-tabs{flex-wrap:wrap;overflow:visible}.tc-workspace-tabs button{padding:8px 12px;flex:1}.tc-workspace-section[data-tab=Connectivity].active,.tc-workspace-section[data-tab=Configuration].active{grid-template-columns:minmax(0,1fr)}.tc-palette-item>span:last-child{max-width:85px;white-space:normal;text-align:right}}
+@media(max-width:520px){.tc-router-workspace .tc-page-tools input{flex-basis:100%;max-width:none}.tc-router-workspace .tc-page-tools .tc-density{margin-left:auto}}
 @media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important;transition:none!important;animation:none!important}}
 '''
 
@@ -552,8 +584,10 @@ JS = r'''
  function globalFilter(){
    const q=(document.getElementById('tcGlobalSearch')?.value||'').toLowerCase();
    const sections=[...document.querySelectorAll('.tc-workspace-section')];
+   document.body.classList.toggle('tc-searching',!!q);
+   const status=document.getElementById('tcPageSearchStatus');if(status){status.hidden=!q||!sections.length;status.textContent=q?'Searching all router sections · clear to return to your tab':''}
    if(sections.length){if(q)sections.forEach(s=>s.classList.add('active'));else{sections.forEach(s=>s.classList.remove('active'));const active=document.querySelector('.tc-workspace-tabs button.active');const name=active?.textContent;if(name)document.querySelector('.tc-workspace-section[data-tab="'+CSS.escape(name)+'"]')?.classList.add('active')}}
-   document.querySelectorAll('.tc-content .panel,.tc-content .card').forEach(el=>{if(el.querySelector('.tc-table-wrap'))return;el.style.display=!q||(el.innerText||'').toLowerCase().includes(q)?'':'none'});
+   document.querySelectorAll('.tc-content .panel,.tc-content .card').forEach(el=>{if(el.querySelector('.tc-table-wrap')||el.classList.contains('tc-router-hero'))return;el.style.display=!q||(el.textContent||'').toLowerCase().includes(q)?'':'none'});
    document.querySelectorAll('.tc-table-wrap').forEach(w=>{
      const inp=w.querySelector('.tc-local-search');if(!inp)return;
      if(q){
@@ -563,11 +597,13 @@ JS = r'''
        inp.value=inp.dataset.globalSearchPrior||'';delete inp.dataset.globalSearchPrior;delete inp.dataset.globalSearchActive;
      }
      filterTable(w);
+     if(sections.length){const panel=w.closest('.panel');if(panel&&panel.closest('.tc-workspace-section'))panel.style.display=q&&!visibleTableRows(w.querySelector('table')).length?'none':''}
    });
+   if(sections.length){let matches=0;sections.forEach(s=>{const show=!q||[...s.querySelectorAll(':scope > .panel,:scope > .cards')].some(p=>p.style.display!=='none');s.style.display=show?'':'none';if(q&&show)matches++});if(q&&status)status.textContent=matches?'Matches in '+matches+' router section'+(matches===1?'':'s')+' · clear to return to your tab':'No matching content. Clear the search to return to your tab.'}
  }
 
  let paletteReturnFocus=null;
- function openPalette(){const p=document.getElementById('tcPalette');if(!p)return;paletteReturnFocus=document.activeElement;p.classList.add('open');const i=document.getElementById('tcPaletteSearch');if(i){i.value='';filterPalette();setTimeout(()=>i.focus(),0)}}
+ function openPalette(){const p=document.getElementById('tcPalette');if(!p)return;paletteReturnFocus=document.activeElement;p.classList.add('open');const i=document.getElementById('tcPaletteSearch');if(i){i.value='';filterPalette();i.focus()}}
  function closePalette(){const p=document.getElementById('tcPalette');if(p?.classList.contains('open')){p.classList.remove('open');paletteReturnFocus?.focus()}}
  function filterPalette(){const q=(document.getElementById('tcPaletteSearch')?.value||'').trim().toLowerCase();let matches=0;document.querySelectorAll('.tc-palette-item').forEach(x=>{const show=!q||(x.dataset.search||'').includes(q);x.style.display=show?'flex':'none';x.classList.remove('active');if(show)matches++});const empty=document.getElementById('tcPaletteEmpty');if(empty)empty.hidden=matches>0}
 
@@ -580,30 +616,70 @@ JS = r'''
    return '';
  };
  const toolCategory=(href)=>{
-   if(/timeline|incidents|diagnostics|network-quality|wan-probe|interfaces|lte|mtu|time-health|traffic|capacity/.test(href))return 'Troubleshoot';
-   if(/desired-state|compliance|security-audit|protection|audit|automation-inventory|log-patterns|topology/.test(href))return 'Configuration & security';
-   if(/site|notes|customer-report|maintenance-history|hardware|lifecycle|certificates/.test(href))return 'Site & assets';
-   if(/recovery|replacements|rescue|change|commissioning|public-ip|local-utilization/.test(href))return 'Lifecycle & recovery';
-   return 'Other tools';
+   const route=href.split('/')[1]?.split('?')[0]||'';
+   if(['timeline','incidents','diagnostics','network-quality','wan-probe','interfaces','lte','mtu','time-health','traffic','capacity','public-ip-analysis','local-utilization'].includes(route))return 'Troubleshoot';
+   if(['desired-state','compliance','security-audit','protection','audit','automation-inventory','log-patterns','topology'].includes(route))return 'Configuration & security';
+   if(['site','notes','customer-report','hardware','hardware-lifecycle','certificates'].includes(route))return 'Site & assets';
+   if(['recovery','replacements','rescue','changes','change-calendar','commissioning-checklist','maintenance-history','lifecycle'].includes(route))return 'Changes & recovery';
+   return 'Fleet & analysis';
+ };
+ const toolHelp={
+   'timeline':'Events and change history', 'incidents':'Investigate a failure window', 'diagnostics':'Run focused diagnostic checks',
+   'network-quality':'WAN, DNS and gateway health', 'wan-probe':'Compare multiple Internet targets', 'interfaces':'Link status, errors and negotiation',
+   'lte':'Cellular signal and connection history', 'mtu':'Check packet size and path limits', 'time-health':'Clock and NTP checks',
+   'traffic':'Interface bandwidth history', 'capacity':'Resource and bandwidth trends', 'public-ip-analysis':'WAN address changes',
+   'local-utilization':'Estimate local network activity', 'compliance':'Compare against management policy', 'security-audit':'Review exposed services',
+   'desired-state':'Compare intended and observed configuration', 'protection':'Protect configuration objects from changes', 'automation-inventory':'Review RouterOS scripts and schedules',
+   'log-patterns':'Find repeated router messages', 'topology':'Connected switches and access points', 'site':'Customer, contact and circuit details',
+   'notes':'Operator notes and ticket references', 'customer-report':'Prepare a customer summary', 'hardware':'Track installed assets',
+   'hardware-lifecycle':'Hardware age and replacement notes', 'certificates':'Certificate expiry and health', 'recovery':'Retained backups, snapshots and recovery evidence',
+   'replacements':'Plan a router replacement', 'changes':'Review configuration changes and diffs', 'change-calendar':'Plan maintenance windows', 'commissioning-checklist':'Check readiness for production',
+   'maintenance-history':'Record service and maintenance work', 'lifecycle':'Manage the router lifecycle', 'alerts':'Acknowledge and assign fleet alerts',
+   'model-capabilities':'Compare supported hardware features', 'identity-collisions':'Find duplicate router identities', 'cross-site-anomalies':'Failures shared by multiple sites',
+   'ai':'Read-only analysis, started by your request'
  };
  function organizeRouterWorkspace(){
    if(!/^\/operations\/\d+\/?$/.test(location.pathname))return;
    const content=document.querySelector('.tc-content');if(!content)return;
    const panels=[...content.children].filter(x=>x.classList?.contains('panel'));
    if(!panels.length)return;
-   const hero=panels[0],actions=hero.querySelector('.inline');
+   content.classList.add('tc-router-workspace');
+   const hero=content.querySelector('[data-router-hero]')||panels[0],actions=hero.querySelector('.inline');hero.classList.add('tc-router-hero');
+   const back=document.createElement('a');back.href='/routers';back.className='tc-router-back';back.textContent='← All routers';hero.prepend(back);
+   const intro=content.querySelector(':scope > .tc-page-intro');
+   if(intro){const help=document.createElement('details');help.className='tc-router-guide';help.innerHTML='<summary>About this workspace</summary>';help.appendChild(intro);hero.appendChild(help)}
+   const pageTools=content.querySelector(':scope > .tc-page-tools');
+   if(pageTools){hero.insertAdjacentElement('afterend',pageTools);const search=pageTools.querySelector('#tcGlobalSearch');if(search){search.placeholder='Search all router sections…';search.setAttribute('aria-label','Search all router sections')}}
    if(actions){
      const links=[...actions.querySelectorAll(':scope > a')];
-     const primaryPatterns=[/\/timeline\/\d+\/?$/,/\/incidents\//,/\/network-quality\//,/\/site\//,/\/notes\//];
-     const primary=[];const rest=[];
-     links.forEach(a=>(primaryPatterns.some(rx=>rx.test(a.getAttribute('href')||''))&&primary.length<5?primary:rest).push(a));
-     actions.className='tc-router-primary';actions.innerHTML='';primary.forEach(a=>actions.appendChild(a));
-     const routerId=location.pathname.split('/').filter(Boolean).pop();const ai=document.createElement('a');ai.href='/ai/'+routerId;ai.innerHTML='<button class="primary">AI analysis</button>';actions.appendChild(ai);
-     if(rest.length){
-       const details=document.createElement('details');details.className='tc-router-toolbox';details.innerHTML='<summary>All router tools ('+rest.length+')</summary><div class="tc-router-tool-groups"></div>';
-       const groups={};rest.forEach(a=>{const g=toolCategory(a.getAttribute('href')||'');(groups[g]||(groups[g]=[])).push(a)});
-       const box=details.querySelector('.tc-router-tool-groups');Object.entries(groups).forEach(([name,items])=>{const d=document.createElement('div');d.className='tc-router-tool-group';d.innerHTML='<strong>'+name+'</strong>';items.forEach(a=>{const copy=a.cloneNode(true);const href=copy.getAttribute('href')||'';const btn=copy.querySelector('button');if(btn){const label=btn.textContent;copy.textContent=label}const kind=smartKind(href);if(kind){const badge=document.createElement('span');badge.className='tc-smart-kind tc-smart-'+kind.toLowerCase();badge.textContent=kind;copy.appendChild(badge)}d.appendChild(copy)});box.appendChild(d)});hero.appendChild(details);
-     }
+     const primaryPatterns=[/^\/timeline\/\d+\/?$/,/^\/network-quality\//,/^\/notes\//];
+     const primary=[],rest=[];
+     links.forEach(a=>(primaryPatterns.some(rx=>rx.test(a.getAttribute('href')||''))?primary:rest).push(a));
+     actions.className='tc-router-primary';rest.forEach(a=>a.remove());
+     const routerId=location.pathname.split('/').filter(Boolean).pop();
+     const changes=document.createElement('a');changes.href='/changes/'+routerId;changes.textContent='Configuration changes';rest.push(changes);
+     const ai=document.createElement('a');ai.href='/ai/'+routerId;ai.textContent='AI analysis';rest.push(ai);
+     // Move the original links; retain every destination and all POST controls.
+     const details=document.createElement('details');details.className='tc-router-toolbox';
+     details.innerHTML='<summary>All router tools <span class="tc-tool-count">'+(primary.length+rest.length)+'</span></summary><div class="tc-tool-search"><label for="tcRouterToolSearch">Find a tool</label><input id="tcRouterToolSearch" type="search" data-no-copy placeholder="Try DNS, backup, LTE or notes…"><span id="tcRouterToolCount" role="status"></span></div><div class="tc-router-tool-groups"></div><p class="tc-tool-empty" hidden>No tools match. Try another name or clear the search.</p>';
+     const groups={};[...primary.map(a=>a.cloneNode(true)),...rest].forEach(a=>{const g=toolCategory(a.getAttribute('href')||'');(groups[g]||(groups[g]=[])).push(a)});
+     const box=details.querySelector('.tc-router-tool-groups');
+     Object.entries(groups).forEach(([name,items])=>{
+       const d=document.createElement('section');d.className='tc-router-tool-group';d.dataset.toolGroup=name;const title=document.createElement('h3');title.textContent=name;d.appendChild(title);
+       items.forEach(a=>{
+         const href=a.getAttribute('href')||'',route=href.split('/')[1]?.split('?')[0],btn=a.querySelector('button'),label=(btn?.textContent||a.textContent).trim();
+         if(!btn||!btn.hasAttribute('onclick'))a.textContent=label;
+         const hint=document.createElement('small');hint.textContent=href.includes('/before')?'Compare evidence before a failure':toolHelp[route]||'Open '+label.toLowerCase();a.appendChild(hint);
+         a.dataset.toolSearch=(label+' '+hint.textContent+' '+name+' '+href).toLowerCase();d.appendChild(a);
+       });box.appendChild(d);
+     });
+     const search=details.querySelector('input'),count=details.querySelector('#tcRouterToolCount');
+     const searchTools=()=>{const q=search.value.trim().toLowerCase();let shown=0;box.querySelectorAll('a').forEach(a=>{a.hidden=!!q&&!a.dataset.toolSearch.includes(q);if(!a.hidden)shown++});box.querySelectorAll('section').forEach(g=>g.hidden=![...g.querySelectorAll('a')].some(a=>!a.hidden));count.textContent=shown+' tools';details.querySelector('.tc-tool-empty').hidden=shown>0};
+     search.addEventListener('input',searchTools);searchTools();
+     hero.appendChild(details);
+     const help=hero.querySelector('.tc-router-guide');if(help)details.appendChild(help);
+     const title=hero.querySelector(':scope > h2'),meta=title?.nextElementSibling;
+     if(title&&meta){const header=document.createElement('div');header.className='tc-router-header';title.before(header);header.append(title,meta,actions)}
    }
    const categoryMap={
      'Summary':['Lifecycle','Site / customer','Outage domain','Access / commissioning','Telemetry'],
@@ -627,8 +703,8 @@ JS = r'''
      // elements must stay fixed above the workspace.
      if(!el.classList?.contains('panel') && !el.classList?.contains('cards'))return;
      const h=el.querySelector?.(':scope > h3');const title=h?.textContent?.trim()||'';
-     let dest='';for(const [name,titles] of Object.entries(categoryMap)){if(titles.includes(title)){dest=name;break}}
-     if(dest)sections[dest].appendChild(el);else leftovers.push(el);
+     let dest=el.dataset.workspaceSection||'';if(!dest)for(const [name,titles] of Object.entries(categoryMap)){if(titles.includes(title)){dest=name;break}}
+     if(dest&&sections[dest])sections[dest].appendChild(el);else leftovers.push(el);
    });
    const activity=document.createElement('div');activity.className='tc-workspace-section';activity.dataset.tab='Activity';leftovers.forEach(el=>activity.appendChild(el));sections.Activity=activity;
    const tabHelp={
@@ -639,12 +715,25 @@ JS = r'''
      'Activity':'Backups, jobs, operator notes, events and historical operational activity.'
    };
    const tabColors={'Summary':'#45bd7a','Connectivity':'#4d98e8','Configuration':'#9b7de0','Assets':'#d7a84d','Activity':'#7f8b84'};
-   const tabs=document.createElement('div');tabs.className='tc-workspace-tabs';
+   const tabs=document.createElement('div');tabs.className='tc-workspace-tabs';tabs.setAttribute('role','tablist');tabs.setAttribute('aria-label','Router sections');
    const desc=document.createElement('div');desc.className='tc-tab-description';
-   Object.keys(sections).forEach((name,i)=>{const b=document.createElement('button');b.type='button';b.textContent=name;b.dataset.tab=name;b.className=i===0?'active':'';b.onclick=()=>{tabs.querySelectorAll('button').forEach(x=>x.classList.remove('active'));b.classList.add('active');Object.values(sections).forEach(s=>s.classList.remove('active'));sections[name].classList.add('active');desc.textContent=tabHelp[name]||'';desc.style.setProperty('--tab-description-accent',tabColors[name]||'var(--section-accent)');prefSet('ui:router-tab',name)};tabs.appendChild(b)});
-   hero.insertAdjacentElement('afterend',tabs);tabs.insertAdjacentElement('afterend',desc);Object.values(sections).forEach(s=>content.appendChild(s));
+   const activate=(name,save=true)=>{
+     tabs.querySelectorAll('button').forEach(b=>{const selected=b.dataset.tab===name;b.classList.toggle('active',selected);b.setAttribute('aria-selected',String(selected));b.tabIndex=selected?0:-1});
+     Object.entries(sections).forEach(([key,s])=>s.classList.toggle('active',key===name));
+     desc.textContent=tabHelp[name]||'';desc.style.setProperty('--tab-description-accent',tabColors[name]||'var(--section-accent)');
+     if(save)prefSet('ui:router-tab',name);
+   };
+   Object.keys(sections).forEach(name=>{
+     const b=document.createElement('button');b.type='button';b.textContent=name;b.dataset.tab=name;b.id='tcTab'+name;b.setAttribute('role','tab');b.setAttribute('aria-controls','tcSection'+name);
+     sections[name].id='tcSection'+name;sections[name].setAttribute('role','tabpanel');sections[name].setAttribute('aria-labelledby',b.id);
+     const label=document.createElement('h2');label.className='tc-search-section-label';label.textContent=name;sections[name].prepend(label);
+     b.onclick=()=>{activate(name);const search=document.getElementById('tcGlobalSearch');if(search?.value){search.value='';globalFilter()}};tabs.appendChild(b);
+   });
+   tabs.addEventListener('keydown',e=>{const buttons=[...tabs.children],i=buttons.indexOf(document.activeElement);if(i<0)return;const next=e.key==='Home'?0:e.key==='End'?buttons.length-1:e.key==='ArrowRight'?(i+1)%buttons.length:e.key==='ArrowLeft'?(i+buttons.length-1)%buttons.length:-1;if(next>=0){e.preventDefault();buttons[next].click();buttons[next].focus()}});
+   (pageTools||hero).insertAdjacentElement('afterend',tabs);tabs.insertAdjacentElement('afterend',desc);Object.values(sections).forEach(s=>content.appendChild(s));
    let routerTabFallback=null;try{routerTabFallback=JSON.parse(localStorage.getItem(localPrefKey('ui:router-tab'))||'null')}catch(_){}
-   const saved=prefGet('ui:router-tab',routerTabFallback);const target=sections[saved]?saved:Object.keys(sections)[0];[...tabs.children].find(b=>b.textContent===target)?.click();
+   const saved=prefGet('ui:router-tab',routerTabFallback);activate(sections[saved]?saved:Object.keys(sections)[0],false);
+
  }
 
  function routerIdFromPath(){
@@ -673,8 +762,10 @@ JS = r'''
      ['AI','/ai/'+id],
    ];
    const htmlLinks=links.map(([name,href])=>'<a href="'+href+'" class="'+(location.pathname===href?'active':'')+'">'+name+'</a>').join('');
+   if(!/^\/operations\/\d+\/?$/.test(location.pathname)){
    mount.innerHTML='<div class="tc-contextbar"><div class="tc-context-main"><span class="tc-status-dot" style="color:var(--accent)"></span><div><div class="tc-context-title"></div><div class="muted">Router workspace</div></div></div><div class="tc-context-links">'+htmlLinks+'</div></div>';
    mount.querySelector('.tc-context-title').textContent=label;
+   }
    try{
      const key=localPrefKey('ui:recent-routers');let recent=JSON.parse(localStorage.getItem(key)||'[]');
      recent=recent.filter(x=>String(x.id)!==String(id));recent.unshift({id,label,at:Date.now()});recent=recent.slice(0,8);localStorage.setItem(key,JSON.stringify(recent));prefSet('ui:recent-routers',recent);
@@ -764,7 +855,7 @@ JS = r'''
    if(hidden)document.body.classList.add('tc-hide-guidance');
    if(density==='compact')document.body.classList.add('tc-compact');
    document.querySelector('.tc-intro-dismiss')?.addEventListener('click',()=>{document.body.classList.add('tc-hide-guidance');prefSet('ui:hide-guidance',true)});
-   document.getElementById('tcRestoreGuidance')?.addEventListener('click',()=>{document.body.classList.remove('tc-hide-guidance');prefSet('ui:hide-guidance',false)});
+   document.getElementById('tcRestoreGuidance')?.addEventListener('click',()=>{document.body.classList.remove('tc-hide-guidance');prefSet('ui:hide-guidance',false);const guide=document.querySelector('.tc-router-guide');if(guide){guide.open=true;guide.closest('.tc-router-toolbox').open=true}});
    const densityButtons=[...document.querySelectorAll('[data-density-toggle]')];
    const syncDensity=()=>densityButtons.forEach(b=>{const compact=document.body.classList.contains('tc-compact');b.textContent=compact?'Compact view':'Comfortable view';b.setAttribute('aria-pressed',String(compact));b.title=compact?'Switch to comfortable spacing':'Switch to compact spacing'});
    densityButtons.forEach(b=>b.addEventListener('click',()=>{document.body.classList.toggle('tc-compact');prefSet('ui:density',document.body.classList.contains('tc-compact')?'compact':'comfortable');syncDensity()}));syncDensity();
@@ -775,6 +866,20 @@ JS = r'''
    if(mobile)document.body.classList.toggle('tc-nav-open',open);
    else{document.body.classList.toggle('tc-sidebar-collapsed',!open);prefSet('ui:sidebar-collapsed',!open)}
    const button=document.getElementById('tcMenuBtn');button?.setAttribute('aria-expanded',String(open));button?.setAttribute('aria-label',open?'Close navigation':'Open navigation');
+ }
+ function installNavigationGroups(){
+   document.querySelectorAll('[data-nav-group]').forEach(group=>{
+     const key='ui:nav-group:'+group.dataset.navGroup,stored=prefGet(key,null);
+     if(group.querySelector('[aria-current="page"]'))group.open=true;
+     else if(typeof stored==='boolean')group.open=stored;
+     group.querySelector('summary').addEventListener('click',()=>setTimeout(()=>prefSet(key,group.open),0));
+   });
+ }
+ function organizeDashboard(){
+   if(location.pathname!=='/')return;
+   const queue=document.querySelector('.tc-dashboard-queue'),access=document.querySelector('.tc-dashboard-access');
+   if(!queue||!access)return;
+   const utilities=document.createElement('div');utilities.className='tc-dashboard-utilities';queue.before(utilities);utilities.append(queue,access);
  }
  function closeColumnMenus(){document.querySelectorAll('.tc-colbox.open').forEach(x=>{x.classList.remove('open');x.querySelector('.tc-colbtn')?.setAttribute('aria-expanded','false')})}
 
@@ -793,7 +898,7 @@ JS = r'''
    const palette=document.querySelector('.tc-palette.open');
    if(palette){
      const items=[...palette.querySelectorAll('.tc-palette-item')].filter(x=>x.style.display!=='none'),input=document.getElementById('tcPaletteSearch');
-     if(e.key==='ArrowDown'||e.key==='ArrowUp'){e.preventDefault();const current=items.indexOf(document.activeElement),next=(current+(e.key==='ArrowDown'?1:-1)+items.length)%items.length;items[next]?.focus();return}
+     if(e.key==='ArrowDown'||e.key==='ArrowUp'){e.preventDefault();const current=items.indexOf(document.activeElement),next=current<0?(e.key==='ArrowDown'?0:items.length-1):(current+(e.key==='ArrowDown'?1:-1)+items.length)%items.length;items[next]?.focus();return}
      if(e.key==='Enter'&&document.activeElement===input){e.preventDefault();items[0]?.click();return}
      if(e.key==='Tab'){const focusable=[input,...items],i=focusable.indexOf(document.activeElement);if(e.shiftKey&&i<=0){e.preventDefault();focusable.at(-1)?.focus()}else if(!e.shiftKey&&i===focusable.length-1){e.preventDefault();input.focus()}return}
    }
@@ -808,7 +913,7 @@ JS = r'''
    await loadUserPreferences();
    const preferredTheme=prefGet('ui:theme',null);if(preferredTheme==='light'||preferredTheme==='dark')root.dataset.theme=preferredTheme;
    const logoutForm=document.getElementById('tcLogoutForm');if(logoutForm&&tcPrefsCsrf){const input=document.createElement('input');input.type='hidden';input.name='csrf';input.value=tcPrefsCsrf;logoutForm.appendChild(input);logoutForm.querySelector('button').disabled=false}
-   themeLabel();installCopyButtons();installGuidancePreference();installRouterContext();installRecentRouters();organizeRouterWorkspace();emphasizeNestedSections();installDisclosureState();decorateStatuses();decorateEmptyStates();classifyActions();applyRoleUX();protectDirtyForms();
+   themeLabel();installCopyButtons();installGuidancePreference();installNavigationGroups();installRouterContext();installRecentRouters();organizeRouterWorkspace();organizeDashboard();emphasizeNestedSections();installDisclosureState();decorateStatuses();decorateEmptyStates();classifyActions();applyRoleUX();protectDirtyForms();
    const observer=new MutationObserver(ms=>ms.forEach(m=>m.addedNodes.forEach(node=>{if(node.nodeType===1)installCopyButtons(node)})));observer.observe(document.body,{childList:true,subtree:true});
    document.querySelectorAll('table').forEach(enhanceTable);
    preferenceStatus(tcPrefState);
@@ -847,6 +952,8 @@ def page(title: str, body: str, user=None, active: str = "") -> HTMLResponse:
         except Exception:
             email, role = "admin", "admin"
         groups = []
+        primary_links = {}
+        help_links = []
         palette = []
         for group, items in NAV_GROUPS:
             links = []
@@ -854,26 +961,34 @@ def page(title: str, body: str, user=None, active: str = "") -> HTMLResponse:
                 if role != "admin" and key in {"users", "settings", "ssh", "enroll"}:
                     continue
                 cls = "active" if key == active else ""
-                links.append(f'<a class="{cls}" href="{href}">{html.escape(label)}</a>')
-                palette.append(f'<a class="tc-palette-item" href="{href}" data-search="{html.escape((group+" "+label).lower())}"><span>{html.escape(label)}</span><span>{html.escape(group)}</span></a>')
+                current = ' aria-current="page"' if key == active else ""
+                description = PAGE_GUIDANCE.get(key, (label, GROUP_GUIDANCE.get(group, "")))[1]
+                link = f'<a class="{cls}" href="{href}" title="{html.escape(description)}"{current}>{html.escape(label)}</a>'
+                if key in PRIMARY_NAV:
+                    primary_links[key] = link
+                elif key == "training":
+                    help_links.append(link)
+                else:
+                    links.append(link)
+                palette.append(f'<a class="tc-palette-item" href="{href}" data-search="{html.escape((group+" "+label+" "+description).lower())}"><span><strong>{html.escape(label)}</strong><small>{html.escape(description)}</small></span><span>{html.escape(group)}</span></a>')
             if links:
-                opened = " open" if group in {"Overview", category} else ""
+                opened = " open" if any(key == active and key not in PRIMARY_NAV for key, _, _ in items) else ""
                 group_slug = CATEGORY_SLUG.get(group, "workspace")
-                groups.append(f'<details class="tc-nav-group tc-nav-{group_slug}"{opened}><summary class="tc-nav-label">{html.escape(group)}</summary><nav class="tc-nav">{"".join(links)}</nav></details>')
-        sidebar = "".join(groups)
+                groups.append(f'<details class="tc-nav-group tc-nav-{group_slug}" data-nav-group="{group_slug}"{opened}><summary class="tc-nav-label" title="{html.escape(GROUP_GUIDANCE.get(group,""))}">{html.escape(group)}</summary><nav class="tc-nav" aria-label="{html.escape(group)}">{"".join(links)}</nav></details>')
+        sidebar = '<nav class="tc-nav tc-primary-nav" aria-label="Main navigation">' + "".join(primary_links[key] for key in PRIMARY_NAV if key in primary_links) + '</nav><div class="tc-nav-section-label">Tools & administration</div>' + "".join(groups) + '<nav class="tc-nav tc-help-nav" aria-label="Help">' + "".join(help_links) + '<a href="/training/intelligence-guide">Smart help</a></nav>'
         palette.append('<a class="tc-palette-item" href="/training/intelligence-guide" data-search="smart intelligence analysis explain compare correlate estimate ai help"><span>Smart Features Map</span><span>Training</span></a>')
         palette_items = "".join(palette)
         account = f'''<div class="tc-account"><button type="button" id="tcAccountBtn"><span>{html.escape(email)}</span> ▾</button><div class="tc-account-menu"><div style="padding:8px 10px"><strong>{html.escape(email)}</strong><div class="muted">{html.escape(role.title())}</div></div><a href="/account/password"><button type="button">Account & password</button></a><a href="/training"><button type="button">Training & progress</button></a><button type="button" data-density-toggle>Comfortable view</button><div class="tc-pref-status" role="status"></div><button type="button" id="tcRestoreGuidance">Show page tips</button><form method="post" action="/logout" id="tcLogoutForm"><button disabled>Sign out</button></form></div></div>'''
     guide_title, guide_text = PAGE_GUIDANCE.get(active, (category, "Use page search or Ctrl/⌘ K to move quickly through Tikcentral."))
     page_intro = f'<div class="tc-page-intro"><div><strong>{html.escape(guide_title)}</strong><div>{html.escape(guide_text)}</div></div><button type="button" class="tc-intro-dismiss" title="Hide page guidance">×</button></div>'
-    page_tools = '<div class="tc-page-tools"><input id="tcGlobalSearch" type="search" data-no-copy aria-label="Search this page" placeholder="Search this page…"><button type="button" id="tcPageSearchClear">Clear</button><span class="hint"><kbd>/</kbd> search</span><button type="button" id="tcDensityToggle" class="tc-density" data-density-toggle>Comfortable view</button></div>' if user else ''
+    page_tools = '<div class="tc-page-tools"><input id="tcGlobalSearch" type="search" data-no-copy aria-label="Search this page" placeholder="Search this page…"><button type="button" id="tcPageSearchClear">Clear</button><span class="hint"><kbd>/</kbd> search</span><span id="tcPageSearchStatus" class="tc-search-status" role="status" hidden></span><button type="button" id="tcDensityToggle" class="tc-density" data-density-toggle>Comfortable view</button></div>' if user else ''
     category_slug = CATEGORY_SLUG.get(category, "workspace")
     shell = f'''<a class="tc-skip" href="#tcMainContent">Skip to content</a><button type="button" id="tcNavBackdrop" class="tc-nav-backdrop" aria-label="Close navigation"></button><div class="tc-shell tc-cat-{category_slug}" data-workflow="{html.escape(category_slug)}">
 <aside class="tc-sidebar" id="tcSidebar"><div class="tc-brand"><a href="/"><img class="tc-logo tc-logo-light" src="{light}" alt="Opticable"><img class="tc-logo tc-logo-dark" src="{dark}" alt="Opticable"><img class="tc-icon" src="{icon}" alt="Opticable"></a></div>{sidebar}<div class="tc-sidebar-foot">Tikcentral · Opticable<br>Management plane</div></aside>
-<div class="tc-main"><header class="tc-topbar"><button class="tc-menu-btn" id="tcMenuBtn" type="button" aria-label="Toggle navigation" aria-controls="tcSidebar" aria-expanded="true">☰</button><div class="tc-page-meta"><div class="tc-page-title">{html.escape(title)}</div><div class="tc-breadcrumb"><a href="{CATEGORY_HOME.get(category,'/')}" style="color:var(--section-accent);font-weight:750">{html.escape(category)}</a> · {html.escape(guide_title)}</div></div>
-<div class="tc-top-actions">{f'<button class="tc-command-btn" id="tcCommandBtn" type="button" aria-label="Go to a feature"><span class="tc-command-icon" aria-hidden="true">⌕</span><span class="tc-command-label">Go to…</span><span class="tc-kbd">Ctrl K</span></button><a href="/training/intelligence-guide" class="tc-smart-help"><button type="button" title="Simple explanations for Tikcentral intelligence">Smart help</button></a><button id="tcTheme" type="button" onclick="tcToggleTheme()">Theme</button>{account}' if user else ''}</div></header>
+<div class="tc-main"><header class="tc-topbar"><button class="tc-menu-btn" id="tcMenuBtn" type="button" aria-label="Toggle navigation" aria-controls="tcSidebar" aria-expanded="true">☰</button><div class="tc-page-meta"><h1 class="tc-page-title">{html.escape(title)}</h1><div class="tc-breadcrumb"><a href="{CATEGORY_HOME.get(category,'/')}" style="color:var(--section-accent);font-weight:750">{html.escape(category)}</a> · {html.escape(guide_title)}</div></div>
+<div class="tc-top-actions">{f'<button class="tc-command-btn" id="tcCommandBtn" type="button" aria-label="Go to a feature"><span class="tc-command-icon" aria-hidden="true">⌕</span><span class="tc-command-label">Find a page…</span><span class="tc-kbd">Ctrl K</span></button><button id="tcTheme" type="button" onclick="tcToggleTheme()">Theme</button>{account}' if user else ''}</div></header>
 <main class="tc-content" id="tcMainContent" tabindex="-1">{page_intro}<div id="tcObjectContext"></div>{page_tools}{localized}</main></div></div>'''
-    palette = f'''<div class="tc-palette" id="tcPalette"><div class="tc-palette-card" role="dialog" aria-modal="true" aria-label="Go to a feature"><div class="tc-palette-search"><input id="tcPaletteSearch" aria-label="Search features" data-no-copy placeholder="Go to a feature…"></div><div class="tc-palette-list">{palette_items}<div id="tcPaletteEmpty" class="tc-table-empty" hidden>No matching features</div></div></div></div>''' if user else ""
+    palette = f'''<div class="tc-palette" id="tcPalette"><div class="tc-palette-card" role="dialog" aria-modal="true" aria-label="Go to a feature"><div class="tc-palette-search"><input id="tcPaletteSearch" aria-label="Search features" data-no-copy placeholder="Search pages, tools or tasks…"></div><div class="tc-palette-list">{palette_items}<div id="tcPaletteEmpty" class="tc-table-empty" hidden>No matching features</div></div></div></div>''' if user else ""
     user_scope = ""
     if user:
         try:

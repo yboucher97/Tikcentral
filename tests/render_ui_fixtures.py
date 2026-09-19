@@ -2,6 +2,7 @@
 import os
 import sys
 import tempfile
+import json
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -36,4 +37,17 @@ for path,name in [('/routers','routers'),('/','dashboard'),('/operations/1','rou
     else:
         response=ui.page('Table checks','<div class="panel"><table><thead><tr><th>Time</th><th>Level</th><th>Message</th></tr></thead><tbody><tr><td>2026-09-19T12:15:30+00:00</td><td>warning</td><td>WAN recovered<div class="muted">Backup link restored</div></td></tr><tr><td>2026-09-19T12:16:30+00:00</td><td>ok</td><td>Normal</td></tr></tbody></table></div><div class="panel"><table><thead><tr><th>Time</th><th>Event</th></tr></thead><tbody><tr><td colspan="2">No events.</td></tr></tbody></table></div><div class="panel"><table style="min-width:0"><tbody><tr><td>Hostname</td><td><code>router.example.invalid</code></td></tr></tbody></table></div>',user,'alerts')
     (out / (name+'.html')).write_bytes(response.body)
+
+# Capture a data-rich router as well as the empty/first-enrollment state above.
+with core.db() as conn:
+    conn.execute("INSERT INTO router_events(router_id,event_at,category,severity,summary,details) VALUES(1,'2026-09-19T12:16:30+00:00','network','warning','WAN link recovered','Gateway reachable again')")
+route = next(r for r in app.routes if getattr(r, 'path', '') == '/operations/{router_id}' and 'GET' in r.methods)
+req = Request({'type':'http','method':'GET','path':'/operations/1','query_string':b'','headers':[]})
+for role in ('admin', 'technician', 'viewer'):
+    user['role'] = role
+    (out / ('router-'+role+'.html')).write_bytes(route.endpoint(1, req).body)
+(out / 'navigation.json').write_text(json.dumps({
+    role: [href for key, href, _ in ui.NAV if role == 'admin' or key not in {'users', 'settings', 'ssh', 'enroll'}]
+    for role in ('admin', 'technician', 'viewer')
+}))
 print('Rendered offline UI fixtures', flush=True)
