@@ -7,6 +7,7 @@ external monitoring or a second server.
 import hashlib
 import html
 import json
+import os
 import shutil
 import socket
 import sqlite3
@@ -119,12 +120,19 @@ def collect_health():
         checks[f"unit:{unit}"] = _status(ok, state)
 
     key = Path(settings.SSH_KEY)
-    checks["ssh_key"] = _status(key.is_file() and key.stat().st_size > 0, f"{key} · {'readable' if key.is_file() else 'missing'}")
+    try:
+        key_ok = key.is_file() and key.stat().st_size > 0 and os.access(key, os.R_OK)
+        checks["ssh_key"] = _status(key_ok, f"{key} · {'readable' if key_ok else 'missing or unreadable'}")
+    except Exception as exc:
+        checks["ssh_key"] = _status(False, f"{key}: {exc}")
 
     known = Path(settings.KNOWN_HOSTS)
     try:
-        ok = known.is_file() and known.parent.is_dir()
-        checks["known_hosts"] = _status(ok, f"{known}")
+        known_ok = known.is_file() and os.access(known, os.R_OK | os.W_OK)
+        checks["known_hosts"] = _status(
+            known_ok,
+            f"{known} · {'read/write' if known_ok else 'missing or inaccessible'}",
+        )
     except Exception as exc:
         checks["known_hosts"] = _status(False, str(exc))
 
@@ -145,7 +153,11 @@ def collect_health():
         )
 
     helper = Path(settings.AI_CODEX_HELPER)
-    checks["codex_helper"] = _status(helper.is_file(), f"{helper}")
+    helper_ok = helper.is_file() and os.access(helper, os.X_OK)
+    checks["codex_helper"] = _status(
+        helper_ok,
+        f"{helper} · {'executable' if helper_ok else 'missing or not executable'}",
+    )
 
     with core.db() as conn:
         verified = conn.execute(
