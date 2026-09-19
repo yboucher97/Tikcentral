@@ -237,6 +237,14 @@ tbody tr:hover{background:var(--surface2)}
 .tc-router-primary{display:flex;gap:7px;flex-wrap:wrap;margin-top:12px}.tc-router-toolbox{margin-top:10px}.tc-router-toolbox summary{cursor:pointer;color:var(--accent);font-weight:700}.tc-router-tool-groups{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px;margin-top:10px}.tc-router-tool-group{border:1px solid var(--line);border-left:3px solid color-mix(in srgb,var(--section-accent) 55%,var(--line));background:var(--surface2);border-radius:6px 9px 9px 6px;padding:9px}.tc-router-tool-group strong{display:block;margin-bottom:5px}.tc-router-tool-group a{display:block;padding:5px 3px;color:var(--muted)}.tc-router-tool-group a:hover{color:var(--text)}
 .tc-workspace-tabs{display:flex;gap:5px;overflow:auto;margin:2px 0 12px;padding:5px;border:1px solid var(--line);border-radius:11px;background:var(--surface2)}.tc-workspace-tabs button{white-space:nowrap;border-color:transparent;background:transparent;border-radius:7px}.tc-workspace-tabs button:hover{background:var(--surface3)}.tc-workspace-tabs button.active{background:var(--section-soft);border-color:color-mix(in srgb,var(--section-accent) 36%,var(--line));color:var(--section-accent);box-shadow:inset 0 -3px 0 var(--section-accent);font-weight:760}
 .tc-workspace-section.active{animation:tcSectionIn .12s ease-out}@keyframes tcSectionIn{from{opacity:.72;transform:translateY(2px)}to{opacity:1;transform:none}}
+
+.tc-workspace-tabs button[data-tab="Summary"]{--tab-accent:#45bd7a;--tab-soft:color-mix(in srgb,#45bd7a 12%,transparent)}
+.tc-workspace-tabs button[data-tab="Connectivity"]{--tab-accent:#4d98e8;--tab-soft:color-mix(in srgb,#4d98e8 12%,transparent)}
+.tc-workspace-tabs button[data-tab="Configuration"]{--tab-accent:#9b7de0;--tab-soft:color-mix(in srgb,#9b7de0 12%,transparent)}
+.tc-workspace-tabs button[data-tab="Assets"]{--tab-accent:#d7a84d;--tab-soft:color-mix(in srgb,#d7a84d 12%,transparent)}
+.tc-workspace-tabs button[data-tab="Activity"]{--tab-accent:#7f8b84;--tab-soft:color-mix(in srgb,#7f8b84 12%,transparent)}
+.tc-workspace-tabs button.active[data-tab]{background:var(--tab-soft);border-color:color-mix(in srgb,var(--tab-accent) 38%,var(--line));color:var(--tab-accent);box-shadow:inset 0 -3px 0 var(--tab-accent)}
+.tc-tab-description{margin:-4px 0 12px;padding:8px 10px;border-left:3px solid var(--tab-description-accent,var(--section-accent));background:var(--surface2);border-radius:3px 8px 8px 3px;color:var(--muted);font-size:12px}
 .tc-workspace-section{display:none}.tc-workspace-section.active{display:block}
 
 .login{max-width:430px;margin:8vh auto}.login .panel{box-shadow:var(--shadow)}
@@ -363,9 +371,18 @@ JS = r'''
      if(dest)sections[dest].appendChild(el);else leftovers.push(el);
    });
    const activity=document.createElement('div');activity.className='tc-workspace-section';activity.dataset.tab='Activity';leftovers.forEach(el=>activity.appendChild(el));sections.Activity=activity;
+   const tabHelp={
+     'Summary':'Identity, lifecycle, management access and the fastest health overview.',
+     'Connectivity':'WAN, DNS, interfaces, traffic, LTE, topology and path-quality evidence.',
+     'Configuration':'Security, policy, desired state, automation and RouterOS configuration evidence.',
+     'Assets':'Hardware and model lifecycle information.',
+     'Activity':'Backups, jobs, operator notes, events and historical operational activity.'
+   };
+   const tabColors={'Summary':'#45bd7a','Connectivity':'#4d98e8','Configuration':'#9b7de0','Assets':'#d7a84d','Activity':'#7f8b84'};
    const tabs=document.createElement('div');tabs.className='tc-workspace-tabs';
-   Object.keys(sections).forEach((name,i)=>{const b=document.createElement('button');b.type='button';b.textContent=name;b.className=i===0?'active':'';b.onclick=()=>{tabs.querySelectorAll('button').forEach(x=>x.classList.remove('active'));b.classList.add('active');Object.values(sections).forEach(s=>s.classList.remove('active'));sections[name].classList.add('active');localStorage.setItem('tikcentral:router-tab',name)};tabs.appendChild(b)});
-   hero.insertAdjacentElement('afterend',tabs);Object.values(sections).forEach(s=>content.appendChild(s));
+   const desc=document.createElement('div');desc.className='tc-tab-description';
+   Object.keys(sections).forEach((name,i)=>{const b=document.createElement('button');b.type='button';b.textContent=name;b.dataset.tab=name;b.className=i===0?'active':'';b.onclick=()=>{tabs.querySelectorAll('button').forEach(x=>x.classList.remove('active'));b.classList.add('active');Object.values(sections).forEach(s=>s.classList.remove('active'));sections[name].classList.add('active');desc.textContent=tabHelp[name]||'';desc.style.setProperty('--tab-description-accent',tabColors[name]||'var(--section-accent)');localStorage.setItem('tikcentral:router-tab',name)};tabs.appendChild(b)});
+   hero.insertAdjacentElement('afterend',tabs);tabs.insertAdjacentElement('afterend',desc);Object.values(sections).forEach(s=>content.appendChild(s));
    const saved=localStorage.getItem('tikcentral:router-tab');const target=sections[saved]?saved:Object.keys(sections)[0];[...tabs.children].find(b=>b.textContent===target)?.click();
  }
 
