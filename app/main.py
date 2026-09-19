@@ -292,8 +292,27 @@ class FormValues(dict[str, str]):
         return list(self._lists.get(key, []))
 
 
+async def _read_limited_body(request: Request, limit: int) -> bytes:
+    declared = request.headers.get("content-length", "").strip()
+    if declared:
+        try:
+            if int(declared) > limit:
+                raise HTTPException(status_code=413, detail="request body too large")
+        except ValueError:
+            raise HTTPException(status_code=400, detail="invalid Content-Length")
+    chunks = []
+    total = 0
+    async for chunk in request.stream():
+        total += len(chunk)
+        if total > limit:
+            raise HTTPException(status_code=413, detail="request body too large")
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
 async def form_data(request: Request) -> FormValues:
-    raw = (await request.body()).decode("utf-8", "replace")
+    limit = max(262144, settings.MAX_COMMAND_LENGTH + 65536)
+    raw = (await _read_limited_body(request, limit)).decode("utf-8", "replace")
     parsed = parse_qs(raw, keep_blank_values=True)
     return FormValues(parsed)
 
@@ -356,7 +375,9 @@ async def update_ui_preference(request: Request):
         raise HTTPException(status_code=401, detail="authentication required")
     require_csrf(request, request.headers.get("x-csrf-token", ""))
     try:
-        payload = await request.json()
+        payload = json.loads((await _read_limited_body(request, 32768)).decode("utf-8", "replace"))
+    except HTTPException:
+        raise
     except Exception as exc:
         raise HTTPException(status_code=400, detail="invalid JSON") from exc
     key = str(payload.get("key", "")).strip()
