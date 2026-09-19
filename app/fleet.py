@@ -6,7 +6,7 @@ acquire the same per-router mutation slot; read-only analysis skips busy routers
 
 import hashlib
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -206,9 +206,10 @@ def run_backup_job(created_by="scheduler"):
 
 def cleanup_backups():
     ensure_schema()
+    now = datetime.now(timezone.utc)
     with core.db() as conn:
         days = int(conn.execute("SELECT backup_retention_days FROM fleet_settings WHERE id=1").fetchone()[0])
-    cutoff = datetime.now(timezone.utc).timestamp() - days * 86400
+    cutoff = now.timestamp() - days * 86400
     for root in (settings.BACKUP_ROOT, settings.BACKUP_FALLBACK_ROOT):
         if not root.exists():
             continue
@@ -218,6 +219,15 @@ def cleanup_backups():
             for path in daily.rglob("*"):
                 if path.is_file() and path.stat().st_mtime < cutoff:
                     path.unlink(missing_ok=True)
+    # Daily backup history represents recoverable retained backups, not an
+    # eternal audit trail. Keep it aligned with the files rotated above; the
+    # separately-retained pre-change/commissioning tiers are never touched.
+    cutoff_iso = (now - timedelta(days=days)).isoformat()
+    with core.db() as conn:
+        conn.execute(
+            "DELETE FROM router_backup_records WHERE tier='daily' AND created_at<?",
+            (cutoff_iso,),
+        )
 
 
 def run_analysis_job(created_by="scheduler"):
