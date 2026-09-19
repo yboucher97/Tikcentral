@@ -249,6 +249,10 @@ systemctl enable tikcentral tikcentral-winbox-proxy tikcentral-backup.timer tikc
 systemctl restart tikcentral
 systemctl restart tikcentral-winbox-proxy
 systemctl restart caddy
+# Seed a real scheduled-format database backup immediately after activation.
+# The daily timer remains the ongoing schedule; this avoids a false "no scheduled
+# backup" state until the next 03:15 timer window.
+systemctl start tikcentral-backup.service
 systemctl start tikcentral-backup.timer
 systemctl restart tikcentral-fleet.timer
 systemctl restart tikcentral-ai.timer
