@@ -123,6 +123,7 @@ REQUIRED_ROUTES = {
     ("GET", "/cross-site-anomalies"),
     ("GET", "/change-impact/{transaction_id}"),
     ("GET", "/training"),
+    ("GET", "/training/intelligence-guide"),
     ("GET", "/training/{lesson_id}"),
     ("POST", "/training/{lesson_id}/status"),
     ("POST", "/training/track/{track_slug}/skip"),
@@ -257,6 +258,7 @@ def validate_routes():
         ("GET", "/cross-site-anomalies"): "app.cross_site_anomaly",
         ("GET", "/change-impact/{transaction_id}"): "app.change_impact",
         ("GET", "/training"): "app.training",
+        ("GET", "/training/intelligence-guide"): "app.training",
         ("GET", "/training/{lesson_id}"): "app.training",
         ("POST", "/training/{lesson_id}/status"): "app.training",
         ("POST", "/training/track/{track_slug}/skip"): "app.training",
@@ -717,13 +719,13 @@ def validate_source_boundaries():
         if marker not in attention_quality:
             fail(f"Network quality attention integration missing: {marker}")
     training_text = (ROOT / "app/training.py").read_text(encoding="utf-8")
-    for marker in ("LESSONS", "RANKS", "Fast mode", "Complete mission", "I already know this", "user_training_progress", "XP earned", "Reset my training", "Skip unfinished", "Tikcentral Expert"):
+    for marker in ("LESSONS", "RANKS", "INTELLIGENCE_GUIDE", "Smart Features Map", "Measure", "Compare", "Correlate", "Estimate", "AI", "Unknown is not Healthy", "Fast mode", "Complete mission", "I already know this", "user_training_progress", "XP earned", "Reset my training", "Skip unfinished", "Tikcentral Expert"):
         if marker not in training_text:
             fail(f"Interactive training feature missing: {marker}")
     if "training.register(app, ui.page)" not in (ROOT / "app/final.py").read_text(encoding="utf-8"):
         fail("Training routes are not registered")
     shared_ui_training = (ROOT / "app/ui.py").read_text(encoding="utf-8")
-    for marker in ('("training", "/training", "Training")', "tc-training-grid", "tc-mission-list", "tikcentral:density", "tcRestoreGuidance", "CATEGORY_HOME"):
+    for marker in ('("training", "/training", "Training")', "tc-training-grid", "tc-mission-list", "tc-smart-kind", "Smart help", "/training/intelligence-guide", "smartKind", "tikcentral:density", "tcRestoreGuidance", "CATEGORY_HOME"):
         if marker not in shared_ui_training:
             fail(f"Training/refined UI integration missing: {marker}")
     resource_text = (ROOT / "app/resource_monitor.py").read_text(encoding="utf-8")
