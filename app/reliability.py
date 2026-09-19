@@ -12,7 +12,7 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
-from fastapi import Request
+from fastapi import HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 
 from app import change_control, events, guardian, main as core, management_script, migrations, router_exec, state_capture
@@ -27,7 +27,7 @@ def _router(router_id: int):
     with core.db() as conn:
         return conn.execute(
             """SELECT id,site_name,identity,serial,model,routeros_version,routerboot_version,
-                      vpn_ip,public_key,public_winbox_port,enabled,created_at
+                      vpn_ip,public_key,public_winbox_port,enabled,lifecycle_state,created_at
                FROM routers WHERE id=?""",
             (router_id,),
         ).fetchone()
@@ -667,14 +667,21 @@ def register(app, page_func):
         data = await core.form_data(request)
         core.require_csrf(request, data.get("csrf", ""))
         try:
-            minutes = max(15, min(int(data.get("minutes", "60")), 10080))
-        except Exception:
-            minutes = 60
+            minutes = int(data.get("minutes", "60"))
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="maintenance duration must be an integer")
+        if not 15 <= minutes <= 10080:
+            raise HTTPException(status_code=400, detail="maintenance duration must be between 15 and 10080 minutes")
         reason = str(data.get("reason", ""))[:180]
         start = datetime.now(timezone.utc)
         end = start + timedelta(minutes=minutes)
         actor = user["email"] if "email" in user.keys() else "admin"
         with core.db() as conn:
+            router = conn.execute("SELECT enabled,lifecycle_state FROM routers WHERE id=?", (router_id,)).fetchone()
+            if not router:
+                raise HTTPException(status_code=404, detail="router not found")
+            if not router["enabled"] or (router["lifecycle_state"] or "production") == "retired":
+                raise HTTPException(status_code=409, detail="maintenance window requires an active router")
             conn.execute(
                 """INSERT INTO router_maintenance(router_id,start_at,end_at,reason,created_by,created_at)
                    VALUES(?,?,?,?,?,?)
