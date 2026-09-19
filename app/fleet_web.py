@@ -44,7 +44,7 @@ def automation_page(request: Request):
             """SELECT f.*,r.site_name FROM fleet_findings f
                JOIN routers r ON r.id=f.router_id ORDER BY f.id DESC LIMIT 20"""
         ).fetchall()
-        managed_count = conn.execute("SELECT COUNT(*) FROM routers WHERE enabled=1").fetchone()[0]
+        managed_count = conn.execute("SELECT COUNT(*) FROM routers WHERE enabled=1 AND COALESCE(lifecycle_state,'production')<>'retired'").fetchone()[0]
 
     finding_rows = "".join(
         f'''<tr><td>{html.escape(x['severity'])}</td><td>{html.escape(x['site_name'])}</td><td>{html.escape(x['category'])}</td><td>{html.escape(x['summary'])}</td><td class="muted">{html.escape(x['detected_at'])}</td></tr>'''
