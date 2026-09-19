@@ -36,28 +36,30 @@ def register(app,page_func):
         if not user: return RedirectResponse("/login",303)
         raw=request.query_params.get("month","")
         try:
-            month_start=datetime.strptime(raw+"-01","%Y-%m-%d").replace(tzinfo=timezone.utc) if raw else datetime.now(timezone.utc).replace(day=1,hour=0,minute=0,second=0,microsecond=0)
+            month_start=datetime.strptime(raw+"-01","%Y-%m-%d").replace(tzinfo=LOCAL_TZ) if raw else datetime.now(LOCAL_TZ).replace(day=1,hour=0,minute=0,second=0,microsecond=0)
         except Exception:
-            month_start=datetime.now(timezone.utc).replace(day=1,hour=0,minute=0,second=0,microsecond=0)
+            month_start=datetime.now(LOCAL_TZ).replace(day=1,hour=0,minute=0,second=0,microsecond=0)
         next_month=(month_start.replace(day=28)+timedelta(days=4)).replace(day=1)
         prev_month=(month_start-timedelta(days=1)).replace(day=1)
+        query_start=month_start.astimezone(timezone.utc).isoformat()
+        query_end=next_month.astimezone(timezone.utc).isoformat()
         with core.db() as conn:
             routers=conn.execute("SELECT id,site_name FROM routers WHERE lifecycle_state<>'retired' ORDER BY site_name COLLATE NOCASE").fetchall()
             planned=conn.execute(
                 """SELECT p.*,r.site_name FROM planned_changes p LEFT JOIN routers r ON r.id=p.router_id
                    WHERE p.start_at>=? AND p.start_at<? ORDER BY p.start_at,id""",
-                (month_start.isoformat(),next_month.isoformat()),
+                (query_start,query_end),
             ).fetchall()
             completed=conn.execute(
                 """SELECT t.id,t.router_id,t.kind,t.actor,t.status,t.created_at,t.finished_at,r.site_name
                    FROM change_transactions t JOIN routers r ON r.id=t.router_id
                    WHERE t.created_at>=? AND t.created_at<? ORDER BY t.created_at DESC LIMIT 100""",
-                (month_start.isoformat(),next_month.isoformat()),
+                (query_start,query_end),
             ).fetchall()
         csrf=core.csrf_token(request)
         planned_by_day={}
         for p in planned:
-            try: day=datetime.fromisoformat(p["start_at"]).day
+            try: day=datetime.fromisoformat(p["start_at"]).astimezone(LOCAL_TZ).day
             except Exception: continue
             planned_by_day.setdefault(day,[]).append(p)
         cal=calendar.Calendar(firstweekday=6)
