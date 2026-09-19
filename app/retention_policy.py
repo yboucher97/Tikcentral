@@ -5,7 +5,7 @@ import json
 import os
 from datetime import datetime, timedelta, timezone
 
-from fastapi import Request
+from fastapi import HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app import main as core, migrations, settings
@@ -135,9 +135,16 @@ def register(app,page_func):
         user=core.require_web_role(request,"admin")
         data=await core.form_data(request); core.require_csrf(request,data.get("csrf",""))
         values=[]
-        for key,_,_,_,_ in POLICIES:
-            try:v=max(0,min(3650,int(data.get(key,0))))
-            except Exception:v=0
+        for key,label,_,_,_ in POLICIES:
+            raw=data.get(key)
+            if raw is None:
+                raise HTTPException(status_code=400,detail=f"missing retention value for {label}")
+            try:
+                v=int(raw)
+            except (TypeError,ValueError):
+                raise HTTPException(status_code=400,detail=f"invalid retention value for {label}")
+            if not 0 <= v <= 3650:
+                raise HTTPException(status_code=400,detail=f"retention for {label} must be between 0 and 3650 days")
             values.append(v)
         now=_now().isoformat()
         with core.db() as conn:
