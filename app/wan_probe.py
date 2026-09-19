@@ -66,7 +66,12 @@ def _parse_ping(text):
     if not m:
         m=re.search(r"avg\s*[:=]\s*([0-9.]+)ms",text or "",re.I)
     if m: avg=float(m.group(1))
-    ok=(loss is not None and loss<100) or ("time=" in (text or "").lower())
+    if loss is not None:
+        ok=loss<100
+    elif "time=" in (text or "").lower():
+        ok=True
+    else:
+        ok=None
     return ok,loss,avg
 
 
@@ -83,7 +88,7 @@ def _ping(ip,target):
     try:
         out=router_exec.read(ip,f"/ping address={target} count=4 interval=500ms",timeout=20,label=f"WAN probe {target}")
         return _parse_ping(out)
-    except Exception:return False,None,None
+    except Exception:return None,None,None
 
 
 def collect(router_id:int):
@@ -98,26 +103,37 @@ def collect(router_id:int):
     try:
         dns_name=_safe_target(str(cfg["dns_name"]))
         dnsout=router_exec.read(r["vpn_ip"],f':do {{ :put ("resolved=" . [:resolve "{dns_name}"]) }} on-error={{ :put "resolved=FAILED" }}',timeout=20,label="WAN DNS probe")
-        dns_ok="FAILED" not in dnsout and "resolved=" in dnsout
-    except Exception:dns_ok=False
+        if "FAILED" in dnsout:
+            dns_ok=False
+        elif "resolved=" in dnsout:
+            dns_ok=True
+        else:
+            dns_ok=None
+    except Exception:
+        dns_ok=None
 
-    successes=sum(1 for x in (p1[0],p2[0]) if x)
+    external_states=(p1[0],p2[0])
+    successes=sum(1 for x in external_states if x is True)
+    failures=sum(1 for x in external_states if x is False)
+    unknowns=sum(1 for x in external_states if x is None)
     losses=[v for v in (p1[1],p2[1]) if v is not None]
     latencies=[v for v in (p1[2],p2[2]) if v is not None]
-    quality_bad=(losses and max(losses)>=float(cfg["packet_loss_warn_percent"])) or (latencies and max(latencies)>=float(cfg["latency_warn_ms"]))
-    if gok is False and successes==0 and not dns_ok:
-        classification="site_or_upstream"; summary="Gateway and external Internet probes failed"
-    elif gok and successes==0:
+    quality_bad=bool((losses and max(losses)>=float(cfg["packet_loss_warn_percent"])) or (latencies and max(latencies)>=float(cfg["latency_warn_ms"])))
+    if gok is False and failures==2 and dns_ok is False:
+        classification="site_or_upstream"; summary="Gateway, external Internet targets and DNS resolution failed"
+    elif gok is True and failures==2:
         classification="upstream"; summary="Gateway reachable but both external probe targets failed"
-    elif successes>0 and not dns_ok:
+    elif successes>0 and dns_ok is False:
         classification="dns"; summary="Internet IP reachability works but DNS resolution failed"
-    elif successes==1:
+    elif successes==1 and failures==1:
         classification="partial"; summary="One Internet probe target failed while another succeeded"
-    elif successes==2 and dns_ok and quality_bad:
+    elif successes==2 and dns_ok is True and quality_bad:
         classification="degraded_quality"
         summary=f'Internet reachable but quality exceeds standard threshold (loss ≥ {cfg["packet_loss_warn_percent"]}% or latency ≥ {cfg["latency_warn_ms"]} ms)'
-    elif successes==2 and dns_ok:
+    elif successes==2 and dns_ok is True:
         classification="healthy"; summary="Gateway/Internet/DNS probing is healthy" if gok is not False else "Internet/DNS healthy; gateway probe unavailable or failed"
+    elif unknowns or dns_ok is None or gok is None:
+        classification="unknown"; summary="WAN probe unavailable or incomplete; no outage classification made"
     else:
         classification="unknown"; summary="WAN probe result is incomplete"
 
