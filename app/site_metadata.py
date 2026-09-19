@@ -58,6 +58,8 @@ def register(app,page_func):
 <div><label>Contact email<br><input name="contact_email" value="{val("contact_email")}" style="width:100%"></label></div>
 <div><label>Circuit type<br><input name="circuit_type" value="{val("circuit_type")}" placeholder="Bell fibre / cable / LTE / PPPoE..." style="width:100%"></label></div>
 <div><label>Circuit / account reference<br><input name="circuit_reference" value="{val("circuit_reference")}" style="width:100%"></label></div>
+<div><label>Circuit download Mbps<br><input type="number" min="0" step="0.1" name="circuit_down_mbps" value="{val("circuit_down_mbps")}" placeholder="e.g. 1000" style="width:100%"></label></div>
+<div><label>Circuit upload Mbps<br><input type="number" min="0" step="0.1" name="circuit_up_mbps" value="{val("circuit_up_mbps")}" placeholder="e.g. 1000" style="width:100%"></label></div>
 <div><label>Install date<br><input type="date" name="install_date" value="{val("install_date")}" style="width:100%"></label></div>
 <div><label>Ticket / work order<br><input name="ticket_reference" value="{val("ticket_reference")}" style="width:100%"></label></div>
 </div>
@@ -75,21 +77,30 @@ def register(app,page_func):
         router=_router(router_id)
         if not router: return RedirectResponse("/operations",303)
         values={f:str(data.get(f,"")).strip()[:4000 if f=="support_notes" else 300] for f in FIELDS}
+        def speed(name):
+            try:
+                v=float(str(data.get(name,"")).strip())
+                return v if v>0 else None
+            except Exception:
+                return None
+        down_mbps=speed("circuit_down_mbps")
+        up_mbps=speed("circuit_up_mbps")
         with core.db() as conn:
             conn.execute(
                 """INSERT INTO router_site_metadata
                    (router_id,customer_name,site_code,address,contact_name,contact_phone,contact_email,
-                    circuit_type,circuit_reference,install_date,ticket_reference,support_notes,updated_by,updated_at)
-                   VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                    circuit_type,circuit_reference,circuit_down_mbps,circuit_up_mbps,install_date,ticket_reference,support_notes,updated_by,updated_at)
+                   VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                    ON CONFLICT(router_id) DO UPDATE SET
                      customer_name=excluded.customer_name,site_code=excluded.site_code,address=excluded.address,
                      contact_name=excluded.contact_name,contact_phone=excluded.contact_phone,
                      contact_email=excluded.contact_email,circuit_type=excluded.circuit_type,
-                     circuit_reference=excluded.circuit_reference,install_date=excluded.install_date,
+                     circuit_reference=excluded.circuit_reference,circuit_down_mbps=excluded.circuit_down_mbps,
+                     circuit_up_mbps=excluded.circuit_up_mbps,install_date=excluded.install_date,
                      ticket_reference=excluded.ticket_reference,support_notes=excluded.support_notes,
                      updated_by=excluded.updated_by,updated_at=excluded.updated_at""",
                 (router_id,values["customer_name"],values["site_code"],values["address"],values["contact_name"],
                  values["contact_phone"],values["contact_email"],values["circuit_type"],values["circuit_reference"],
-                 values["install_date"],values["ticket_reference"],values["support_notes"],user["email"],_now()),
+                 down_mbps,up_mbps,values["install_date"],values["ticket_reference"],values["support_notes"],user["email"],_now()),
             )
         return RedirectResponse(f"/site/{router_id}",303)
