@@ -1492,7 +1492,7 @@ def _m35(conn):
     conn.execute(
         """UPDATE router_ai_analyses
            SET status='failed',
-               finished_at=COALESCE(NULLIF(finished_at,''), CURRENT_TIMESTAMP),
+               finished_at=COALESCE(NULLIF(finished_at,''), strftime('%Y-%m-%dT%H:%M:%f+00:00','now')),
                error_code=CASE WHEN COALESCE(error_code,'')='' THEN 'AI_TRIGGER_SOURCE_REQUIRED' ELSE error_code END,
                error_detail=CASE WHEN COALESCE(error_detail,'')='' THEN 'Legacy AI request was not executed after human-trigger enforcement was enabled.' ELSE error_detail END
            WHERE trigger_source='legacy' AND status IN ('queued','running')"""
