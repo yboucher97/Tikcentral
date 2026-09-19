@@ -37,10 +37,22 @@ def begin(router_id: int, kind: str, actor: str, *, job_id: int | None = None, p
             (router_id, job_id, kind, actor, now, json.dumps(pre_access or {}, sort_keys=True)),
         )
         tx = int(cur.lastrowid)
-    step(tx, "preflight", "ok", "Transaction started")
+        conn.execute(
+            """INSERT INTO change_transaction_steps
+               (transaction_id,step_at,phase,status,message,details)
+               VALUES(?,?,?,?,?,?)""",
+            (tx, now, "preflight", "ok", "Transaction started", ""),
+        )
+
+    def prechange_step(status, message, details=""):
+        try:
+            step(tx, "snapshot", status, message, details)
+        except Exception:
+            pass
+
     # Capture an attributed pre-change configuration snapshot before any
-    # transaction mutation. Best-effort: snapshot failure must not block a safe
-    # change that has already passed Guardian preflight.
+    # transaction mutation. Snapshot capture and transcript enrichment are both
+    # best-effort after the atomic transaction start.
     try:
         from app import state_capture
         snapshot_id = state_capture.capture_config_snapshot(
@@ -49,9 +61,9 @@ def begin(router_id: int, kind: str, actor: str, *, job_id: int | None = None, p
             source_id=tx,
             actor=actor or "",
         )
-        step(tx, "snapshot", "ok", "Pre-change configuration snapshot captured", f"snapshot_id={snapshot_id}")
+        prechange_step("ok", "Pre-change configuration snapshot captured", f"snapshot_id={snapshot_id}")
     except Exception as exc:
-        step(tx, "snapshot", "warning", "Pre-change configuration snapshot unavailable", errors.short(exc))
+        prechange_step("warning", "Pre-change configuration snapshot unavailable", errors.short(exc))
     return tx
 
 
