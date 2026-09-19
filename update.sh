@@ -219,14 +219,18 @@ if [[ -n "${ACME_EMAIL:-}" ]]; then
 
 $DOMAIN {
     encode zstd gzip
-    reverse_proxy 127.0.0.1:8080
+    reverse_proxy 127.0.0.1:8080 {
+        header_up X-Forwarded-For {remote_host}
+    }
 }
 EOF
 else
   cat > /etc/caddy/Caddyfile <<EOF
 $DOMAIN {
     encode zstd gzip
-    reverse_proxy 127.0.0.1:8080
+    reverse_proxy 127.0.0.1:8080 {
+        header_up X-Forwarded-For {remote_host}
+    }
 }
 EOF
 fi
