@@ -731,7 +731,10 @@ def validate_source_boundaries():
     system_health_text = (ROOT / "app/system_health.py").read_text(encoding="utf-8")
     for marker in (
         "primary writable", "fallback writable", "scheduled backup not found; verified latest pre-update backup instead",
-        "var(--ok)", "results.append((True, str(path)", 'verified["status"] == "warning"',
+        "var(--ok)", 'verified["status"] == "warning"', "os.access(key, os.R_OK)",
+        "os.access(helper, os.X_OK)", "DB_BACKUP_WARN_HOURS", "DB_BACKUP_CRITICAL_HOURS",
+        "ROUTER_BACKUP_WARN_HOURS", "router_backup_verification", "backup age",
+        "results.append((status, str(path)",
     ):
         if marker not in system_health_text:
             fail(f"System-health backup verification fix missing: {marker}")
@@ -997,6 +1000,7 @@ def validate_provisioning_and_updater():
         "install -d -o root -g tikcentral -m 0750 /var/backups/tikcentral",
         "chown root:tikcentral \"$DB_BACKUP\"",
         "systemctl start tikcentral-backup.service",
+        "system_health.verify_backups(); system_health.record_health()",
         "find \"$ROUTER_BACKUP_DIR\" -type d -exec chmod 0750",
     ):
         if marker not in update_text:
