@@ -673,7 +673,7 @@ def validate_source_boundaries():
         "installRecentRouters", "protectDirtyForms", "decorateEmptyStates", "classifyActions", "tcGotoPrefix",
         "CATEGORY_SLUG", "CATEGORY_HOME", "tc-cat-fleet", "tc-cat-operations", "tc-cat-changes",
         "tc-cat-intelligence", "tc-cat-administration", "installDisclosureState", "emphasizeNestedSections",
-        "tikcentral:disclosure",
+        "tikcentral:disclosure", "tc-tab-description", "tabHelp", "Connectivity", "Configuration", "Assets", "Activity",
     ):
         if marker not in shared_ui:
             fail(f"Professional UI shell missing: {marker}")
@@ -723,7 +723,7 @@ def validate_source_boundaries():
     if "training.register(app, ui.page)" not in (ROOT / "app/final.py").read_text(encoding="utf-8"):
         fail("Training routes are not registered")
     shared_ui_training = (ROOT / "app/ui.py").read_text(encoding="utf-8")
-    for marker in ('("training", "/training", "Training")', "tc-training-grid", "tc-mission-list", "tikcentral:density", "tcRestoreGuidance"):
+    for marker in ('("training", "/training", "Training")', "tc-training-grid", "tc-mission-list", "tikcentral:density", "tcRestoreGuidance", "CATEGORY_HOME"):
         if marker not in shared_ui_training:
             fail(f"Training/refined UI integration missing: {marker}")
     resource_text = (ROOT / "app/resource_monitor.py").read_text(encoding="utf-8")
