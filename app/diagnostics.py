@@ -28,8 +28,8 @@ def register(app,page_func):
         user=core.require_web_admin(request)
         if not user: return RedirectResponse("/login",303)
         with core.db() as conn:
-            router=conn.execute("SELECT id,site_name,model,vpn_ip,enabled FROM routers WHERE id=?",(router_id,)).fetchone()
-        if not router or not router["enabled"]: return RedirectResponse("/operations",303)
+            router=conn.execute("SELECT id,site_name,model,vpn_ip,enabled,lifecycle_state FROM routers WHERE id=?",(router_id,)).fetchone()
+        if not router or not router["enabled"] or (router["lifecycle_state"] or "production")=="retired": return RedirectResponse("/operations",303)
         csrf=core.csrf_token(request)
         buttons="".join(
             f'<form method="post" action="/diagnostics/{router_id}" style="display:inline-block;margin:4px"><input type="hidden" name="csrf" value="{csrf}"><input type="hidden" name="template" value="{k}"><button>{html.escape(v[0])}</button></form>'
@@ -48,7 +48,7 @@ def register(app,page_func):
         if key not in TEMPLATES: return RedirectResponse(f"/diagnostics/{router_id}",303)
         with core.db() as conn:
             router=conn.execute("SELECT id,site_name,model,vpn_ip,enabled FROM routers WHERE id=?",(router_id,)).fetchone()
-        if not router or not router["enabled"]: return RedirectResponse("/operations",303)
+        if not router or not router["enabled"] or (router["lifecycle_state"] or "production")=="retired": return RedirectResponse("/operations",303)
         label,command=TEMPLATES[key]
         try:
             output=router_exec.read(router["vpn_ip"],command,timeout=60,label=f"Diagnostic: {label}")
