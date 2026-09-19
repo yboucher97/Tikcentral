@@ -48,7 +48,7 @@ def install_middleware(app):
             return HTMLResponse("<h1>403</h1><p>Admin access required.</p>", status_code=403)
 
         if method not in {"GET", "HEAD", "OPTIONS"}:
-            if path in {"/logout", "/account/password"}:
+            if path in {"/logout", "/account/password", "/api/ui/preferences"}:
                 return await call_next(request)
             if role == "viewer":
                 return HTMLResponse("<h1>403</h1><p>Viewer accounts are read-only.</p>", status_code=403)
