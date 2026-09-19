@@ -657,9 +657,17 @@ def validate_source_boundaries():
         if marker not in login_text:
             fail(f"Login password visibility control missing: {marker}")
     shared_ui = (ROOT / "app/ui.py").read_text(encoding="utf-8")
-    for marker in ("NAV_GROUPS", "Overview", "Fleet", "Operations", "Changes", "Intelligence", "Administration", "openPalette", "organizeRouterWorkspace", "defaultHidden", "tc-filter-toggle"):
+    for marker in (
+        "NAV_GROUPS", "PAGE_GUIDANCE", "Overview", "Fleet", "Operations", "Changes", "Intelligence", "Administration",
+        "openPalette", "organizeRouterWorkspace", "defaultHidden", "tc-filter-toggle", "installRouterContext",
+        "installRecentRouters", "protectDirtyForms", "decorateEmptyStates", "classifyActions", "tcGotoPrefix",
+    ):
         if marker not in shared_ui:
             fail(f"Professional UI shell missing: {marker}")
+    site_ui_text = (ROOT / "app/site_metadata.py").read_text(encoding="utf-8")
+    for marker in ("Site identity", "Primary contact", "Circuit & technical details", "Support notes", "position:sticky"):
+        if marker not in site_ui_text:
+            fail(f"Progressive site-metadata UI missing: {marker}")
     main_ui_text = (ROOT / "app/main.py").read_text(encoding="utf-8")
     portal_ui_text = (ROOT / "app/portal.py").read_text(encoding="utf-8")
     if "data-default-hidden" not in main_ui_text or "data-default-hidden" not in portal_ui_text:
@@ -729,7 +737,8 @@ def validate_ui_and_assets():
         "tc-shell", "tc-sidebar", "tc-topbar", "tcCommandBtn", "tcPalette", "tcGlobalSearch",
         "tcToggleTheme", "tc-local-search", "tc-filter-column", "tc-filter-op", "tc-filter-value",
         "tc-filter-toggle", "Columns", "tcCopy", "Copy field value", "organizeRouterWorkspace",
-        "tc-router-toolbox", "tc-workspace-tabs", "data-default-hidden",
+        "tc-router-toolbox", "tc-workspace-tabs", "data-default-hidden", "tc-page-intro",
+        "tcObjectContext", "installRouterContext", "installRecentRouters", "protectDirtyForms",
     ):
         if marker not in rendered:
             fail(f"Shared UI missing {marker}")
