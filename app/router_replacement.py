@@ -38,7 +38,7 @@ def execute(replacement_id:int,actor:str):
             raise ValueError("target router must be New or Commissioning")
 
         if rep["copy_site_metadata"]:
-            cols=["customer_name","site_code","address","contact_name","contact_phone","contact_email","circuit_type","circuit_reference","install_date","ticket_reference","support_notes","updated_by","updated_at"]
+            cols=["customer_name","site_code","address","contact_name","contact_phone","contact_email","circuit_type","circuit_reference","circuit_down_mbps","circuit_up_mbps","install_date","ticket_reference","support_notes","updated_by","updated_at"]
             _copy_single(conn,"router_site_metadata",cols,src["id"],dst["id"])
         if rep["copy_desired_state"]:
             _copy_single(conn,"router_desired_state",["profile","intent_json","updated_by","updated_at"],src["id"],dst["id"])
