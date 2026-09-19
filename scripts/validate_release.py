@@ -352,6 +352,25 @@ def validate_source_boundaries():
     decryptor = ROOT / "scripts/decrypt_breakglass.py"
     if not decryptor.is_file() or "AESGCM" not in decryptor.read_text(encoding="utf-8"):
         fail("Encrypted break-glass decryptor missing")
+    main_source = (ROOT / "app/main.py").read_text(encoding="utf-8")
+    ui_source = (ROOT / "app/ui.py").read_text(encoding="utf-8")
+    winbox_source = (ROOT / "app/winbox_proxy.py").read_text(encoding="utf-8")
+    update_source = (ROOT / "update.sh").read_text(encoding="utf-8")
+    for marker in ('id="tcLogoutForm"', "input.name='csrf'", "logoutForm.querySelector('button').disabled=false"):
+        if marker not in ui_source:
+            fail(f"Logout CSRF UI regression: {marker}")
+    if 'async def logout(request: Request):' not in main_source or 'require_csrf(request, data.get("csrf", ""))' not in main_source:
+        fail("Logout route is not CSRF protected")
+    for legacy in ("localStorage.getItem('tikcentral:density')", "localStorage.getItem('tikcentral:hide-guidance')", "localStorage.getItem('tikcentral:router-tab')"):
+        if legacy in ui_source:
+            fail(f"Cross-user UI fallback storage reintroduced: {legacy}")
+    for marker in ("authorization_watch", "target_active(vpn_ip)", "mode=ro", "PRAGMA query_only=ON"):
+        if marker not in winbox_source:
+            fail(f"WinBox relay authorization/read-only regression: {marker}")
+    for marker in ('CADDY_TMP="$(mktemp', 'caddy validate --adapter caddyfile --config "$CADDY_TMP"', 'install -o root -g root -m 0644 "$CADDY_TMP" /etc/caddy/Caddyfile'):
+        if marker not in update_source:
+            fail(f"Safe Caddy staging regression: {marker}")
+
     system_health_text = (ROOT / "app/system_health.py").read_text(encoding="utf-8")
     for marker in ("collect_health", "record_health", "verify_backups", "_verify_database_backup", "_router_backup_status", "systemctl", "PRAGMA quick_check"):
         if marker not in system_health_text:
