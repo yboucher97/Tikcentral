@@ -253,7 +253,12 @@ systemctl restart caddy
 # Seed a real scheduled-format database backup immediately after activation.
 # The daily timer remains the ongoing schedule; this avoids a false "no scheduled
 # backup" state until the next 03:15 timer window.
-systemctl start tikcentral-backup.service
+if ! systemctl start tikcentral-backup.service; then
+  systemctl status tikcentral-backup.service --no-pager -l >&2 || true
+  journalctl -u tikcentral-backup.service -n 80 --no-pager >&2 || true
+  rollback "database backup seed service failed" || true
+  exit 1
+fi
 systemctl start tikcentral-backup.timer
 systemctl restart tikcentral-fleet.timer
 systemctl restart tikcentral-ai.timer
