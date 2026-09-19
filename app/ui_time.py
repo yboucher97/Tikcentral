@@ -8,11 +8,10 @@ import re
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
-from app import settings
-
-# Montréal and Toronto share the same Eastern/DST rules. Keep the configured
-# IANA zone as the source of truth while presenting it consistently as Montréal.
-LOCAL_TZ = ZoneInfo(settings.TIMEZONE)
+# IANA's America/Toronto rules are the same Eastern/DST rules used in Montréal.
+# UI presentation is intentionally fixed to Montréal local time; persistent data
+# remains UTC and operational schedulers keep their own configurable timezone.
+LOCAL_TZ = ZoneInfo("America/Toronto")
 DISPLAY_ZONE_NAME = "Montréal"
 _ISO_RE = re.compile(
     r"""(?<!["'=\w])"""
