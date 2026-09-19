@@ -7,6 +7,7 @@ safe defaults, validation and deployment behavior cannot silently diverge.
 import ipaddress
 import os
 from pathlib import Path
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 
 def _required(name: str) -> str:
@@ -25,7 +26,11 @@ def _int(name: str, default: int, *, minimum: int = 0, maximum: int | None = Non
 
 
 DB_PATH = os.getenv("DB_PATH", "/var/lib/tikcentral/tikcentral.db")
-TIMEZONE = os.getenv("TIKCENTRAL_TIMEZONE", "America/Toronto")
+TIMEZONE = os.getenv("TIKCENTRAL_TIMEZONE", "America/Toronto").strip() or "America/Toronto"
+try:
+    ZoneInfo(TIMEZONE)
+except (ZoneInfoNotFoundError, ValueError) as exc:
+    raise RuntimeError(f"TIKCENTRAL_TIMEZONE is invalid: {TIMEZONE}") from exc
 ADMIN_API_KEY = _required("ADMIN_API_KEY")
 ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "").strip().lower()
 BOOTSTRAP_PASSWORD = os.getenv("DASHBOARD_PASSWORD", "")
