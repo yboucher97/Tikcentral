@@ -573,7 +573,7 @@ JS = r'''
  function applyRoleUX(){
    const role=document.body.dataset.tcRole||'';
    if(!role||role==='admin')return;
-   const adminOnly=(action)=>/^\/admin\b|^\/settings\b|^\/ssh\b|^\/enroll\b|^\/retention\b|^\/commissioning-checklist\/settings\b|^\/maintenance-automation\b|^\/automation\/settings\b|^\/dashboard\/access\/always\b|^\/dashboard\/access\/\d+\/delete\b/.test(action);
+   const adminOnly=(action)=>/^\/admin\b|^\/settings\b|^\/ssh\b|^\/enroll\b|^\/retention\b|^\/commissioning-checklist\/settings\b|^\/maintenance-automation\b|^\/automation\/settings\b|^\/upgrade-campaigns(?:\/|$)|^\/replacements(?:\/|$)|^\/protection(?:\/|$)|^\/dashboard\/access\/always\b|^\/dashboard\/access\/\d+\/delete\b/.test(action);
    document.querySelectorAll('form').forEach(form=>{
      if((form.method||'').toLowerCase()!=='post')return;
      const action=(form.getAttribute('action')||location.pathname).split('?')[0];
