@@ -338,8 +338,8 @@ def queue_analysis(router_id: int, actor: str, focus_start: str = "", focus_end:
     if not human_requested:
         raise errors.OperationError("AI_HUMAN_TRIGGER_REQUIRED", "AI analysis must be requested by an authenticated human operator")
     router = _router(router_id)
-    if not router or not router["enabled"]:
-        raise errors.OperationError("ROUTER_NOT_FOUND", "Enabled router not found")
+    if not router or not router["enabled"] or (router["lifecycle_state"] or "production") == "retired":
+        raise errors.OperationError("ROUTER_NOT_FOUND", "Active router not found")
     with core.db() as conn:
         existing = conn.execute(
             "SELECT id FROM router_ai_analyses WHERE router_id=? AND status IN ('queued','running') ORDER BY id DESC LIMIT 1",
