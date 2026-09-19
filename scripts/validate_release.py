@@ -18,7 +18,7 @@ sys.path.insert(0, str(ROOT))
 _TMP = tempfile.TemporaryDirectory(prefix="tikcentral-release-test-")
 os.environ["DB_PATH"] = str(Path(_TMP.name) / "tikcentral.db")
 
-from app import ai_analysis, capabilities, errors, events, fleet, fleet_health, jobs
+from app import ai_analysis, capabilities, errors, events, fleet, fleet_health, jobs, semantic_config
 from app import management_script, migrations, performance_profile, router_exec
 from app import scheduler, settings, ui
 from app import main as core
@@ -115,6 +115,9 @@ REQUIRED_ROUTES = {
     ("GET", "/local-utilization/{router_id}"),
     ("GET", "/model-capabilities"),
     ("GET", "/log-patterns/{router_id}"),
+    ("GET", "/hardware-lifecycle"),
+    ("GET", "/hardware-lifecycle/{router_id}"),
+    ("POST", "/hardware-lifecycle/{router_id}/notes"),
 }
 
 FORBIDDEN_FILES = {
@@ -237,6 +240,9 @@ def validate_routes():
         ("GET", "/local-utilization/{router_id}"): "app.local_utilization",
         ("GET", "/model-capabilities"): "app.model_capabilities",
         ("GET", "/log-patterns/{router_id}"): "app.log_patterns",
+        ("GET", "/hardware-lifecycle"): "app.hardware_lifecycle",
+        ("GET", "/hardware-lifecycle/{router_id}"): "app.hardware_lifecycle",
+        ("POST", "/hardware-lifecycle/{router_id}/notes"): "app.hardware_lifecycle",
     }
     for path in (
         "/operations/{router_id}/telemetry", "/operations/{router_id}/commission",
@@ -622,6 +628,30 @@ def validate_source_boundaries():
     for marker in ("public_ip_analysis.assess_all", "identity_collision.scan", "local_utilization.collect", "model_capabilities.collect", "log_patterns.collect"):
         if marker not in scheduler_intel_text:
             fail(f"Fleet intelligence scheduler integration missing: {marker}")
+    semantic_text = (ROOT / "app/semantic_config.py").read_text(encoding="utf-8")
+    for marker in ("AREA_RULES", "DNS", "Routing", "NAT", "changed", "_props", "compare"):
+        if marker not in semantic_text:
+            fail(f"Semantic config diff missing: {marker}")
+    semantic_sample = semantic_config.compare(
+        "/ip dns\nset servers=1.1.1.1 allow-remote-requests=yes",
+        "/ip dns\nset servers=9.9.9.9 allow-remote-requests=yes",
+    )
+    if not semantic_sample or semantic_sample[0]["area"] != "DNS" or semantic_sample[0]["action"] != "changed" or "servers:" not in semantic_sample[0]["detail"]:
+        fail("Semantic config diff smoke test failed")
+    hardware_lifecycle_text = (ROOT / "app/hardware_lifecycle.py").read_text(encoding="utf-8")
+    for marker in ("router_hardware_lifecycle", "observed_days", "model_observed_days", "reboot_count", "replacement_notes", "not vendor EOL"):
+        if marker not in hardware_lifecycle_text:
+            fail(f"Hardware lifecycle intelligence missing: {marker}")
+    if "hardware_lifecycle.assess_all" not in (ROOT / "app/scheduler.py").read_text(encoding="utf-8"):
+        fail("Hardware lifecycle assessment is not scheduled")
+    login_text = (ROOT / "app/main.py").read_text(encoding="utf-8")
+    for marker in ("loginPassword", "loginPasswordToggle", "Show password", "Hide password"):
+        if marker not in login_text:
+            fail(f"Login password visibility control missing: {marker}")
+    shared_ui = (ROOT / "app/ui.py").read_text(encoding="utf-8")
+    for marker in ("tc-filter-column", "tc-filter-op", "tc-filter-value", "matchOperator", "contains", "!contains", ">=", "<=", "!="):
+        if marker not in shared_ui:
+            fail(f"Advanced shared table filter missing: {marker}")
     resource_text = (ROOT / "app/resource_monitor.py").read_text(encoding="utf-8")
     for marker in ("_uptime_seconds", "_memory_bytes", "_record_reboot", "RESOURCE_CPU_WARN", "Unexpected router reboot detected"):
         if marker not in resource_text:
@@ -638,7 +668,7 @@ def validate_source_boundaries():
     if "resource_monitor.evaluate" not in operations_resource:
         fail("Telemetry does not feed resource/reboot monitor")
     changes_text = (ROOT / "app/changes.py").read_text(encoding="utf-8")
-    for marker in ("_render_diff", "_diff_counts", "Directly attributed to Tikcentral", "source_kind", "source_actor"):
+    for marker in ("_render_diff", "_diff_counts", "Directly attributed to Tikcentral", "source_kind", "source_actor", "Semantic configuration diff", "semantic_config.compare"):
         if marker not in changes_text:
             fail(f"Configuration history feature missing: {marker}")
     for path in (ROOT / "app").glob("*.py"):
@@ -652,7 +682,7 @@ def validate_ui_and_assets():
         '<div class="panel"><table><thead><tr><th>Status</th></tr></thead><tbody><tr><td>Healthy</td></tr></tbody></table></div>',
         {"email": "validator@opticable.local"}, "operations",
     ).body.decode()
-    for marker in ("tcGlobalSearch", "tcToggleTheme", "tc-local-search", "Columns ▾", "tcCopy", "Copy field value"):
+    for marker in ("tcGlobalSearch", "tcToggleTheme", "tc-local-search", "tc-filter-column", "tc-filter-op", "tc-filter-value", "Columns ▾", "tcCopy", "Copy field value"):
         if marker not in rendered:
             fail(f"Shared UI missing {marker}")
     if set(settings.ASSET_FILES) != {"logo_light", "logo_dark", "icon"}:
@@ -733,7 +763,7 @@ def validate_persistence_and_jobs():
         "router_time_health", "router_mtu_history",
         "router_public_ip_analysis", "router_public_ip_sightings", "router_identity_collisions",
         "router_local_utilization", "router_model_capability_observations", "router_model_capability_catalog",
-        "router_log_patterns",
+        "router_log_patterns", "router_hardware_lifecycle",
     }
     with sqlite3.connect(settings.DB_PATH) as conn:
         version = conn.execute("SELECT MAX(version) FROM schema_version").fetchone()[0]
