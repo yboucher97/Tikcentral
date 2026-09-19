@@ -47,7 +47,7 @@ def register(app,page_func):
         key=str(data.get("template",""))
         if key not in TEMPLATES: return RedirectResponse(f"/diagnostics/{router_id}",303)
         with core.db() as conn:
-            router=conn.execute("SELECT id,site_name,model,vpn_ip,enabled FROM routers WHERE id=?",(router_id,)).fetchone()
+            router=conn.execute("SELECT id,site_name,model,vpn_ip,enabled,lifecycle_state FROM routers WHERE id=?",(router_id,)).fetchone()
         if not router or not router["enabled"] or (router["lifecycle_state"] or "production")=="retired": return RedirectResponse("/operations",303)
         label,command=TEMPLATES[key]
         try:
