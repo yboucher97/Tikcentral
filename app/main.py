@@ -401,6 +401,8 @@ def dashboard(request: Request):
     current_ip = request_public_ip(request)
     now = utcnow()
     csrf = csrf_token(request)
+    can_operate = ROLE_RANK.get(user["role"], 0) >= ROLE_RANK["technician"]
+    can_admin = user["role"] == "admin"
     with db() as conn:
         rows = conn.execute(
             "SELECT id,site_name,identity,serial,model,routeros_version,routerboot_version,public_key,vpn_ip,public_winbox_port FROM routers WHERE enabled=1 ORDER BY site_name COLLATE NOCASE,id"
@@ -444,8 +446,9 @@ def dashboard(request: Request):
             if expiry_dt <= now:
                 continue
             expiry, mode = expiry_dt.astimezone(timezone.utc).isoformat(), "Temporary"
+        action = f'''<form method="post" action="/dashboard/access/{item['id']}/delete"><input type="hidden" name="csrf" value="{csrf}"><button class="danger">Remove</button></form>''' if can_admin else '<span class="muted">Read only</span>'
         access_html.append(
-            f'''<tr><td><code>{html.escape(item['ip_address'])}</code></td><td>{html.escape(item['label'] or '-')}</td><td>{mode}</td><td>{html.escape(expiry)}</td><td><form method="post" action="/dashboard/access/{item['id']}/delete"><input type="hidden" name="csrf" value="{csrf}"><button class="danger">Remove</button></form></td></tr>'''
+            f'''<tr><td><code>{html.escape(item['ip_address'])}</code></td><td>{html.escape(item['label'] or '-')}</td><td>{mode}</td><td>{html.escape(expiry)}</td><td>{action}</td></tr>'''
         )
     if not access_html:
         access_html.append('<tr><td colspan="5" class="muted">No authorized public IPs.</td></tr>')
@@ -459,18 +462,18 @@ def dashboard(request: Request):
 <div class="card"><div class="muted">Current public IP</div><div style="margin-top:8px"><code>{html.escape(current_ip or 'Unknown')}</code></div><div class="muted">Operator access source</div></div>
 </div>
 {attention_html}
-<div class="panel pad"><div class="inline" style="justify-content:space-between"><div><h2>Remote access</h2><div>Authorize this workstation for public WinBox relay access.</div><div class="muted">Temporary authorization lasts {TEMP_ACCESS_DAYS} days.</div></div><form method="post" action="/dashboard/access/current"><input type="hidden" name="csrf" value="{csrf}"><button class="primary">Authorize current IP</button></form></div></div>
+<div class="panel pad"><div class="inline" style="justify-content:space-between"><div><h2>Remote access</h2><div>Authorize this workstation for public WinBox relay access.</div><div class="muted">Temporary authorization lasts {TEMP_ACCESS_DAYS} days.</div></div>{f'<form method="post" action="/dashboard/access/current"><input type="hidden" name="csrf" value="{csrf}"><button class="primary">Authorize current IP</button></form>' if can_operate else '<span class="muted">Viewer accounts cannot authorize remote access.</span>'}</div></div>
 <div class="tc-section-title"><h2>Fleet overview</h2><div class="muted">Operational fields first; use Columns for full inventory detail.</div></div>
 <div class="panel"><table data-default-hidden="3,5,6,10"><thead><tr><th>Status</th><th>Identity</th><th>Model</th><th>Serial</th><th>RouterOS</th><th>RouterBOOT</th><th>Public IP</th><th>ISP / ASN</th><th>VPN IP</th><th>Remote WinBox</th><th>VPN WinBox</th><th>Last handshake</th><th>Troubleshooting</th></tr></thead><tbody>{''.join(router_rows)}</tbody></table></div>
-<details class="panel pad"><summary><strong>Authorized public IPs</strong> <span class="muted">· access administration</span></summary>
-<div style="margin-top:14px"><form class="inline" method="post" action="/dashboard/access/always"><input type="hidden" name="csrf" value="{csrf}"><input name="ip_address" placeholder="203.0.113.10" required><input name="label" placeholder="Office / Home / Technician"><button>Add permanent IP</button></form></div>
+<details class="panel pad"><summary><strong>Authorized public IPs</strong> <span class="muted">· {'access administration' if can_admin else 'read only'}</span></summary>
+{f'<div style="margin-top:14px"><form class="inline" method="post" action="/dashboard/access/always"><input type="hidden" name="csrf" value="{csrf}"><input name="ip_address" placeholder="203.0.113.10" required><input name="label" placeholder="Office / Home / Technician"><button>Add permanent IP</button></form></div>' if can_admin else '<div class="muted" style="margin-top:14px">Administrator access is required to add or remove permanent WinBox source IPs.</div>'}
 <div style="margin-top:14px"><table><thead><tr><th>IP address</th><th>Label</th><th>Type</th><th>Expires</th><th></th></tr></thead><tbody>{''.join(access_html)}</tbody></table></div></details>'''
     return page("Dashboard", body, user, "dashboard")
 
 
 @app.post("/dashboard/access/current")
 async def authorize_current(request: Request):
-    user = require_web_admin(request)
+    user = require_web_role(request, "technician")
     if not user:
         return RedirectResponse("/login", status_code=303)
     data = await form_data(request)
@@ -492,7 +495,7 @@ async def authorize_current(request: Request):
 
 @app.post("/dashboard/access/always")
 async def add_always(request: Request):
-    user = require_web_admin(request)
+    user = require_web_role(request, "admin")
     if not user:
         return RedirectResponse("/login", status_code=303)
     data = await form_data(request)
@@ -515,7 +518,7 @@ async def add_always(request: Request):
 
 @app.post("/dashboard/access/{access_id}/delete")
 async def delete_access(access_id: int, request: Request):
-    user = require_web_admin(request)
+    user = require_web_role(request, "admin")
     if not user:
         return RedirectResponse("/login", status_code=303)
     data = await form_data(request)
