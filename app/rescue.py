@@ -29,7 +29,7 @@ def ensure_schema():
 def _router(router_id):
     with core.db() as conn:
         return conn.execute(
-            "SELECT id,site_name,model,vpn_ip,public_key,enabled FROM routers WHERE id=?",
+            "SELECT id,site_name,model,vpn_ip,public_key,enabled,lifecycle_state FROM routers WHERE id=?",
             (router_id,),
         ).fetchone()
 
@@ -48,6 +48,8 @@ def _require_router(router_id):
     router = _router(router_id)
     if not router or not router["enabled"]:
         raise errors.OperationError("ROUTER_NOT_FOUND", "Enabled router not found")
+    if (router["lifecycle_state"] or "production") == "retired":
+        raise errors.OperationError("ROUTER_RETIRED", "Retired routers cannot receive rescue mutations")
     return router
 
 
