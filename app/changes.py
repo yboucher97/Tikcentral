@@ -128,7 +128,7 @@ def register(app, page_func):
                     pieces.append(
                         f'''<div style="margin-top:8px"><strong>Transaction #{tx["id"]} · {html.escape(tx["kind"])}</strong><div class="muted">Snapshot phase: {html.escape(new["source_kind"].replace("transaction_","").title())}</div>
 <div class="muted">{html.escape(tx["actor"] or "-")} · {html.escape(tx["created_at"])} → {html.escape(tx["finished_at"] or "")}{f' · Job #{tx["job_id"]}' if tx["job_id"] else ''}</div>
-<div><a href="/reliability#tx-{tx["id"]}">Open transaction transcript</a></div></div>'''
+<div><a href="/reliability#tx-{tx["id"]}">Open transaction transcript</a> · <a href="/change-impact/{tx["id"]}">Measured change impact</a></div></div>'''
                     )
             elif new["source_kind"]:
                 pieces.append(
