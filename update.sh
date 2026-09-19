@@ -263,6 +263,10 @@ if ! wait_health 20; then
   exit 1
 fi
 
+# Refresh backup verification and self-health immediately so the dashboard does
+# not keep showing a stale pre-update warning after permissions/backups were fixed.
+sudo -u tikcentral bash -c "set -a; source '$ENV_FILE'; set +a; cd '$CURRENT'; '$CURRENT/.venv/bin/python3' -c 'from app import system_health; system_health.verify_backups(); system_health.record_health()'"
+
 for path in /enroll /routers /guardian /operations /rescue /changes /audit /automation /ssh; do
   code="$(curl -sS -o /dev/null -w '%{http_code}' "http://127.0.0.1:8080$path" || true)"
   if [[ "$code" != "200" && "$code" != "303" ]]; then rollback "$path returned HTTP $code" || true; exit 1; fi
