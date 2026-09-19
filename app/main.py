@@ -561,7 +561,12 @@ def dashboard(request: Request):
         if item["always_allow"]:
             expiry, mode = "Always", "Always authorized"
         else:
-            expiry_dt = datetime.fromisoformat(item["expires_at"]) if item["expires_at"] else now
+            try:
+                expiry_dt = datetime.fromisoformat(item["expires_at"]) if item["expires_at"] else now
+                if expiry_dt.tzinfo is None:
+                    expiry_dt = expiry_dt.replace(tzinfo=timezone.utc)
+            except (TypeError, ValueError):
+                continue
             if expiry_dt <= now:
                 continue
             expiry, mode = expiry_dt.astimezone(timezone.utc).isoformat(), "Temporary"
@@ -837,7 +842,13 @@ async def enroll(request: Request):
             ).fetchone()
             if not token or token["used_at"]:
                 raise HTTPException(status_code=401, detail="invalid or already-used enrollment token")
-            if datetime.fromisoformat(token["expires_at"]) < now:
+            try:
+                token_expiry = datetime.fromisoformat(token["expires_at"])
+                if token_expiry.tzinfo is None:
+                    token_expiry = token_expiry.replace(tzinfo=timezone.utc)
+            except (TypeError, ValueError):
+                raise HTTPException(status_code=401, detail="invalid enrollment token")
+            if token_expiry < now:
                 raise HTTPException(status_code=401, detail="enrollment token expired")
             existing = conn.execute(
                 "SELECT site_name,vpn_ip,public_key,enabled,lifecycle_state,public_winbox_port FROM routers WHERE public_key=?",
