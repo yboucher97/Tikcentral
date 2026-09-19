@@ -234,6 +234,11 @@ if [[ -r "$UFW_STATE" ]]; then
   PREVIOUS_ROUTER_POOL="${TIKCENTRAL_UFW_ROUTER_POOL:-}"
   PREVIOUS_WINBOX_RANGE="${TIKCENTRAL_UFW_WINBOX_RANGE:-}"
 fi
+# Add the desired rules before deleting obsolete ones. If an add fails, the
+# currently working access rules remain in place and this pre-activation update
+# can stop safely.
+ufw allow "$CURRENT_WINBOX_RANGE/tcp" >/dev/null
+ufw route allow in on wg0 out on wg0 from 10.250.254.0/24 to "$CURRENT_ROUTER_POOL" >/dev/null
 if [[ -n "$PREVIOUS_WINBOX_RANGE" && "$PREVIOUS_WINBOX_RANGE" != "$CURRENT_WINBOX_RANGE" ]]; then
   ufw delete allow "$PREVIOUS_WINBOX_RANGE/tcp" >/dev/null 2>&1 || true
 elif [[ -z "$PREVIOUS_WINBOX_RANGE" && "$CURRENT_WINBOX_RANGE" != "20000:49999" ]]; then
@@ -244,8 +249,6 @@ if [[ -n "$PREVIOUS_ROUTER_POOL" && "$PREVIOUS_ROUTER_POOL" != "$CURRENT_ROUTER_
 elif [[ -z "$PREVIOUS_ROUTER_POOL" && "$CURRENT_ROUTER_POOL" != "10.250.1.0/24" ]]; then
   ufw route delete allow in on wg0 out on wg0 from 10.250.254.0/24 to 10.250.1.0/24 >/dev/null 2>&1 || true
 fi
-ufw allow "$CURRENT_WINBOX_RANGE/tcp" >/dev/null
-ufw route allow in on wg0 out on wg0 from 10.250.254.0/24 to "$CURRENT_ROUTER_POOL" >/dev/null
 cat > "$UFW_STATE" <<EOF
 TIKCENTRAL_UFW_ROUTER_POOL=$CURRENT_ROUTER_POOL
 TIKCENTRAL_UFW_WINBOX_RANGE=$CURRENT_WINBOX_RANGE
