@@ -25,7 +25,7 @@ def register(app,page_func):
         rendered="".join(
             f'<tr><td>{html.escape(x["category"])}</td><td><strong>{html.escape(x["manufacturer"])} {html.escape(x["model"])}</strong><div class="muted">{html.escape(x["serial"] or "-")}</div></td>'
             f'<td>{html.escape(x["asset_tag"] or "-")}</td><td>{html.escape(x["location"] or "-")}</td><td>{html.escape(x["installed_at"] or "-")}</td><td>{html.escape(x["warranty_until"] or "-")}</td><td>{html.escape(x["status"])}</td><td>{html.escape(x["notes"] or "")}</td>'
-            f'<td><form method="post" action="/hardware/{router_id}/{x["id"]}/status" class="inline"><input type="hidden" name="csrf" value="{csrf}"><select name="status"><option>installed</option><option>spare</option><option>repair</option><option>retired</option></select><button>Update</button></form></td></tr>'
+            f'<td><form method="post" action="/hardware/{router_id}/{x["id"]}/status" class="inline"><input type="hidden" name="csrf" value="{csrf}"><select name="status">'+''.join(f'<option value="{s}" {"selected" if x["status"]==s else ""}>{s}</option>' for s in ("installed","spare","repair","retired"))+f'</select><button>Update</button></form></td></tr>'
             for x in rows
         ) or '<tr><td colspan="9">No hardware inventory.</td></tr>'
         body=f'''<div class="panel pad"><h2>Hardware inventory · {html.escape(router["site_name"])}</h2>
