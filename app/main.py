@@ -833,52 +833,105 @@ async def enroll(request: Request):
     now = utcnow()
     if not re.fullmatch(r"[A-Za-z0-9+/]{43}=", req.public_key):
         raise HTTPException(status_code=400, detail="invalid WireGuard public key")
-    new_peer_attempted = False
-    try:
-        with db() as conn:
-            # Serialize token consumption plus VPN/WinBox allocation. Without this,
-            # concurrent enrollments can choose the same free address/port before
-            # either transaction writes.
-            conn.execute("BEGIN IMMEDIATE")
-            token = conn.execute(
-                "SELECT id,site_name,expires_at,used_at FROM enrollment_tokens WHERE token_hash=?",
-                (hash_token(req.token),),
-            ).fetchone()
-            if not token or token["used_at"]:
-                raise HTTPException(status_code=401, detail="invalid or already-used enrollment token")
+
+    def token_expiry(row):
+        try:
+            value = datetime.fromisoformat(row["expires_at"])
+            return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value.astimezone(timezone.utc)
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=401, detail="invalid enrollment token")
+
+    # Recover only Tikcentral-created, abandoned enrollment reservations. The
+    # pending marker prevents a crash between DB reservation and WireGuard setup
+    # from consuming a token forever.
+    stale_peer_reservation = False
+    with db() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        token = conn.execute(
+            "SELECT id,site_name,expires_at,used_at FROM enrollment_tokens WHERE token_hash=?",
+            (hash_token(req.token),),
+        ).fetchone()
+        used = (token["used_at"] if token else "") or ""
+        if token and used.startswith("pending:"):
             try:
-                token_expiry = datetime.fromisoformat(token["expires_at"])
-                if token_expiry.tzinfo is None:
-                    token_expiry = token_expiry.replace(tzinfo=timezone.utc)
-            except (TypeError, ValueError):
-                raise HTTPException(status_code=401, detail="invalid enrollment token")
-            if token_expiry < now:
-                raise HTTPException(status_code=401, detail="enrollment token expired")
-            existing = conn.execute(
-                "SELECT site_name,vpn_ip,public_key,enabled,lifecycle_state,public_winbox_port FROM routers WHERE public_key=?",
-                (req.public_key,),
-            ).fetchone()
-            if existing:
-                if not existing["enabled"]:
-                    raise HTTPException(status_code=403, detail="router disabled")
-                if (existing["lifecycle_state"] or "production") == "retired":
-                    raise HTTPException(status_code=403, detail="router retired")
-                if (existing["site_name"] or "").strip() != (token["site_name"] or "").strip():
-                    raise HTTPException(status_code=409, detail="enrollment token belongs to a different site")
-                wg_helper("add", existing["public_key"], existing["vpn_ip"])
+                pending_epoch = int(used.split(":", 2)[1])
+            except (ValueError, IndexError):
+                pending_epoch = int(time.time())
+            if int(time.time()) - pending_epoch > max(60, settings.WG_HELPER_TIMEOUT * 3):
+                reservation = conn.execute(
+                    """SELECT id FROM routers
+                       WHERE public_key=? AND enabled=0
+                         AND lifecycle_state='new'
+                         AND lifecycle_updated_by='enrollment-pending'""",
+                    (req.public_key,),
+                ).fetchone()
+                if reservation:
+                    conn.execute("DELETE FROM routers WHERE id=?", (reservation["id"],))
+                    stale_peer_reservation = True
+                conn.execute("UPDATE enrollment_tokens SET used_at=NULL WHERE id=? AND used_at=?", (token["id"], used))
+                token = conn.execute(
+                    "SELECT id,site_name,expires_at,used_at FROM enrollment_tokens WHERE id=?",
+                    (token["id"],),
+                ).fetchone()
+
+    if stale_peer_reservation:
+        try:
+            wg_helper("remove", req.public_key)
+        except Exception:
+            pass
+
+    if not token or token["used_at"]:
+        raise HTTPException(status_code=401, detail="invalid or already-used enrollment token")
+    if token_expiry(token) < now:
+        raise HTTPException(status_code=401, detail="enrollment token expired")
+
+    # Only valid tokens are allowed to trigger a privileged WireGuard dump.
+    with db() as conn:
+        existing_pre = conn.execute(
+            "SELECT id FROM routers WHERE public_key=?",
+            (req.public_key,),
+        ).fetchone()
+    live_peers = {} if existing_pre else wireguard_peers(strict=True)
+
+    marker = f"pending:{int(time.time())}:{secrets.token_hex(8)}"
+    reserved_new = False
+    token_id = None
+    vpn_ip = ""
+    public_port = None
+
+    with db() as conn:
+        # Keep only the short uniqueness/allocation reservation under SQLite's
+        # write lock. No external process runs while BEGIN IMMEDIATE is held.
+        conn.execute("BEGIN IMMEDIATE")
+        token = conn.execute(
+            "SELECT id,site_name,expires_at,used_at FROM enrollment_tokens WHERE token_hash=?",
+            (hash_token(req.token),),
+        ).fetchone()
+        if not token or token["used_at"]:
+            raise HTTPException(status_code=401, detail="invalid or already-used enrollment token")
+        if token_expiry(token) < utcnow():
+            raise HTTPException(status_code=401, detail="enrollment token expired")
+        token_id = int(token["id"])
+
+        existing = conn.execute(
+            "SELECT site_name,vpn_ip,public_key,enabled,lifecycle_state,public_winbox_port FROM routers WHERE public_key=?",
+            (req.public_key,),
+        ).fetchone()
+        if existing:
+            if not existing["enabled"]:
+                raise HTTPException(status_code=403, detail="router disabled")
+            if (existing["lifecycle_state"] or "production") == "retired":
+                raise HTTPException(status_code=403, detail="router retired")
+            if (existing["site_name"] or "").strip() != (token["site_name"] or "").strip():
+                raise HTTPException(status_code=409, detail="enrollment token belongs to a different site")
+            vpn_ip = existing["vpn_ip"]
+            public_port = existing["public_winbox_port"] or allocate_public_port(conn)
+            if not existing["public_winbox_port"]:
                 conn.execute(
-                    "UPDATE routers SET identity=?,serial=?,model=?,routeros_version=?,routerboot_version=? WHERE public_key=?",
-                    (req.identity, req.serial, req.model, req.routeros_version, req.routerboot_version, req.public_key),
+                    "UPDATE routers SET public_winbox_port=? WHERE public_key=?",
+                    (public_port, req.public_key),
                 )
-                conn.execute("UPDATE enrollment_tokens SET used_at=? WHERE id=?", (iso(now), token["id"]))
-                return {
-                    "vpn_ip": existing["vpn_ip"],
-                    "server_public_key": WG_SERVER_PUBLIC_KEY,
-                    "endpoint": WG_ENDPOINT,
-                    "allowed_network": WG_ALLOWED_NETWORK,
-                    "remote_winbox": f'{PUBLIC_HOSTNAME}:{existing["public_winbox_port"]}',
-                }
-            live_peers = wireguard_peers(strict=True)
+        else:
             if req.public_key in live_peers:
                 raise HTTPException(status_code=409, detail="WireGuard peer exists without a matching router record")
             reserved_networks = []
@@ -894,22 +947,87 @@ async def enroll(request: Request):
             vpn_ip = next_router_ip(conn, reserved_networks)
             public_port = allocate_public_port(conn)
             conn.execute(
-                "INSERT INTO routers(site_name,identity,serial,model,routeros_version,routerboot_version,public_key,vpn_ip,public_winbox_port,created_at,lifecycle_state,lifecycle_updated_at,lifecycle_updated_by) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                (token["site_name"], req.identity, req.serial, req.model, req.routeros_version, req.routerboot_version, req.public_key, vpn_ip, public_port, iso(now), "new", iso(now), "enrollment"),
+                """INSERT INTO routers(
+                     site_name,identity,serial,model,routeros_version,routerboot_version,
+                     public_key,vpn_ip,enabled,public_winbox_port,created_at,
+                     lifecycle_state,lifecycle_updated_at,lifecycle_updated_by
+                   ) VALUES(?,?,?,?,?,?,?,?,0,?,?,?,?,?)""",
+                (
+                    token["site_name"], req.identity, req.serial, req.model,
+                    req.routeros_version, req.routerboot_version, req.public_key,
+                    vpn_ip, public_port, iso(now), "new", iso(now), "enrollment-pending",
+                ),
             )
-            conn.execute("UPDATE enrollment_tokens SET used_at=? WHERE id=?", (iso(now), token["id"]))
-            # Reserve the DB identity first, then activate WireGuard. If either
-            # WireGuard setup or the final SQLite commit fails, compensation
-            # below removes any partially-created peer.
-            new_peer_attempted = True
-            wg_helper("add", req.public_key, vpn_ip)
+            reserved_new = True
+
+        changed = conn.execute(
+            "UPDATE enrollment_tokens SET used_at=? WHERE id=? AND used_at IS NULL",
+            (marker, token_id),
+        ).rowcount
+        if changed != 1:
+            raise HTTPException(status_code=409, detail="enrollment token was claimed concurrently")
+
+    try:
+        # External WireGuard work runs after the DB reservation has committed,
+        # so it cannot freeze unrelated Tikcentral writers.
+        wg_helper("add", req.public_key, vpn_ip)
+
+        with db() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            token_row = conn.execute(
+                "SELECT used_at FROM enrollment_tokens WHERE id=?",
+                (token_id,),
+            ).fetchone()
+            if not token_row or token_row["used_at"] != marker:
+                raise RuntimeError("enrollment reservation was lost")
+            if reserved_new:
+                changed = conn.execute(
+                    """UPDATE routers SET enabled=1,lifecycle_updated_by='enrollment'
+                       WHERE public_key=? AND enabled=0
+                         AND lifecycle_updated_by='enrollment-pending'""",
+                    (req.public_key,),
+                ).rowcount
+                if changed != 1:
+                    raise RuntimeError("router enrollment reservation was lost")
+            else:
+                conn.execute(
+                    """UPDATE routers SET identity=?,serial=?,model=?,
+                       routeros_version=?,routerboot_version=?
+                       WHERE public_key=?""",
+                    (
+                        req.identity, req.serial, req.model, req.routeros_version,
+                        req.routerboot_version, req.public_key,
+                    ),
+                )
+            finalized = conn.execute(
+                "UPDATE enrollment_tokens SET used_at=? WHERE id=? AND used_at=?",
+                (iso(utcnow()), token_id, marker),
+            ).rowcount
+            if finalized != 1:
+                raise RuntimeError("enrollment token finalization failed")
     except Exception:
-        if new_peer_attempted:
+        if reserved_new:
             try:
                 wg_helper("remove", req.public_key)
             except Exception:
                 pass
+        try:
+            with db() as conn:
+                conn.execute("BEGIN IMMEDIATE")
+                if reserved_new:
+                    conn.execute(
+                        """DELETE FROM routers WHERE public_key=? AND enabled=0
+                           AND lifecycle_updated_by='enrollment-pending'""",
+                        (req.public_key,),
+                    )
+                conn.execute(
+                    "UPDATE enrollment_tokens SET used_at=NULL WHERE id=? AND used_at=?",
+                    (token_id, marker),
+                )
+        except Exception:
+            pass
         raise
+
     return {
         "vpn_ip": vpn_ip,
         "server_public_key": WG_SERVER_PUBLIC_KEY,
