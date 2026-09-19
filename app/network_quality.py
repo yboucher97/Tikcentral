@@ -71,6 +71,16 @@ def _int(v):
         return None
 
 
+def _uptime_seconds(value):
+    text=(value or "").strip().lower()
+    if not text:return None
+    total=0
+    units={"w":604800,"d":86400,"h":3600,"m":60,"s":1}
+    for number,unit in re.findall(r"(\d+)(w|d|h|m|s)",text):
+        total+=int(number)*units[unit]
+    return total if total or text in {"0","0s"} else None
+
+
 def _rate_bps(value):
     s=(value or "").strip().lower().replace(" ","")
     m=re.search(r"([0-9.]+)([kmgt]?)bps",s)
@@ -294,11 +304,35 @@ def _pppoe_collect(router,captured):
                    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (router["id"],captured,name,running,disabled,uptime,service,ac,local,remote,mtu,mru,status,fingerprint,summary),
             )
+            cutoff=(datetime.now(timezone.utc)-timedelta(hours=24)).isoformat()
+            history=conn.execute(
+                """SELECT running,uptime FROM router_pppoe_history
+                   WHERE router_id=? AND interface=? AND captured_at>=? ORDER BY id""",
+                (router["id"],name,cutoff),
+            ).fetchall()
+        reconnects=0
+        previous_running=None
+        previous_uptime=None
+        for sample in history:
+            up=_uptime_seconds(sample["uptime"])
+            if previous_running==0 and sample["running"]==1:
+                reconnects+=1
+            elif previous_uptime is not None and up is not None and up+60<previous_uptime:
+                reconnects+=1
+            previous_running=sample["running"]
+            if up is not None:previous_uptime=up
+        if reconnects:
+            summary+=f" · {reconnects} reconnect/reset indication(s) in 24h"
+            with core.db() as conn:
+                conn.execute(
+                    "UPDATE router_pppoe_history SET summary=? WHERE router_id=? AND interface=? AND captured_at=?",
+                    (summary,router["id"],name,captured),
+                )
         if prev and prev["fingerprint"]!=fingerprint:
             detail=f"before={prev['summary']}; after={summary}"
             sev="warning" if running==0 or (prev["ac_name"] and ac and prev["ac_name"]!=ac) else "info"
             events.record(router["id"],"pppoe","PPPoE session characteristics changed",detail,sev)
-        results.append({"interface":name,"status":status,"summary":summary})
+        results.append({"interface":name,"status":status,"summary":summary,"reconnects_24h":reconnects})
     return results
 
 
@@ -324,7 +358,10 @@ def _gateway_collect(router,captured):
             "SELECT * FROM router_isp_gateway_history WHERE router_id=? ORDER BY id DESC LIMIT 1",
             (router["id"],),
         ).fetchone()
-        changed=bool(prev and (prev["gateway"]!=gateway or prev["mac_address"]!=mac or prev["interface"]!=interface))
+        changed=bool(prev and (
+            prev["gateway"]!=gateway or prev["mac_address"]!=mac or prev["interface"]!=interface or
+            (prev["reachable"] is not None and reachable is not None and prev["reachable"]!=reachable)
+        ))
         summary=f"Gateway {gateway or 'unknown'}"
         if interface:summary+=f" via {interface}"
         if reachable is not None:summary+=f" · {'reachable' if reachable else 'unreachable'}"
@@ -337,7 +374,8 @@ def _gateway_collect(router,captured):
             (router["id"],captured,gateway,interface,reachable,latency,mac,1 if changed else 0,summary),
         )
     if prev and changed:
-        events.record(router["id"],"isp-gateway","ISP gateway characteristics changed",f"before={prev['summary']}; after={summary}","warning")
+        severity="warning" if reachable is False else "info"
+        events.record(router["id"],"isp-gateway","ISP gateway state changed",f"before={prev['summary']}; after={summary}",severity)
     return {"gateway":gateway,"interface":interface,"reachable":reachable,"latency_ms":latency,"mac_address":mac,"summary":summary}
 
 
