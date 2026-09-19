@@ -41,8 +41,16 @@ TEMP_ACCESS_DAYS = _int("TEMP_ACCESS_DAYS", 5, minimum=1, maximum=90)
 WG_HELPER = os.getenv("WG_HELPER", "/usr/local/sbin/tikcentral-wg-peer")
 WG_SERVER_PUBLIC_KEY = _required("WG_SERVER_PUBLIC_KEY")
 WG_ENDPOINT = _required("WG_ENDPOINT")
-WG_ROUTER_POOL = ipaddress.ip_network(os.getenv("WG_ROUTER_POOL", "10.250.1.0/24"))
-WG_ALLOWED_NETWORK = os.getenv("WG_ALLOWED_NETWORK", "10.250.0.0/16")
+try:
+    WG_ROUTER_POOL = ipaddress.ip_network(os.getenv("WG_ROUTER_POOL", "10.250.1.0/24"), strict=True)
+    WG_ALLOWED_NETWORK_OBJ = ipaddress.ip_network(os.getenv("WG_ALLOWED_NETWORK", "10.250.0.0/16"), strict=True)
+except ValueError as exc:
+    raise RuntimeError(f"Invalid WireGuard network settings: {exc}") from exc
+if WG_ROUTER_POOL.version != 4 or WG_ALLOWED_NETWORK_OBJ.version != 4:
+    raise RuntimeError("WG_ROUTER_POOL and WG_ALLOWED_NETWORK must be IPv4 networks")
+if not WG_ROUTER_POOL.subnet_of(WG_ALLOWED_NETWORK_OBJ):
+    raise RuntimeError("WG_ROUTER_POOL must be contained within WG_ALLOWED_NETWORK")
+WG_ALLOWED_NETWORK = str(WG_ALLOWED_NETWORK_OBJ)
 ONLINE_SECONDS = _int("ONLINE_SECONDS", 180, minimum=30, maximum=3600)
 WG_HELPER_TIMEOUT = _int("TIKCENTRAL_WG_HELPER_TIMEOUT", 10, minimum=2, maximum=120)
 PUBLIC_HOSTNAME = os.getenv("PUBLIC_HOSTNAME", WG_ENDPOINT.rsplit(":", 1)[0])
@@ -140,6 +148,8 @@ try:
     _pool_end = ipaddress.ip_address(_pool_end_text.strip())
     if _pool_start not in _rescue_network or _pool_end not in _rescue_network or int(_pool_start) > int(_pool_end):
         raise ValueError("rescue pool is invalid or outside rescue network")
+    if _rescue_network.overlaps(WG_ALLOWED_NETWORK_OBJ):
+        raise ValueError("rescue network overlaps the WireGuard management network")
     ipaddress.ip_address(RESCUE_DNS)
 except (ValueError, TypeError) as exc:
     raise RuntimeError(f"Invalid Tikcentral Rescue network settings: {exc}") from exc
