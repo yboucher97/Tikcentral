@@ -200,7 +200,13 @@ def run_backup_job(created_by="scheduler"):
         for future in as_completed([pool.submit(one, router) for router in routers]):
             _record_result(job_id, *future.result())
     _finish_job(job_id)
-    cleanup_backups()
+    try:
+        cleanup_backups()
+    except Exception as exc:
+        try:
+            events.record(None, "backup-retention", "Router backup retention cleanup failed", errors.short(exc), "warning")
+        except Exception:
+            pass
     return job_id
 
 
