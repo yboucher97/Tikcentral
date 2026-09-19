@@ -272,10 +272,10 @@ def _router_backup_status():
     for router in routers:
         found = []
         for root in roots:
-            folder = root / str(router["id"])
+            folder = root / str(router["id"]) / "daily"
             try:
                 if folder.exists():
-                    found.extend(folder.glob("*/*.rsc"))
+                    found.extend(folder.glob("*.rsc"))
             except OSError:
                 continue
         try:
@@ -283,7 +283,7 @@ def _router_backup_status():
         except OSError:
             found = []
         if not found:
-            results.append(("warning", "", f"{router['site_name']}: no .rsc backup found"))
+            results.append(("warning", "", f"{router['site_name']}: no daily .rsc backup found"))
             continue
         path = found[0]
         try:
