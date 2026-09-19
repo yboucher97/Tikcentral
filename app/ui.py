@@ -278,7 +278,7 @@ JS = r'''
    saved=raw&&raw.startsWith('"')?JSON.parse(raw):raw;
  }catch(_){}
  root.dataset.theme=(saved==='light'||saved==='dark')?saved:(matchMedia('(prefers-color-scheme: light)').matches?'light':'dark');
- let tcUserPrefs={},tcPrefsCsrf='',tcPrefTimers={};
+ let tcUserPrefs={},tcPrefsCsrf='';
 
  function localPrefKey(key){const who=document.body?.dataset?.tcUser||'anonymous';return 'tikcentral:account-pref:'+who+':'+key}
  function prefGet(key,fallback){
@@ -289,10 +289,14 @@ JS = r'''
  function prefSet(key,value){
    tcUserPrefs[key]=value;
    try{if(value===null)localStorage.removeItem(localPrefKey(key));else localStorage.setItem(localPrefKey(key),JSON.stringify(value))}catch(_){}
-   clearTimeout(tcPrefTimers[key]);
-   tcPrefTimers[key]=setTimeout(async()=>{
-     try{await fetch('/api/ui/preferences',{method:'PUT',credentials:'same-origin',headers:{'Content-Type':'application/json','X-CSRF-Token':tcPrefsCsrf},body:JSON.stringify({key,value})})}catch(_){}
-   },250);
+   if(!tcPrefsCsrf)return;
+   try{
+     fetch('/api/ui/preferences',{
+       method:'PUT',credentials:'same-origin',keepalive:true,
+       headers:{'Content-Type':'application/json','X-CSRF-Token':tcPrefsCsrf},
+       body:JSON.stringify({key,value})
+     }).catch(()=>{});
+   }catch(_){}
  }
  async function loadUserPreferences(){
    try{
