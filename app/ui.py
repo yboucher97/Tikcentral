@@ -230,7 +230,7 @@ th{font-size:10px;text-transform:uppercase;letter-spacing:.045em;color:var(--mut
 tbody tr:hover{background:var(--surface2)}
 
 .tc-copy-btn{margin-left:5px;padding:3px 6px;font-size:10px}.tc-copy-ok{border-color:var(--accent)!important;color:var(--accent)!important}
-td.tc-copyable-cell{position:relative;padding-right:34px}.tc-cell-copy{position:absolute;right:5px;top:5px;opacity:0;padding:2px 5px;font-size:9px;line-height:1.2;background:var(--surface3);z-index:3}.tc-copyable-cell:hover>.tc-cell-copy,.tc-cell-copy:focus{opacity:1}.tc-copy-priority>.tc-cell-copy{opacity:.72;border-color:color-mix(in srgb,var(--accent) 35%,var(--line));color:var(--accent)}
+td.tc-copyable-cell{position:relative;padding-right:48px}.tc-cell-copy{position:absolute;right:5px;top:5px;opacity:0;padding:2px 6px;font-size:9px;line-height:1.2;background:var(--surface3);z-index:3}.tc-copyable-cell:hover>.tc-cell-copy,.tc-cell-copy:focus{opacity:1}.tc-copy-priority>.tc-cell-copy{opacity:1;border-color:color-mix(in srgb,var(--accent) 55%,var(--line));color:var(--accent);font-weight:800}.tc-copy-table,.tc-copy-column{white-space:nowrap}
 .tc-toast{border-left:3px solid var(--accent)}.tc-toast.bad{border-left-color:var(--danger)}
 .tc-diff-line{padding:3px 9px;white-space:pre-wrap;word-break:break-word;border-bottom:1px solid color-mix(in srgb,var(--line) 45%,transparent)}.tc-diff-line.ok{background:color-mix(in srgb,var(--ok) 9%,transparent);color:var(--ok)}.tc-diff-line.bad{background:color-mix(in srgb,var(--danger) 9%,transparent);color:var(--danger)}.tc-diff-line.warn{background:color-mix(in srgb,var(--warn) 9%,transparent);color:var(--warn)}
 
@@ -318,17 +318,35 @@ JS = r'''
  function cellTextForCopy(td){const clone=td.cloneNode(true);clone.querySelectorAll('button,form,.tc-cell-copy,.tc-copy-btn').forEach(x=>x.remove());return (clone.innerText||clone.textContent||'').trim()}
  function installCellCopy(table,headers){
    const priority=/identity|model|serial|public ip|vpn ip|winbox|hostname|address|gateway|mac|ticket|source ip/i;
-   const skip=/workflow|action|troubleshooting|controls?$/i;
+   const skip=/workflow|actions?|troubleshooting|controls?$/i;
    [...table.tBodies].flatMap(tb=>[...tb.rows]).forEach(row=>{
      [...row.cells].forEach((td,i)=>{
        const label=(headers[i]?.innerText||'').trim();
-       if(!label||skip.test(label)||td.querySelector('form,button')||td.classList.contains('tc-empty'))return;
+       if(!label||skip.test(label)||td.classList.contains('tc-empty')||td.querySelector(':scope > .tc-cell-copy'))return;
        const value=cellTextForCopy(td);if(!value||value==='-')return;
        td.classList.add('tc-copyable-cell');if(priority.test(label))td.classList.add('tc-copy-priority');
        const b=document.createElement('button');b.type='button';b.className='tc-cell-copy';b.textContent='Copy';b.title='Copy '+label;
        b.onclick=e=>{e.preventDefault();e.stopPropagation();window.tcCopy(cellTextForCopy(td),b)};td.appendChild(b);
      });
    });
+ }
+ function visibleTableRows(table){
+   return [...table.tBodies].flatMap(tb=>[...tb.rows]).filter(r=>r.style.display!=='none');
+ }
+ function visibleColumnIndexes(table,headers){
+   return headers.map((_,i)=>i).filter(i=>[...table.rows].some(r=>r.cells[i]&&r.cells[i].style.display!=='none'));
+ }
+ async function copyVisibleTable(table,headers,button){
+   const cols=visibleColumnIndexes(table,headers);
+   const lines=[cols.map(i=>(headers[i]?.innerText||('Column '+(i+1))).trim()).join('\t')];
+   visibleTableRows(table).forEach(r=>lines.push(cols.map(i=>cellTextForCopy(r.cells[i]||document.createElement('td'))).join('\t')));
+   await window.tcCopy(lines.join('\n'),button);
+ }
+ async function copyVisibleColumn(table,headers,index,button){
+   if(index<0||!headers[index])return;
+   const values=[(headers[index].innerText||('Column '+(index+1))).trim()];
+   visibleTableRows(table).forEach(r=>values.push(cellTextForCopy(r.cells[index]||document.createElement('td'))));
+   await window.tcCopy(values.join('\n'),button);
  }
  function filterTable(wrap){
    const q=(wrap.querySelector('.tc-local-search')?.value||'').toLowerCase();
@@ -348,7 +366,7 @@ JS = r'''
    if(table.dataset.tcReady)return;table.dataset.tcReady='1';
    const panel=table.parentElement,wrap=document.createElement('div');wrap.className='tc-table-wrap';panel.insertBefore(wrap,table);
    const tools=document.createElement('div');tools.className='tc-table-tools';
-   tools.innerHTML='<input class="tc-local-search" data-no-copy placeholder="Search rows…"><button type="button" class="tc-filter-toggle">Filter</button><span class="tc-count"></span><div class="tc-colbox"><button type="button" class="tc-colbtn">Columns</button><div class="tc-colmenu"></div></div><button type="button" class="tc-reset">Reset</button><div class="tc-advanced"><select class="tc-filter-column" data-no-copy></select><select class="tc-filter-op" data-no-copy><option value="contains">contains</option><option value="!contains">does not contain</option><option value="=">=</option><option value="!=">!=</option><option value=">">&gt;</option><option value=">=">&gt;=</option><option value="<">&lt;</option><option value="<=">&lt;=</option></select><input class="tc-filter-value" data-no-copy placeholder="Filter value…"></div><div class="tc-date-range"><select class="tc-date-column" data-no-copy></select><label>From <input type="datetime-local" class="tc-date-from" data-no-copy></label><label>To <input type="datetime-local" class="tc-date-to" data-no-copy></label><span class="tc-timezone-hint">Montréal local time</span></div>';
+   tools.innerHTML='<input class="tc-local-search" data-no-copy placeholder="Search rows…"><button type="button" class="tc-filter-toggle">Filter</button><span class="tc-count"></span><button type="button" class="tc-copy-table">Copy visible</button><div class="tc-colbox"><button type="button" class="tc-colbtn">Columns</button><div class="tc-colmenu"></div></div><button type="button" class="tc-reset">Reset</button><div class="tc-advanced"><select class="tc-filter-column" data-no-copy></select><select class="tc-filter-op" data-no-copy><option value="contains">contains</option><option value="!contains">does not contain</option><option value="=">=</option><option value="!=">!=</option><option value=">">&gt;</option><option value=">=">&gt;=</option><option value="<">&lt;</option><option value="<=">&lt;=</option></select><input class="tc-filter-value" data-no-copy placeholder="Filter value…"><button type="button" class="tc-copy-column">Copy selected column</button></div><div class="tc-date-range"><select class="tc-date-column" data-no-copy></select><label>From <input type="datetime-local" class="tc-date-from" data-no-copy></label><label>To <input type="datetime-local" class="tc-date-to" data-no-copy></label><span class="tc-timezone-hint">Montréal local time</span></div>';
    wrap.appendChild(tools);const scroll=document.createElement('div');scroll.className='tc-scroll';wrap.appendChild(scroll);scroll.appendChild(table);
    const key='tikcentral:columns:'+location.pathname+':'+index;let hidden=[];const stored=localStorage.getItem(key);try{hidden=stored!==null?JSON.parse(stored):(table.dataset.defaultHidden||'').split(',').map(x=>Number(x.trim())).filter(Number.isFinite)}catch(_){hidden=[]}
    const headers=[...table.querySelectorAll('thead th')],menu=tools.querySelector('.tc-colmenu'),filterColumn=tools.querySelector('.tc-filter-column'),dateColumn=tools.querySelector('.tc-date-column');
@@ -364,6 +382,8 @@ JS = r'''
    installCellCopy(table,headers);
    function setCol(i,show,save=true){[...table.rows].forEach(r=>{if(r.cells[i])r.cells[i].style.display=show?'':'none'});hidden=hidden.filter(x=>x!==i);if(!show)hidden.push(i);if(save)localStorage.setItem(key,JSON.stringify(hidden))}
    tools.querySelector('.tc-filter-toggle').onclick=()=>tools.classList.toggle('filter-open');
+   tools.querySelector('.tc-copy-table').onclick=e=>{e.preventDefault();copyVisibleTable(table,headers,e.currentTarget)};
+   tools.querySelector('.tc-copy-column').onclick=e=>{e.preventDefault();copyVisibleColumn(table,headers,Number(filterColumn.value??-1),e.currentTarget)};
    tools.querySelector('.tc-colbtn').onclick=e=>{e.stopPropagation();tools.querySelector('.tc-colbox').classList.toggle('open')};
    ['input','change'].forEach(ev=>{tools.querySelector('.tc-local-search').addEventListener(ev,()=>filterTable(wrap));tools.querySelector('.tc-filter-value').addEventListener(ev,()=>filterTable(wrap));tools.querySelector('.tc-date-from')?.addEventListener(ev,()=>filterTable(wrap));tools.querySelector('.tc-date-to')?.addEventListener(ev,()=>filterTable(wrap))});
    filterColumn.onchange=()=>filterTable(wrap);tools.querySelector('.tc-filter-op').onchange=()=>filterTable(wrap);if(dateColumn)dateColumn.onchange=()=>filterTable(wrap);
