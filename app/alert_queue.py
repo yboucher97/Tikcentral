@@ -81,14 +81,15 @@ def register(app,page_func):
         note=str(data.get("resolution_note","")).strip()[:2000]
         now=_now()
         with core.db() as conn:
-            row=conn.execute("SELECT status FROM alert_queue WHERE id=?",(alert_id,)).fetchone()
-            if row:
-                ack=now if status in {"acknowledged","assigned","investigating","resolved"} and row["status"]=="new" else ""
-                resolved=now if status=="resolved" else ""
-                conn.execute(
-                    """UPDATE alert_queue SET status=?,assigned_to=?,ticket_reference=?,resolution_note=?,
-                       acknowledged_at=CASE WHEN ?<>'' THEN ? ELSE acknowledged_at END,
-                       resolved_at=?,updated_by=?,updated_at=? WHERE id=?""",
-                    (status,assigned,ticket,note,ack,ack,resolved,user["email"],now,alert_id),
-                )
+            row=conn.execute("SELECT status,acknowledged_at FROM alert_queue WHERE id=?",(alert_id,)).fetchone()
+            if not row:
+                from fastapi import HTTPException
+                raise HTTPException(status_code=404,detail="alert not found")
+            ack = None if status=="new" else (row["acknowledged_at"] or now)
+            resolved = now if status=="resolved" else None
+            conn.execute(
+                """UPDATE alert_queue SET status=?,assigned_to=?,ticket_reference=?,resolution_note=?,
+                   acknowledged_at=?,resolved_at=?,updated_by=?,updated_at=? WHERE id=?""",
+                (status,assigned,ticket,note,ack,resolved,user["email"],now,alert_id),
+            )
         return RedirectResponse("/alerts",303)
