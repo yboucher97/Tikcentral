@@ -7,8 +7,13 @@ from app import settings
 
 
 def db_connect():
-    conn = sqlite3.connect(settings.DB_PATH, timeout=5)
+    # Open the application database read-only. SQLite WAL readers may still
+    # need to create/manage shared-memory sidecar files in the directory, but
+    # this connection itself can never mutate Tikcentral data.
+    db_uri = f"file:{settings.DB_PATH}?mode=ro"
+    conn = sqlite3.connect(db_uri, uri=True, timeout=5)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA query_only=ON")
     return conn
 
 
