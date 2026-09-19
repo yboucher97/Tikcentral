@@ -314,6 +314,71 @@ JS = r'''
    const saved=localStorage.getItem('tikcentral:router-tab');const target=sections[saved]?saved:Object.keys(sections)[0];[...tabs.children].find(b=>b.textContent===target)?.click();
  }
 
+ function routerIdFromPath(){
+   const patterns=[
+     /^\/(?:operations|timeline|incidents|diagnostics|network-quality|wan-probe|interfaces|lte|mtu|time-health|traffic|capacity|site|notes|customer-report|topology|desired-state|protection|recovery|security-audit|automation-inventory|local-utilization|public-ip-analysis|hardware|hardware-lifecycle|certificates|commissioning-checklist|maintenance-history|ai|audit|compliance|lifecycle)\/(\d+)(?:\/|$)/
+   ];
+   for(const rx of patterns){const m=location.pathname.match(rx);if(m)return m[1]}
+   return null;
+ }
+ function installRouterContext(){
+   const id=routerIdFromPath(),mount=document.getElementById('tcObjectContext');if(!id||!mount)return;
+   let label='Router #'+id;
+   const heading=[...document.querySelectorAll('.tc-content h2,.tc-content h1')].map(x=>(x.textContent||'').trim()).find(Boolean);
+   if(heading){
+     const cleaned=heading.replace(/^(Router operations|Network quality|Router timeline|Incident builder|Site \/ customer|Hardware lifecycle|Interface health|LTE|MTU \/ MSS|Time \/ NTP health|Public-IP change analysis|Local network utilization|Router log patterns|Topology|Desired state|Security exposure|Certificates|Maintenance history)\s*[·:-]\s*/i,'').trim();
+     if(cleaned&&cleaned.length<100)label=cleaned;
+   }
+   const links=[
+     ['Overview','/operations/'+id],
+     ['Timeline','/timeline/'+id],
+     ['Incident','/incidents/'+id],
+     ['Network','/network-quality/'+id],
+     ['Site','/site/'+id],
+     ['Notes','/notes/'+id],
+     ['Changes','/changes/'+id],
+     ['AI','/ai/'+id],
+   ];
+   const htmlLinks=links.map(([name,href])=>'<a href="'+href+'" class="'+(location.pathname===href?'active':'')+'">'+name+'</a>').join('');
+   mount.innerHTML='<div class="tc-contextbar"><div class="tc-context-main"><span class="tc-status-dot" style="color:var(--accent)"></span><div><div class="tc-context-title"></div><div class="muted">Router workspace</div></div></div><div class="tc-context-links">'+htmlLinks+'</div></div>';
+   mount.querySelector('.tc-context-title').textContent=label;
+   try{
+     const key='tikcentral:recent-routers';let recent=JSON.parse(localStorage.getItem(key)||'[]');
+     recent=recent.filter(x=>String(x.id)!==String(id));recent.unshift({id,label,at:Date.now()});recent=recent.slice(0,8);localStorage.setItem(key,JSON.stringify(recent));
+   }catch(_){}
+ }
+ function installRecentRouters(){
+   const list=document.querySelector('.tc-palette-list');if(!list)return;
+   try{
+     const recent=JSON.parse(localStorage.getItem('tikcentral:recent-routers')||'[]');if(!recent.length)return;
+     const title=document.createElement('div');title.className='tc-palette-group';title.textContent='Recent routers';list.prepend(title);
+     [...recent].reverse().forEach(x=>{const a=document.createElement('a');a.className='tc-palette-item';a.href='/operations/'+x.id;a.dataset.search=('router '+x.label+' '+x.id).toLowerCase();a.innerHTML='<span></span><span>Router</span>';a.firstChild.textContent=x.label;title.insertAdjacentElement('afterend',a)});
+   }catch(_){}
+ }
+ function classifyActions(){
+   document.querySelectorAll('button').forEach(b=>{
+     const t=(b.textContent||'').trim().toLowerCase();
+     if(/\b(delete|remove|retire|factory|destroy)\b/.test(t))b.classList.add('tc-danger-action');
+     else if(/\b(reboot|upgrade|normalize|rescue|disable|rollback|replace)\b/.test(t))b.classList.add('tc-warning-action');
+   });
+ }
+ function decorateEmptyStates(){
+   document.querySelectorAll('tbody tr').forEach(tr=>{if(tr.children.length===1&&/^no\b/i.test((tr.innerText||'').trim()))tr.firstElementChild?.classList.add('tc-empty')});
+ }
+ function protectDirtyForms(){
+   let dirty=false;
+   const forms=[...document.querySelectorAll('form')].filter(f=>(f.method||'').toLowerCase()==='post'&&f.querySelector('input:not([type=hidden]):not([type=submit]),textarea,select'));
+   forms.forEach(f=>{
+     const mark=e=>{if(e.target.matches('input[type=search],input[data-no-copy]#tcGlobalSearch'))return;dirty=true;f.classList.add('tc-dirty')};
+     f.addEventListener('input',mark);f.addEventListener('change',mark);f.addEventListener('submit',()=>{dirty=false;f.classList.remove('tc-dirty')});
+   });
+   window.addEventListener('beforeunload',e=>{if(dirty){e.preventDefault();e.returnValue=''}});
+ }
+ function installGuidancePreference(){
+   if(localStorage.getItem('tikcentral:hide-guidance')==='1')document.body.classList.add('tc-hide-guidance');
+   document.querySelector('.tc-intro-dismiss')?.addEventListener('click',()=>{document.body.classList.add('tc-hide-guidance');localStorage.setItem('tikcentral:hide-guidance','1')});
+ }
+
  function decorateStatuses(){document.querySelectorAll('td').forEach(td=>{if(td.children.length)return;const s=(td.innerText||'').trim().toLowerCase();let tone='';if(['healthy','online','passed','success','succeeded','enabled','ready','commissioned','matches baseline','ok','up'].includes(s))tone='ok';else if(['warning','partial','degraded','pending','queued','running','verifying','drift','drift detected','saturated'].includes(s))tone='warn';else if(['failed','error','critical','offline','down'].includes(s))tone='bad';if(tone){const text=td.innerText;td.innerHTML='<span class="tc-status '+tone+'"><span class="tc-status-dot"></span><span></span></span>';td.firstChild.lastChild.textContent=text}})}
 
  document.addEventListener('click',e=>{
@@ -321,12 +386,20 @@ JS = r'''
    if(!e.target.closest('.tc-account'))document.querySelector('.tc-account')?.classList.remove('open');
    if(e.target.id==='tcPalette')closePalette();
  });
+ let tcGotoPrefix=false;
  document.addEventListener('keydown',e=>{
-   if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='k'){e.preventDefault();openPalette()}
-   if(e.key==='Escape'){closePalette();document.body.classList.remove('tc-nav-open')}
+   const tag=(e.target?.tagName||'').toLowerCase();const typing=['input','textarea','select'].includes(tag)||e.target?.isContentEditable;
+   if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='k'){e.preventDefault();openPalette();return}
+   if(e.key==='Escape'){closePalette();document.body.classList.remove('tc-nav-open');tcGotoPrefix=false;return}
+   if(!typing&&e.key==='/'){e.preventDefault();document.getElementById('tcGlobalSearch')?.focus();return}
+   if(!typing&&e.key.toLowerCase()==='g'){tcGotoPrefix=true;setTimeout(()=>tcGotoPrefix=false,1200);return}
+   if(!typing&&tcGotoPrefix){
+     const map={r:'/routers',a:'/alerts',o:'/operations',c:'/customers',d:'/'},dest=map[e.key.toLowerCase()];
+     tcGotoPrefix=false;if(dest){e.preventDefault();location.href=dest}
+   }
  });
  document.addEventListener('DOMContentLoaded',()=>{
-   themeLabel();installCopyButtons();organizeRouterWorkspace();decorateStatuses();
+   themeLabel();installCopyButtons();installGuidancePreference();installRouterContext();installRecentRouters();organizeRouterWorkspace();decorateStatuses();decorateEmptyStates();classifyActions();protectDirtyForms();
    const observer=new MutationObserver(ms=>ms.forEach(m=>m.addedNodes.forEach(node=>{if(node.nodeType===1)installCopyButtons(node)})));observer.observe(document.body,{childList:true,subtree:true});
    document.querySelectorAll('table').forEach(enhanceTable);
    const g=document.getElementById('tcGlobalSearch');if(g)g.oninput=globalFilter;
