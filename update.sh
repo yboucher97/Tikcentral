@@ -129,6 +129,7 @@ if [[ ! -f "$RELEASE/.tikcentral-validated" ]] || [[ "$(cat "$RELEASE/.tikcentra
   bash -n "$RELEASE/update.sh"
   for file in "$RELEASE"/helpers/* "$RELEASE"/scripts/*.sh; do [[ -f "$file" ]] || continue; bash -n "$file"; done
 
+  "$RELEASE/.venv/bin/python3" "$RELEASE/scripts/validate_packaging.py"
   sudo -u tikcentral bash -c "set -a; source '$ENV_FILE'; set +a; cd '$RELEASE'; '$RELEASE/.venv/bin/python3' scripts/validate_release.py"
   printf '%s\n' "$TARGET_SHA" > "$RELEASE/.tikcentral-validated"
 fi
