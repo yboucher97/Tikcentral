@@ -1464,7 +1464,14 @@ def _m32(conn):
     """)
 
 
-MIGRATIONS = [_m1, _m2, _m3, _m4, _m5, _m6, _m7, _m8, _m9, _m10, _m11, _m12, _m13, _m14, _m15, _m16, _m17, _m18, _m19, _m20, _m21, _m22, _m23, _m24, _m25, _m26, _m27, _m28, _m29, _m30, _m31, _m32]
+def _m33(conn):
+    """Require an explicit origin for every queued AI analysis."""
+    if not _has_column(conn, "router_ai_analyses", "trigger_source"):
+        conn.execute("ALTER TABLE router_ai_analyses ADD COLUMN trigger_source TEXT NOT NULL DEFAULT 'legacy'")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_router_ai_trigger_status ON router_ai_analyses(trigger_source,status,id)")
+
+
+MIGRATIONS = [_m1, _m2, _m3, _m4, _m5, _m6, _m7, _m8, _m9, _m10, _m11, _m12, _m13, _m14, _m15, _m16, _m17, _m18, _m19, _m20, _m21, _m22, _m23, _m24, _m25, _m26, _m27, _m28, _m29, _m30, _m31, _m32, _m33]
 
 
 def migrate() -> int:
