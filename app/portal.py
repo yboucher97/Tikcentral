@@ -58,8 +58,9 @@ def routers_page(request: Request):
         f'<div class="card"><div class="muted">{html.escape(label)}</div><div class="value">{count}</div></div>'
         for label, count in sorted(counts.items())
     )
+    enroll_action = '<a href="/enroll"><button class="primary">Enroll router</button></a>' if user["role"] == "admin" else ""
     body = f'''<div class="cards"><div class="card"><div class="muted">Total routers</div><div class="value">{len(rows)}</div></div>{cards}</div>
-<div class="panel pad"><div class="inline"><a href="/enroll"><button class="primary">Enroll router</button></a><span class="muted">Fleet state comes from Guardian, active changes, drift, commissioning and upgrade state.</span></div></div>
+<div class="panel pad"><div class="inline">{enroll_action}<span class="muted">Fleet state comes from Guardian, active changes, drift, commissioning and upgrade state.</span></div></div>
 <div class="panel"><table data-default-hidden="4,6,7,10"><thead><tr><th>Health</th><th>Site</th><th>Identity</th><th>Model</th><th>Serial</th><th>RouterOS</th><th>RouterBOOT</th><th>Public IP</th><th>VPN IP</th><th>Remote WinBox</th><th>VPN WinBox</th><th>State</th><th>Last handshake</th><th>Actions</th></tr></thead><tbody>{''.join(rendered)}</tbody></table></div>'''
     return ui.page("Routers", body, user, "routers")
 
