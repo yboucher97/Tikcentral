@@ -4,7 +4,7 @@ import html
 import json
 from datetime import datetime, timezone
 
-from fastapi import Request
+from fastapi import HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app import events, main as core, migrations, router_exec
@@ -128,12 +128,18 @@ def register(app,page_func):
         if profile=="standard":
             intent=dict(STANDARD_INTENT)
         else:
+            try:
+                minimum=int(data.get("minimum_active_default_routes") or 1)
+            except (TypeError,ValueError):
+                raise HTTPException(status_code=400,detail="minimum active default routes must be an integer")
+            if not 1 <= minimum <= 4:
+                raise HTTPException(status_code=400,detail="minimum active default routes must be between 1 and 4")
             intent={
                 "management_services_restricted":data.get("management_services_restricted")=="1",
                 "default_route_required":data.get("default_route_required")=="1",
                 "dns_required":data.get("dns_required")=="1",
                 "wireguard_required":data.get("wireguard_required")=="1",
-                "minimum_active_default_routes":max(1,min(4,int(data.get("minimum_active_default_routes") or 1))),
+                "minimum_active_default_routes":minimum,
             }
         with core.db() as conn:
             conn.execute(
