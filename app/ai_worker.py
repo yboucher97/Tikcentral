@@ -22,7 +22,7 @@ def _recover_stale():
         conn.execute(
             """UPDATE router_ai_analyses
                SET status='queued', started_at=NULL, error_code='', error_detail=''
-               WHERE status='running' AND started_at IS NOT NULL AND started_at<?""",
+               WHERE status='running' AND trigger_source='human_web' AND started_at IS NOT NULL AND started_at<?""",
             (cutoff,),
         )
 
