@@ -780,50 +780,60 @@ def enroll(req: EnrollRequest, request: Request):
     now = utcnow()
     if not re.fullmatch(r"[A-Za-z0-9+/]{43}=", req.public_key):
         raise HTTPException(status_code=400, detail="invalid WireGuard public key")
-    with db() as conn:
-        # Serialize token consumption plus VPN/WinBox allocation. Without this,
-        # concurrent enrollments can choose the same free address/port before
-        # either transaction writes, leaving an orphan WireGuard peer when the
-        # database uniqueness check rejects the loser.
-        conn.execute("BEGIN IMMEDIATE")
-        token = conn.execute(
-            "SELECT id,site_name,expires_at,used_at FROM enrollment_tokens WHERE token_hash=?",
-            (hash_token(req.token),),
-        ).fetchone()
-        if not token or token["used_at"]:
-            raise HTTPException(status_code=401, detail="invalid or already-used enrollment token")
-        if datetime.fromisoformat(token["expires_at"]) < now:
-            raise HTTPException(status_code=401, detail="enrollment token expired")
-        existing = conn.execute(
-            "SELECT site_name,vpn_ip,public_key,enabled,public_winbox_port FROM routers WHERE public_key=?",
-            (req.public_key,),
-        ).fetchone()
-        if existing:
-            if not existing["enabled"]:
-                raise HTTPException(status_code=403, detail="router disabled")
-            wg_helper("add", existing["public_key"], existing["vpn_ip"])
+    new_peer_attempted = False
+    try:
+        with db() as conn:
+            # Serialize token consumption plus VPN/WinBox allocation. Without this,
+            # concurrent enrollments can choose the same free address/port before
+            # either transaction writes.
+            conn.execute("BEGIN IMMEDIATE")
+            token = conn.execute(
+                "SELECT id,site_name,expires_at,used_at FROM enrollment_tokens WHERE token_hash=?",
+                (hash_token(req.token),),
+            ).fetchone()
+            if not token or token["used_at"]:
+                raise HTTPException(status_code=401, detail="invalid or already-used enrollment token")
+            if datetime.fromisoformat(token["expires_at"]) < now:
+                raise HTTPException(status_code=401, detail="enrollment token expired")
+            existing = conn.execute(
+                "SELECT site_name,vpn_ip,public_key,enabled,public_winbox_port FROM routers WHERE public_key=?",
+                (req.public_key,),
+            ).fetchone()
+            if existing:
+                if not existing["enabled"]:
+                    raise HTTPException(status_code=403, detail="router disabled")
+                wg_helper("add", existing["public_key"], existing["vpn_ip"])
+                conn.execute(
+                    "UPDATE routers SET identity=?,serial=?,model=?,routeros_version=?,routerboot_version=? WHERE public_key=?",
+                    (req.identity, req.serial, req.model, req.routeros_version, req.routerboot_version, req.public_key),
+                )
+                conn.execute("UPDATE enrollment_tokens SET used_at=? WHERE id=?", (iso(now), token["id"]))
+                return {
+                    "vpn_ip": existing["vpn_ip"],
+                    "server_public_key": WG_SERVER_PUBLIC_KEY,
+                    "endpoint": WG_ENDPOINT,
+                    "allowed_network": WG_ALLOWED_NETWORK,
+                    "remote_winbox": f'{PUBLIC_HOSTNAME}:{existing["public_winbox_port"]}',
+                }
+            vpn_ip = next_router_ip(conn)
+            public_port = allocate_public_port(conn)
             conn.execute(
-                "UPDATE routers SET identity=?,serial=?,model=?,routeros_version=?,routerboot_version=? WHERE public_key=?",
-                (req.identity, req.serial, req.model, req.routeros_version, req.routerboot_version, req.public_key),
+                "INSERT INTO routers(site_name,identity,serial,model,routeros_version,routerboot_version,public_key,vpn_ip,public_winbox_port,created_at,lifecycle_state,lifecycle_updated_at,lifecycle_updated_by) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (token["site_name"], req.identity, req.serial, req.model, req.routeros_version, req.routerboot_version, req.public_key, vpn_ip, public_port, iso(now), "new", iso(now), "enrollment"),
             )
             conn.execute("UPDATE enrollment_tokens SET used_at=? WHERE id=?", (iso(now), token["id"]))
-            return {
-                "vpn_ip": existing["vpn_ip"],
-                "server_public_key": WG_SERVER_PUBLIC_KEY,
-                "endpoint": WG_ENDPOINT,
-                "allowed_network": WG_ALLOWED_NETWORK,
-                "remote_winbox": f'{PUBLIC_HOSTNAME}:{existing["public_winbox_port"]}',
-            }
-        vpn_ip = next_router_ip(conn)
-        public_port = allocate_public_port(conn)
-        conn.execute(
-            "INSERT INTO routers(site_name,identity,serial,model,routeros_version,routerboot_version,public_key,vpn_ip,public_winbox_port,created_at,lifecycle_state,lifecycle_updated_at,lifecycle_updated_by) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
-            (token["site_name"], req.identity, req.serial, req.model, req.routeros_version, req.routerboot_version, req.public_key, vpn_ip, public_port, iso(now), "new", iso(now), "enrollment"),
-        )
-        conn.execute("UPDATE enrollment_tokens SET used_at=? WHERE id=?", (iso(now), token["id"]))
-        # The DB reservation is still uncommitted here. If WireGuard setup
-        # fails, closing the connection rolls the enrollment back cleanly.
-        wg_helper("add", req.public_key, vpn_ip)
+            # Reserve the DB identity first, then activate WireGuard. If either
+            # WireGuard setup or the final SQLite commit fails, compensation
+            # below removes any partially-created peer.
+            new_peer_attempted = True
+            wg_helper("add", req.public_key, vpn_ip)
+    except Exception:
+        if new_peer_attempted:
+            try:
+                wg_helper("remove", req.public_key)
+            except Exception:
+                pass
+        raise
     return {
         "vpn_ip": vpn_ip,
         "server_public_key": WG_SERVER_PUBLIC_KEY,
