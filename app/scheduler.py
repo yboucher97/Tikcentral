@@ -7,7 +7,7 @@ next timer tick.
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from app import alert_queue, automation_inventory, capacity_forecast, certificate_monitor, commissioning_checklist, compliance, database_health, desired_state, errors, events, fleet_health, hardware_lifecycle, identity_collision, interface_monitor, ip_enrichment, jobs, local_utilization, log_patterns, lte_monitor, main as core, maintenance_automation, model_capabilities, mtu_diagnostics, operations, outage_classifier, public_ip_analysis, retention_policy, security_audit, settings, state_capture, system_health, time_health, topology, traffic_monitor, upgrade_campaigns, wan_probe
+from app import alert_queue, automation_inventory, capacity_forecast, certificate_monitor, commissioning_checklist, compliance, cross_site_anomaly, database_health, desired_state, errors, events, fleet_health, hardware_lifecycle, identity_collision, interface_monitor, ip_enrichment, jobs, local_utilization, log_patterns, lte_monitor, main as core, maintenance_automation, model_capabilities, mtu_diagnostics, network_quality, operations, outage_classifier, public_ip_analysis, retention_policy, change_impact, security_audit, settings, state_capture, system_health, time_health, topology, traffic_monitor, upgrade_campaigns, wan_probe
 
 
 def _eligible_healthy_router_ids() -> list[int]:
@@ -59,7 +59,7 @@ def _change_lane():
 
 def _collect_router_observability(router_id: int):
     """Collect optional router state without allowing one probe family to hide another."""
-    result = {"telemetry": None, "wan": None, "known_good": None, "compliance": None, "lte": None, "interfaces": None, "certificates": None, "security": None, "automation": None, "traffic": None, "topology": None, "wan_probe": None, "desired_state": None, "time_health": None, "mtu": None, "local_utilization": None, "model_capabilities": None, "log_patterns": None, "errors": []}
+    result = {"telemetry": None, "wan": None, "known_good": None, "compliance": None, "lte": None, "interfaces": None, "certificates": None, "security": None, "automation": None, "traffic": None, "topology": None, "wan_probe": None, "desired_state": None, "time_health": None, "mtu": None, "local_utilization": None, "model_capabilities": None, "log_patterns": None, "network_quality": None, "errors": []}
     for key, fn in (
         ("telemetry", lambda: operations.collect_telemetry(router_id, False)),
         ("wan", lambda: state_capture.collect_wan_state(router_id)),
@@ -79,6 +79,7 @@ def _collect_router_observability(router_id: int):
         ("local_utilization", lambda: local_utilization.collect(router_id)),
         ("model_capabilities", lambda: model_capabilities.collect(router_id)),
         ("log_patterns", lambda: log_patterns.collect(router_id)),
+        ("network_quality", lambda: network_quality.collect(router_id)),
     ):
         try:
             result[key] = fn()
@@ -155,6 +156,8 @@ def scheduled_tick():
     _optional("public_ip_analysis", public_ip_analysis.assess_all)
     _optional("identity_collisions", identity_collision.scan)
     _optional("hardware_lifecycle", hardware_lifecycle.assess_all)
+    _optional("cross_site_anomalies", cross_site_anomaly.scan)
+    _optional("change_impact", change_impact.assess_recent)
     _optional("outage_classification", outage_classifier.assess_all)
     _optional("fleet_health", fleet_health.counts)
     _optional("database_health", database_health.collect)
