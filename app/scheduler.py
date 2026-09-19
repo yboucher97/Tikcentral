@@ -146,6 +146,7 @@ def scheduled_tick():
         state = conn.execute("SELECT * FROM operations_settings WHERE id=1").fetchone()
     now = operations.now_iso()
 
+    _optional("stale_change_jobs", jobs.recover_stale_nonupgrade_jobs)
     _optional("change_jobs", _change_lane)
     _optional("upgrade_campaign_status", upgrade_campaigns.sync_all)
     _optional("maintenance_automation", maintenance_automation.process)
