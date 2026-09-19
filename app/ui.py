@@ -271,8 +271,13 @@ td.tc-copyable-cell{position:relative;padding-right:48px}.tc-cell-copy{position:
 JS = r'''
 (function(){
  const root=document.documentElement;
- const saved=localStorage.getItem('tikcentral:theme');
- root.dataset.theme=saved||(matchMedia('(prefers-color-scheme: light)').matches?'light':'dark');
+ const tcUserScope=document.body?.dataset?.tcUser||'';
+ let saved=null;
+ try{
+   const raw=localStorage.getItem(tcUserScope?'tikcentral:account-pref:'+tcUserScope+':ui:theme':'tikcentral:theme');
+   saved=raw&&raw.startsWith('"')?JSON.parse(raw):raw;
+ }catch(_){}
+ root.dataset.theme=(saved==='light'||saved==='dark')?saved:(matchMedia('(prefers-color-scheme: light)').matches?'light':'dark');
  let tcUserPrefs={},tcPrefsCsrf='',tcPrefTimers={};
 
  function localPrefKey(key){const who=document.body?.dataset?.tcUser||'anonymous';return 'tikcentral:account-pref:'+who+':'+key}
@@ -298,7 +303,7 @@ JS = r'''
    }catch(_){}
  }
  function themeLabel(){const b=document.getElementById('tcTheme');if(b)b.textContent=root.dataset.theme==='light'?'Dark':'Light'}
- window.tcToggleTheme=function(){root.dataset.theme=root.dataset.theme==='light'?'dark':'light';localStorage.setItem('tikcentral:theme',root.dataset.theme);prefSet('ui:theme',root.dataset.theme);themeLabel()};
+ window.tcToggleTheme=function(){root.dataset.theme=root.dataset.theme==='light'?'dark':'light';prefSet('ui:theme',root.dataset.theme);themeLabel()};
 
  async function tcWriteClipboard(text){
    text=String(text??'');
@@ -734,5 +739,5 @@ def page(title: str, body: str, user=None, active: str = "") -> HTMLResponse:
                 user_scope = str(user["email"])
             except Exception:
                 user_scope = "authenticated"
-    html_doc = f'''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{html.escape(title)} - Tikcentral</title><link rel="icon" href="{icon}"><script>(function(){{try{{document.documentElement.dataset.theme=localStorage.getItem('tikcentral:theme')||(matchMedia('(prefers-color-scheme: light)').matches?'light':'dark')}}catch(e){{document.documentElement.dataset.theme='dark'}}}})();</script><style>{CSS}</style></head><body data-tc-user="{html.escape(user_scope)}" data-tc-role="{html.escape(role if user else '')}">{shell}{palette}<script>{JS}</script></body></html>'''
+    html_doc = f'''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{html.escape(title)} - Tikcentral</title><link rel="icon" href="{icon}"><script>(function(){{try{{var r=localStorage.getItem('tikcentral:account-pref:{html.escape(user_scope)}:ui:theme');var t=r?(r.charAt(0)==='"'?JSON.parse(r):r):null;document.documentElement.dataset.theme=(t==='light'||t==='dark')?t:(matchMedia('(prefers-color-scheme: light)').matches?'light':'dark')}}catch(e){{document.documentElement.dataset.theme='dark'}}}})();</script><style>{CSS}</style></head><body data-tc-user="{html.escape(user_scope)}" data-tc-role="{html.escape(role if user else '')}">{shell}{palette}<script>{JS}</script></body></html>'''
     return HTMLResponse(html_doc)
