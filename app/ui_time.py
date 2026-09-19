@@ -43,12 +43,23 @@ def format_montreal(value: str, *, seconds: bool = False) -> str:
         return value
 
 
-def localize_html_iso_timestamps(text: str) -> str:
-    """Convert ISO-aware and legacy UTC text embedded in rendered HTML."""
-    out = _ISO_RE.sub(lambda match: format_montreal(match.group(1)), text or "")
+_RAW_BLOCK_RE = re.compile(
+    r"(<(?:pre|code|textarea|script|style)\b[^>]*>.*?</(?:pre|code|textarea|script|style)>)",
+    re.IGNORECASE | re.DOTALL,
+)
+
+
+def _localize_fragment(fragment: str) -> str:
+    out = _ISO_RE.sub(lambda match: format_montreal(match.group(1)), fragment)
 
     def legacy(match):
         raw = f"{match.group(1)}T{match.group(2)}+00:00"
         return format_montreal(raw, seconds=match.group(2).count(":") == 2)
 
     return _LEGACY_UTC_RE.sub(legacy, out)
+
+
+def localize_html_iso_timestamps(text: str) -> str:
+    """Convert human-facing timestamps while preserving raw technical payloads."""
+    parts = _RAW_BLOCK_RE.split(text or "")
+    return "".join(part if _RAW_BLOCK_RE.fullmatch(part or "") else _localize_fragment(part) for part in parts)
