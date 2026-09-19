@@ -195,7 +195,7 @@ html[data-theme="light"] .tc-logo-dark{display:none}html[data-theme="light"] .tc
 .tc-contextbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 12px;margin-bottom:12px;border:1px solid color-mix(in srgb,var(--section-accent) 18%,var(--line));border-radius:10px;background:linear-gradient(90deg,color-mix(in srgb,var(--section-soft) 52%,var(--surface)),var(--surface) 28%)}.tc-context-main{display:flex;align-items:center;gap:8px;margin-right:auto}.tc-context-title{font-weight:780}.tc-context-links{display:flex;gap:5px;flex-wrap:wrap}.tc-context-links a{display:inline-flex;padding:6px 8px;border:1px solid var(--line);border-radius:7px;color:var(--muted);font-size:12px}.tc-context-links a:hover{background:var(--surface2);color:var(--text)}.tc-context-links a.active{background:var(--section-soft);color:var(--text);border-color:color-mix(in srgb,var(--section-accent) 38%,var(--line));box-shadow:inset 0 -2px 0 var(--section-accent)}
 .tc-empty{padding:22px!important;text-align:center!important;color:var(--muted)!important;background:var(--surface2)}.tc-empty:before{content:"No data yet";display:block;color:var(--text);font-weight:750;margin-bottom:3px}
 .tc-danger-action{border-color:color-mix(in srgb,var(--danger) 40%,var(--line))!important;color:var(--danger)!important}.tc-warning-action{border-color:color-mix(in srgb,var(--warn) 42%,var(--line))!important;color:var(--warn)!important}
-.tc-dirty{box-shadow:0 0 0 2px color-mix(in srgb,var(--warn) 22%,transparent)}kbd{font:10px ui-monospace,SFMono-Regular,Menlo,monospace;border:1px solid var(--line);background:var(--surface3);border-bottom-width:2px;padding:1px 4px;border-radius:4px;color:var(--muted)}
+.tc-dirty{box-shadow:0 0 0 2px color-mix(in srgb,var(--warn) 22%,transparent)}.tc-readonly-form{opacity:.68}.tc-readonly-form button,.tc-readonly-form input,.tc-readonly-form select,.tc-readonly-form textarea{cursor:not-allowed}kbd{font:10px ui-monospace,SFMono-Regular,Menlo,monospace;border:1px solid var(--line);background:var(--surface3);border-bottom-width:2px;padding:1px 4px;border-radius:4px;color:var(--muted)}
 
 .tc-smart-kind{display:inline-flex;align-items:center;padding:3px 7px;border-radius:999px;border:1px solid var(--line);font-size:10px;font-weight:850;letter-spacing:.02em;white-space:nowrap}.tc-smart-measure{color:#36b6aa;background:color-mix(in srgb,#36b6aa 10%,transparent);border-color:color-mix(in srgb,#36b6aa 30%,var(--line))}.tc-smart-compare{color:#4d98e8;background:color-mix(in srgb,#4d98e8 10%,transparent);border-color:color-mix(in srgb,#4d98e8 30%,var(--line))}.tc-smart-correlate{color:#9b7de0;background:color-mix(in srgb,#9b7de0 10%,transparent);border-color:color-mix(in srgb,#9b7de0 30%,var(--line))}.tc-smart-estimate{color:#d7a84d;background:color-mix(in srgb,#d7a84d 10%,transparent);border-color:color-mix(in srgb,#d7a84d 30%,var(--line))}.tc-smart-ai{color:#e37cab;background:color-mix(in srgb,#e37cab 10%,transparent);border-color:color-mix(in srgb,#e37cab 30%,var(--line))}.tc-smart-legend{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px;margin-top:14px}.tc-smart-legend>div{padding:10px;border:1px solid var(--line);border-radius:8px;background:var(--surface2)}.tc-smart-legend strong,.tc-smart-legend span{display:block}.tc-smart-legend span{color:var(--muted);font-size:12px;margin-top:2px}.tc-smart-card>summary{display:flex!important;align-items:center;gap:7px;flex-wrap:wrap}.tc-smart-explain{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:12px}.tc-smart-explain>div{padding:10px;border:1px solid var(--line);border-radius:8px;background:var(--surface2)}.tc-smart-explain strong,.tc-smart-explain span{display:block}.tc-smart-explain span{color:var(--muted);margin-top:3px}
 .tc-training-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:9px;margin-top:12px}.tc-training-card{display:block;padding:12px;border:1px solid var(--line);border-radius:9px;background:var(--surface2);color:var(--text);transition:.14s}.tc-training-card:hover{border-color:color-mix(in srgb,var(--accent) 38%,var(--line));background:var(--accent-soft)}.tc-training-meta{margin-top:9px;color:var(--muted);font-size:11px}.tc-progress{height:7px;background:var(--surface3);border-radius:999px;overflow:hidden;margin-top:8px}.tc-progress>span{display:block;height:100%;background:var(--accent);border-radius:999px}.tc-mission-hero{border-left:3px solid var(--accent)}.tc-mission-list{list-style:none;padding:0;margin:0;display:grid;gap:8px}.tc-mission-list li{display:flex;gap:10px;align-items:flex-start;padding:9px;border:1px solid var(--line);background:var(--surface2);border-radius:8px}.tc-mission-step{display:inline-flex;align-items:center;justify-content:center;min-width:24px;height:24px;border-radius:50%;background:var(--accent-soft);color:var(--accent);font-weight:800}
@@ -565,6 +565,20 @@ JS = r'''
      [...recent].reverse().forEach(x=>{const a=document.createElement('a');a.className='tc-palette-item';a.href='/operations/'+x.id;a.dataset.search=('router '+x.label+' '+x.id).toLowerCase();a.innerHTML='<span></span><span>Router</span>';a.firstChild.textContent=x.label;title.insertAdjacentElement('afterend',a)});
    }catch(_){}
  }
+ function applyRoleUX(){
+   const role=document.body.dataset.tcRole||'';
+   if(!role||role==='admin')return;
+   const adminOnly=(action)=>/^\/admin\b|^\/settings\b|^\/ssh\b|^\/enroll\b|^\/retention\b|^\/commissioning-checklist\/settings\b|^\/maintenance-automation\b|^\/automation\/settings\b|^\/dashboard\/access\/always\b|^\/dashboard\/access\/\d+\/delete\b/.test(action);
+   document.querySelectorAll('form').forEach(form=>{
+     if((form.method||'').toLowerCase()!=='post')return;
+     const action=(form.getAttribute('action')||location.pathname).split('?')[0];
+     const personal=action==='/logout'||action==='/account/password'||action.startsWith('/training/');
+     const blocked=(role==='viewer'&&!personal)||(role==='technician'&&adminOnly(action));
+     if(!blocked)return;
+     form.classList.add('tc-readonly-form');
+     form.querySelectorAll('button,input:not([type=hidden]),select,textarea').forEach(el=>{el.disabled=true;el.title=role==='viewer'?'Viewer account — read only':'Administrator access required'});
+   });
+ }
  function classifyActions(){
    document.querySelectorAll('button').forEach(b=>{
      const t=(b.textContent||'').trim().toLowerCase();
@@ -648,7 +662,7 @@ JS = r'''
  document.addEventListener('DOMContentLoaded',async()=>{
    await loadUserPreferences();
    const preferredTheme=prefGet('ui:theme',null);if(preferredTheme==='light'||preferredTheme==='dark')root.dataset.theme=preferredTheme;
-   themeLabel();installCopyButtons();installGuidancePreference();installRouterContext();installRecentRouters();organizeRouterWorkspace();emphasizeNestedSections();installDisclosureState();decorateStatuses();decorateEmptyStates();classifyActions();protectDirtyForms();
+   themeLabel();installCopyButtons();installGuidancePreference();installRouterContext();installRecentRouters();organizeRouterWorkspace();emphasizeNestedSections();installDisclosureState();decorateStatuses();decorateEmptyStates();classifyActions();applyRoleUX();protectDirtyForms();
    const observer=new MutationObserver(ms=>ms.forEach(m=>m.addedNodes.forEach(node=>{if(node.nodeType===1)installCopyButtons(node)})));observer.observe(document.body,{childList:true,subtree:true});
    document.querySelectorAll('table').forEach(enhanceTable);
    const g=document.getElementById('tcGlobalSearch');if(g)g.oninput=globalFilter;
@@ -718,5 +732,5 @@ def page(title: str, body: str, user=None, active: str = "") -> HTMLResponse:
                 user_scope = str(user["email"])
             except Exception:
                 user_scope = "authenticated"
-    html_doc = f'''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{html.escape(title)} - Tikcentral</title><link rel="icon" href="{icon}"><script>(function(){{try{{document.documentElement.dataset.theme=localStorage.getItem('tikcentral:theme')||(matchMedia('(prefers-color-scheme: light)').matches?'light':'dark')}}catch(e){{document.documentElement.dataset.theme='dark'}}}})();</script><style>{CSS}</style></head><body data-tc-user="{html.escape(user_scope)}">{shell}{palette}<script>{JS}</script></body></html>'''
+    html_doc = f'''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{html.escape(title)} - Tikcentral</title><link rel="icon" href="{icon}"><script>(function(){{try{{document.documentElement.dataset.theme=localStorage.getItem('tikcentral:theme')||(matchMedia('(prefers-color-scheme: light)').matches?'light':'dark')}}catch(e){{document.documentElement.dataset.theme='dark'}}}})();</script><style>{CSS}</style></head><body data-tc-user="{html.escape(user_scope)}" data-tc-role="{html.escape(role if user else '')}">{shell}{palette}<script>{JS}</script></body></html>'''
     return HTMLResponse(html_doc)
