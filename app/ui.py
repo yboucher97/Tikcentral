@@ -278,7 +278,7 @@ JS = r'''
    saved=raw&&raw.startsWith('"')?JSON.parse(raw):raw;
  }catch(_){}
  root.dataset.theme=(saved==='light'||saved==='dark')?saved:(matchMedia('(prefers-color-scheme: light)').matches?'light':'dark');
- let tcUserPrefs={},tcPrefsCsrf='';
+ let tcUserPrefs={},tcPrefsCsrf='',tcPrefControllers={};
 
  function localPrefKey(key){const who=document.body?.dataset?.tcUser||'anonymous';return 'tikcentral:account-pref:'+who+':'+key}
  function prefGet(key,fallback){
@@ -291,11 +291,13 @@ JS = r'''
    try{if(value===null)localStorage.removeItem(localPrefKey(key));else localStorage.setItem(localPrefKey(key),JSON.stringify(value))}catch(_){}
    if(!tcPrefsCsrf)return;
    try{
+     tcPrefControllers[key]?.abort();
+     const controller=new AbortController();tcPrefControllers[key]=controller;
      fetch('/api/ui/preferences',{
-       method:'PUT',credentials:'same-origin',keepalive:true,
+       method:'PUT',credentials:'same-origin',keepalive:true,signal:controller.signal,
        headers:{'Content-Type':'application/json','X-CSRF-Token':tcPrefsCsrf},
        body:JSON.stringify({key,value})
-     }).catch(()=>{});
+     }).catch(()=>{}).finally(()=>{if(tcPrefControllers[key]===controller)delete tcPrefControllers[key]});
    }catch(_){}
  }
  async function loadUserPreferences(){
