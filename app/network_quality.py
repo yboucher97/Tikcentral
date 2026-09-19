@@ -151,6 +151,10 @@ def _resolver_list(ip):
 
 
 def _dns_collect(router, captured):
+    with core.db() as conn:
+        previous_time=conn.execute("SELECT MAX(captured_at) t FROM router_dns_health WHERE router_id=?",(router["id"],)).fetchone()["t"]
+        previous_rows=conn.execute("SELECT ok FROM router_dns_health WHERE router_id=? AND captured_at=?",(router["id"],previous_time or "")).fetchall() if previous_time else []
+    previous_all_failed=bool(previous_rows) and all(x["ok"]==0 for x in previous_rows if x["ok"] is not None)
     resolvers=_resolver_list(router["vpn_ip"])
     if not resolvers:
         resolvers=["1.1.1.1","8.8.8.8"]
@@ -181,8 +185,11 @@ def _dns_collect(router, captured):
                 (router["id"],captured,resolver,DNS_TEST_NAME,ok,lat,source,summary),
             )
         results.append({"resolver":resolver,"ok":ok,"latency_ms":lat,"source":source,"summary":summary})
-    if results and all(x["ok"] is False for x in results):
+    all_failed=bool(results) and all(x["ok"] is False for x in results)
+    if all_failed and not previous_all_failed:
         events.record(router["id"],"dns-health","All DNS resolver checks failed","; ".join(x["summary"] for x in results),"warning")
+    elif previous_all_failed and not all_failed:
+        events.record(router["id"],"dns-health","DNS resolver health recovered","; ".join(x["summary"] for x in results),"info")
     return results
 
 
