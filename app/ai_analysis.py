@@ -31,17 +31,18 @@ def _router(router_id: int):
         ).fetchone()
 
 
-def _sanitize(text: str) -> str:
+def _sanitize(text: str, limit: int | None = None) -> str:
     # router_exec.sanitize defaults to a short operator-log limit (1200 chars).
-    # AI snapshots/reports have separate, much larger explicit caps.
-    value = router_exec.sanitize(text or "", limit=settings.AI_MAX_SECTION_CHARS)
+    # AI snapshots and reports have separate, much larger explicit caps.
+    cap = max(100, int(limit or settings.AI_MAX_SECTION_CHARS))
+    value = router_exec.sanitize(text or "", limit=cap)
     patterns = (
         r'(?i)(password|passwd|passphrase|secret|token|private[-_ ]?key|preshared[-_ ]?key|community)\s*[=:]\s*([^\s;]+)',
         r'(?i)(pppoe[^\n]{0,80}password\s*[=:]\s*)([^\s;]+)',
     )
     for pattern in patterns:
         value = re.sub(pattern, lambda m: f"{m.group(1)}=<redacted>", value)
-    return value[: settings.AI_MAX_SECTION_CHARS]
+    return value[:cap]
 
 
 def _safe_read(ip: str, command: str, label: str) -> dict:
@@ -269,7 +270,7 @@ def collect_snapshot(router_id: int, focus_start: str = "", focus_end: str = "",
                 "id": r["id"],
                 "created_at": r["created_at"],
                 "finished_at": r["finished_at"],
-                "report": _sanitize(r["report"] or "")[-12000:],
+                "report": _sanitize(r["report"] or "", 12000),
             }
             for r in prior_ai
         ],
@@ -322,9 +323,9 @@ def run_codex(snapshot: dict) -> str:
         timeout=settings.AI_TIMEOUT,
     )
     if proc.returncode != 0:
-        detail = _sanitize((proc.stderr or proc.stdout or "Codex returned an error")[-4000:])
+        detail = _sanitize((proc.stderr or proc.stdout or "Codex returned an error")[-4000:], 4000)
         raise errors.OperationError("AI_CODEX_FAILED", "Codex analysis failed", detail)
-    report = _sanitize((proc.stdout or "").strip())[: settings.AI_MAX_REPORT_CHARS]
+    report = _sanitize((proc.stdout or "").strip(), settings.AI_MAX_REPORT_CHARS)
     if not report:
         raise errors.OperationError("AI_EMPTY_RESULT", "Codex returned an empty analysis")
     return report
