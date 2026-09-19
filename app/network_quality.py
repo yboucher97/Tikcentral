@@ -534,7 +534,7 @@ def register(app,page_func):
             dns_parts.append(f'<tr><td>{html.escape(x["resolver"])}</td><td>{state}</td><td>{latency}</td><td>{html.escape(x["source"])}</td><td>{html.escape(x["summary"])}</td></tr>')
         dns_rows="".join(dns_parts) or '<tr><td colspan="5">No DNS sample.</td></tr>'
         neg_rows="".join(f'<tr><td>{html.escape(x["interface"])}</td><td>{html.escape(x["current_rate"] or "-")}</td><td>{"full" if x["current_full_duplex"] else ("half" if x["current_full_duplex"] is not None else "—")}</td><td>{x["flaps_24h"]}</td><td>{html.escape(x["status"])}</td><td>{html.escape(x["summary"])}</td></tr>' for x in neg) or '<tr><td colspan="6">No negotiation sample.</td></tr>'
-        pppoe_rows="".join(f'<tr><td>{html.escape(x["interface"])}</td><td>{html.escape(x["status"])}</td><td>{html.escape(x["uptime"] or "-")}</td><td>{html.escape(x["ac_name"] or "-")}</td><td>{html.escape(x["local_address"] or "-")}</td><td>{x["mtu"] or "—"} / {x["mru"] or "—"}</td></tr>' for x in pppoe) or '<tr><td colspan="6">No PPPoE client observed.</td></tr>'
+        pppoe_rows="".join(f'<tr><td>{html.escape(x["interface"])}</td><td>{html.escape(x["status"])}</td><td>{html.escape(x["uptime"] or "-")}</td><td>{html.escape(x["ac_name"] or "-")}</td><td>{html.escape(x["local_address"] or "-")}</td><td>{x["mtu"] or "—"} / {x["mru"] or "—"}</td><td>{html.escape(x["summary"] or "")}</td></tr>' for x in pppoe) or '<tr><td colspan="7">No PPPoE client observed.</td></tr>'
         wan_status=wan["summary"] if wan else "No WAN quality sample."
         gateway_status=gw["summary"] if gw else "No ISP gateway sample."
         body=f'''<div class="panel pad"><h2>Network quality · {html.escape(r["site_name"])}</h2>
@@ -543,7 +543,7 @@ def register(app,page_func):
 <div class="panel pad"><h3>ISP gateway</h3><div>{html.escape(gateway_status)}</div></div>
 <div class="panel"><div class="pad"><h3>DNS resolver health / reachability latency</h3></div><table><thead><tr><th>Resolver</th><th>Resolution</th><th>Reachability RTT</th><th>Source</th><th>Summary</th></tr></thead><tbody>{dns_rows}</tbody></table></div>
 <div class="panel"><div class="pad"><h3>Interface negotiation</h3></div><table><thead><tr><th>Interface</th><th>Rate</th><th>Duplex</th><th>Link-down Δ 24h</th><th>Status</th><th>Summary</th></tr></thead><tbody>{neg_rows}</tbody></table></div>
-<div class="panel"><div class="pad"><h3>PPPoE</h3></div><table><thead><tr><th>Interface</th><th>Status</th><th>Uptime</th><th>AC</th><th>Assigned IP</th><th>MTU / MRU</th></tr></thead><tbody>{pppoe_rows}</tbody></table></div>'''
+<div class="panel"><div class="pad"><h3>PPPoE</h3></div><table><thead><tr><th>Interface</th><th>Status</th><th>Uptime</th><th>AC</th><th>Assigned IP</th><th>MTU / MRU</th><th>Intelligence</th></tr></thead><tbody>{pppoe_rows}</tbody></table></div>'''
         return page_func("Network Quality",body,user,"operations")
 
     @app.post("/network-quality/{router_id}/run")
