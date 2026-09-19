@@ -1471,7 +1471,23 @@ def _m33(conn):
     conn.execute("CREATE INDEX IF NOT EXISTS idx_router_ai_trigger_status ON router_ai_analyses(trigger_source,status,id)")
 
 
-MIGRATIONS = [_m1, _m2, _m3, _m4, _m5, _m6, _m7, _m8, _m9, _m10, _m11, _m12, _m13, _m14, _m15, _m16, _m17, _m18, _m19, _m20, _m21, _m22, _m23, _m24, _m25, _m26, _m27, _m28, _m29, _m30, _m31, _m32, _m33]
+def _m34(conn):
+    """Persist GUI/view preferences per authenticated user."""
+    conn.executescript("""
+    CREATE TABLE IF NOT EXISTS user_ui_preferences (
+        user_id INTEGER NOT NULL,
+        preference_key TEXT NOT NULL,
+        value_json TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY(user_id,preference_key),
+        FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_user_ui_preferences_updated
+      ON user_ui_preferences(user_id,updated_at DESC);
+    """)
+
+
+MIGRATIONS = [_m1, _m2, _m3, _m4, _m5, _m6, _m7, _m8, _m9, _m10, _m11, _m12, _m13, _m14, _m15, _m16, _m17, _m18, _m19, _m20, _m21, _m22, _m23, _m24, _m25, _m26, _m27, _m28, _m29, _m30, _m31, _m32, _m33, _m34]
 
 
 def migrate() -> int:
