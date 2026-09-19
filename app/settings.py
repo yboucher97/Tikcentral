@@ -141,6 +141,8 @@ RESCUE_DNS = os.getenv("TIKCENTRAL_RESCUE_DNS", "1.1.1.1")
 try:
     _rescue_interface = ipaddress.ip_interface(RESCUE_ADDRESS)
     _rescue_network = ipaddress.ip_network(RESCUE_NETWORK, strict=True)
+    if _rescue_interface.version != 4 or _rescue_network.version != 4:
+        raise ValueError("rescue address and network must be IPv4")
     if _rescue_interface.ip not in _rescue_network:
         raise ValueError("rescue address is outside rescue network")
     _pool_start_text, _pool_end_text = RESCUE_POOL.split("-", 1)
@@ -150,7 +152,9 @@ try:
         raise ValueError("rescue pool is invalid or outside rescue network")
     if _rescue_network.overlaps(WG_ALLOWED_NETWORK_OBJ):
         raise ValueError("rescue network overlaps the WireGuard management network")
-    ipaddress.ip_address(RESCUE_DNS)
+    _rescue_dns = ipaddress.ip_address(RESCUE_DNS)
+    if _rescue_dns.version != 4:
+        raise ValueError("rescue DNS must be IPv4")
 except (ValueError, TypeError) as exc:
     raise RuntimeError(f"Invalid Tikcentral Rescue network settings: {exc}") from exc
 RESCUE_GATEWAY = str(_rescue_interface.ip)
