@@ -657,9 +657,13 @@ def validate_source_boundaries():
         if marker not in login_text:
             fail(f"Login password visibility control missing: {marker}")
     shared_ui = (ROOT / "app/ui.py").read_text(encoding="utf-8")
-    for marker in ("NAV_GROUPS", "Overview", "Fleet", "Operations", "Changes", "Intelligence", "Administration", "openPalette", "organizeRouterWorkspace", "data-default-hidden", "tc-filter-toggle"):
+    for marker in ("NAV_GROUPS", "Overview", "Fleet", "Operations", "Changes", "Intelligence", "Administration", "openPalette", "organizeRouterWorkspace", "defaultHidden", "tc-filter-toggle"):
         if marker not in shared_ui:
             fail(f"Professional UI shell missing: {marker}")
+    main_ui_text = (ROOT / "app/main.py").read_text(encoding="utf-8")
+    portal_ui_text = (ROOT / "app/portal.py").read_text(encoding="utf-8")
+    if "data-default-hidden" not in main_ui_text or "data-default-hidden" not in portal_ui_text:
+        fail("Focused default table-column presets are missing from dashboard/router inventory")
     for marker in ("tc-filter-column", "tc-filter-op", "tc-filter-value", "matchOperator", "contains", "!contains", ">=", "<=", "!="):
         if marker not in shared_ui:
             fail(f"Advanced shared table filter missing: {marker}")
