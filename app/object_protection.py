@@ -3,7 +3,7 @@
 import html
 from datetime import datetime, timezone
 
-from fastapi import Request
+from fastapi import HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app import main as core, migrations
@@ -83,6 +83,8 @@ def register(app,page_func):
         notes=str(data.get("notes","")).strip()[:1000]
         now=_now()
         with core.db() as conn:
+            if not conn.execute("SELECT 1 FROM routers WHERE id=?",(router_id,)).fetchone():
+                raise HTTPException(status_code=404,detail="router not found")
             conn.execute(
                 """INSERT INTO router_object_protection
                    (router_id,object_type,selector,ownership,protected,notes,created_by,created_at,updated_at)
