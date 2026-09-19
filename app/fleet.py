@@ -51,6 +51,33 @@ def create_job(job_type: str, command: str = "", created_by: str = "system"):
         return cur.lastrowid
 
 
+def recover_stale_jobs(max_age_hours: int = 6) -> int:
+    """Mark abandoned fleet-wide jobs failed after a conservative timeout."""
+    ensure_schema()
+    cutoff = (datetime.now(timezone.utc) - timedelta(hours=max(1, max_age_hours))).isoformat()
+    finished = now_iso()
+    with core.db() as conn:
+        rows = conn.execute(
+            """SELECT id,total,succeeded,failed FROM fleet_jobs
+               WHERE status IN ('queued','running')
+                 AND COALESCE(NULLIF(started_at,''),created_at)<?""",
+            (cutoff,),
+        ).fetchall()
+        for row in rows:
+            inferred_failed = max(int(row["failed"] or 0), max(0, int(row["total"] or 0) - int(row["succeeded"] or 0)))
+            conn.execute(
+                """UPDATE fleet_jobs SET status='failed',finished_at=?,failed=?
+                   WHERE id=? AND status IN ('queued','running')""",
+                (finished, inferred_failed, row["id"]),
+            )
+    if rows:
+        try:
+            events.record(None, "fleet-jobs", f"Recovered {len(rows)} abandoned fleet job(s)", f"older_than_hours={max(1, max_age_hours)}", "warning")
+        except Exception:
+            pass
+    return len(rows)
+
+
 def _record_result(job_id, router, status, output, error, started, finished):
     with core.db() as conn:
         conn.execute(
@@ -263,6 +290,7 @@ def run_analysis_job(created_by="scheduler"):
 
 def scheduled_tick():
     ensure_schema()
+    recover_stale_jobs()
     with core.db() as conn:
         config = conn.execute("SELECT * FROM fleet_settings WHERE id=1").fetchone()
     if not config["backups_enabled"]:
