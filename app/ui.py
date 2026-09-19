@@ -685,7 +685,7 @@ def page(title: str, body: str, user=None, active: str = "") -> HTMLResponse:
         for group, items in NAV_GROUPS:
             links = []
             for key, href, label in items:
-                if role != "admin" and key in {"users", "settings", "ssh"}:
+                if role != "admin" and key in {"users", "settings", "ssh", "enroll"}:
                     continue
                 cls = "active" if key == active else ""
                 links.append(f'<a class="{cls}" href="{href}">{html.escape(label)}</a>')
