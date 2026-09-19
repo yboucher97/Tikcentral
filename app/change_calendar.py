@@ -102,7 +102,19 @@ def register(app,page_func):
         user=core.require_web_role(request,"technician")
         data=await core.form_data(request)
         core.require_csrf(request,data.get("csrf",""))
-        rid=int(data.get("router_id")) if str(data.get("router_id","")).isdigit() else None
+        raw_rid=str(data.get("router_id","")).strip()
+        if raw_rid:
+            if not raw_rid.isdigit() or int(raw_rid)<=0:
+                return HTMLResponse("<h1>400</h1><p>Invalid router.</p>",status_code=400)
+            rid=int(raw_rid)
+        else:
+            rid=None
+        title=str(data.get("title","")).strip()[:300]
+        if not title:
+            return HTMLResponse("<h1>400</h1><p>Title is required.</p>",status_code=400)
+        change_type=str(data.get("change_type","maintenance")).strip()
+        if change_type not in {"maintenance","upgrade","configuration","installation","incident"}:
+            return HTMLResponse("<h1>400</h1><p>Invalid change type.</p>",status_code=400)
         try:
             start_at=_normalize_datetime(str(data.get("start_at","")))
             end_at=_normalize_datetime(str(data.get("end_at",""))) if str(data.get("end_at","")).strip() else ""
@@ -123,7 +135,7 @@ def register(app,page_func):
             conn.execute(
                 """INSERT INTO planned_changes(router_id,title,change_type,start_at,end_at,status,ticket_reference,notes,created_by,created_at)
                    VALUES(?,?,?,?,?,'planned',?,?,?,?)""",
-                (rid,str(data.get("title",""))[:300],str(data.get("change_type","maintenance"))[:80],
+                (rid,title,change_type,
                  start_at,end_at,
                  str(data.get("ticket_reference",""))[:200],str(data.get("notes",""))[:4000],user["email"],_now()),
             )
