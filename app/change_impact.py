@@ -19,6 +19,11 @@ def _now():
     return datetime.now(timezone.utc)
 
 
+def _parse_utc(value):
+    dt=datetime.fromisoformat(value)
+    return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt.astimezone(timezone.utc)
+
+
 def _avg(values):
     vals=[float(x) for x in values if x is not None]
     return sum(vals)/len(vals) if vals else None
@@ -85,8 +90,8 @@ def assess(transaction_id:int,force=False):
     if not tx or tx["status"] not in {"succeeded","failed"} or not tx["finished_at"]:
         return None
     try:
-        created=datetime.fromisoformat(tx["created_at"])
-        finished=datetime.fromisoformat(tx["finished_at"])
+        created=_parse_utc(tx["created_at"])
+        finished=_parse_utc(tx["finished_at"])
     except Exception:
         return None
     now=_now()
