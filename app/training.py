@@ -32,6 +32,13 @@ LESSONS = [
         "route":"/","cta":"Go to Dashboard",
     },
     {
+        "id":"understand-intelligence","track":"Foundations","title":"Understand Tikcentral Intelligence","xp":150,"minutes":5,
+        "why":"Most advanced Tikcentral features use the same five ideas. Learn those once and the rest becomes much easier.",
+        "objective":"Understand Measure, Compare, Correlate, Estimate and AI—and what warning/unknown actually mean.",
+        "steps":["Open the Smart Features Map.","Read the five intelligence types at the top.","Expand one Measure, one Compare and one Correlate feature.","Remember: Unknown is not Healthy; Warning is evidence, not automatically root cause; Correlation does not prove causation.","Use Smart help from the top bar whenever a feature is unfamiliar."],
+        "route":"/training/intelligence-guide","cta":"Open Smart Features Map",
+    },
+    {
         "id":"router-summary","track":"Router Operations","title":"Read a Router Workspace","xp":125,"minutes":5,
         "why":"Learn where health, connectivity, configuration, assets, and activity live without scanning every tool.",
         "objective":"Review the router Summary and switch between workspace tabs.",
