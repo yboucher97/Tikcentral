@@ -734,8 +734,10 @@ def validate_ui_and_assets():
         if marker not in rendered:
             fail(f"Shared UI missing {marker}")
     login_rendered = ui.page("Sign in", '<div class="login">Login</div>', None).body.decode()
-    if "tc-sidebar" in login_rendered or "tc-shell" in login_rendered:
+    if '<aside class="tc-sidebar"' in login_rendered or '<div class="tc-shell">' in login_rendered or 'id="tcCommandBtn"' in login_rendered:
         fail("Anonymous/login UI incorrectly renders authenticated application shell")
+    if '<div class="login">Login</div>' not in login_rendered:
+        fail("Anonymous/login UI content is missing")
     if not getattr(ui, "NAV_GROUPS", None) or len(ui.NAV) < 20:
         fail("Grouped navigation registry is missing or incomplete")
     route_counts, _ = routes()
