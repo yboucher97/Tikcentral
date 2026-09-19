@@ -42,7 +42,7 @@ def _snapshot(router_id: int):
     migrations.migrate()
     with core.db() as conn:
         router = conn.execute(
-            "SELECT id,site_name,identity,model,vpn_ip,enabled FROM routers WHERE id=?", (router_id,)
+            "SELECT id,site_name,identity,model,vpn_ip,enabled,lifecycle_state FROM routers WHERE id=?", (router_id,)
         ).fetchone()
         access = conn.execute("SELECT * FROM router_access_state WHERE router_id=?", (router_id,)).fetchone()
         backup = conn.execute(
@@ -82,8 +82,17 @@ def _preview_page(request: Request, router_id: int, title: str, touch: str, fiel
     protection_text = f"{protected_count} protected object rule(s) configured"
     if protected_hits:
         protection_text += " · BLOCKED: " + ", ".join(f'{x["object_type"]}:{x["selector"]}' for x in protected_hits[:8])
-    blocked_banner = '<div class="warn"><strong>Blocked by protected object policy.</strong></div>' if protected_hits else ""
-    button_disabled = "disabled" if protected_hits else ""
+    inactive = (not router["enabled"]) or (router["lifecycle_state"] or "production") == "retired"
+    blocked_reasons = []
+    if protected_hits:
+        blocked_reasons.append("protected object policy")
+    if inactive:
+        blocked_reasons.append("router is disabled or retired")
+    blocked_banner = (
+        '<div class="warn"><strong>Change blocked: '+html.escape(", ".join(blocked_reasons))+'.</strong></div>'
+        if blocked_reasons else ""
+    )
+    button_disabled = "disabled" if blocked_reasons else ""
     hidden_parts = []
     for k, v in fields.items():
         if k == "preview_ack":
