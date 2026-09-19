@@ -12,6 +12,11 @@ from app import events, main as core, migrations
 def _now(): return datetime.now(timezone.utc)
 
 
+def _parse_utc(value):
+    dt=datetime.fromisoformat(value)
+    return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt.astimezone(timezone.utc)
+
+
 def assess(router_id:int):
     migrations.migrate(); now=_now()
     with core.db() as conn:
@@ -28,7 +33,7 @@ def assess(router_id:int):
         recent_ips=set()
         cutoff30=now-timedelta(days=30)
         for x in rows:
-            try: observed=datetime.fromisoformat(x["observed_at"])
+            try: observed=_parse_utc(x["observed_at"])
             except Exception: continue
             if x["changed"]: changes.append(observed)
             if observed>=cutoff30: recent_ips.add(x["public_ip"])
