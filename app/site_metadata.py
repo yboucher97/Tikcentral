@@ -50,22 +50,29 @@ def register(app,page_func):
 <div class="muted">{html.escape(router["model"] or "")} · <code>{html.escape(router["vpn_ip"])}</code></div></div>
 <div class="panel pad"><form method="post" action="/site/{router_id}">
 <input type="hidden" name="csrf" value="{csrf}">
+<h3>Site identity</h3><div class="muted" style="margin-bottom:10px">The information you need most often when identifying the customer and location.</div>
 <div class="cards">
 <div><label>Customer<br><input name="customer_name" value="{val("customer_name")}" style="width:100%"></label></div>
 <div><label>Site code<br><input name="site_code" value="{val("site_code")}" style="width:100%"></label></div>
 <div><label>Address<br><input name="address" value="{val("address")}" style="width:100%"></label></div>
+</div>
+<h3 style="margin-top:18px">Primary contact</h3><div class="cards">
 <div><label>Contact name<br><input name="contact_name" value="{val("contact_name")}" style="width:100%"></label></div>
 <div><label>Contact phone<br><input name="contact_phone" value="{val("contact_phone")}" style="width:100%"></label></div>
 <div><label>Contact email<br><input name="contact_email" value="{val("contact_email")}" style="width:100%"></label></div>
+</div>
+<details class="panel pad" style="margin-top:16px;background:var(--surface2)"><summary><strong>Circuit & technical details</strong> <span class="muted">· ISP, bandwidth, references</span></summary>
+<div class="cards" style="margin-top:12px">
 <div><label>Circuit type<br><input name="circuit_type" value="{val("circuit_type")}" placeholder="Bell fibre / cable / LTE / PPPoE..." style="width:100%"></label></div>
 <div><label>Circuit / account reference<br><input name="circuit_reference" value="{val("circuit_reference")}" style="width:100%"></label></div>
 <div><label>Circuit download Mbps<br><input type="number" min="0" step="0.1" name="circuit_down_mbps" value="{val("circuit_down_mbps")}" placeholder="e.g. 1000" style="width:100%"></label></div>
 <div><label>Circuit upload Mbps<br><input type="number" min="0" step="0.1" name="circuit_up_mbps" value="{val("circuit_up_mbps")}" placeholder="e.g. 1000" style="width:100%"></label></div>
 <div><label>Install date<br><input type="date" name="install_date" value="{val("install_date")}" style="width:100%"></label></div>
 <div><label>Ticket / work order<br><input name="ticket_reference" value="{val("ticket_reference")}" style="width:100%"></label></div>
-</div>
-<div style="margin-top:14px"><label>Support / technician notes<br><textarea name="support_notes" style="width:100%;min-height:140px">{val("support_notes")}</textarea></label></div>
-<div class="inline" style="margin-top:14px"><button class="primary">Save site information</button><a href="/operations/{router_id}"><button type="button">Back</button></a></div>
+</div></details>
+<details class="panel pad" style="background:var(--surface2)"><summary><strong>Support notes</strong> <span class="muted">· technician-only context</span></summary>
+<div style="margin-top:12px"><textarea name="support_notes" style="width:100%;min-height:140px" placeholder="Access details, ISP notes, caveats, recurring site-specific information…">{val("support_notes")}</textarea></div></details>
+<div class="inline" style="position:sticky;bottom:10px;margin-top:14px;padding:10px;border:1px solid var(--line);border-radius:10px;background:color-mix(in srgb,var(--surface) 94%,transparent);backdrop-filter:blur(8px)"><button class="primary">Save site information</button><a href="/operations/{router_id}"><button type="button">Cancel</button></a></div>
 </form></div>'''
         return page_func("Site Metadata",body,user,"operations")
 
