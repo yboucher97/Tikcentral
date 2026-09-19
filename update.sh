@@ -235,14 +235,14 @@ if [[ -r "$UFW_STATE" ]]; then
   PREVIOUS_WINBOX_RANGE="${TIKCENTRAL_UFW_WINBOX_RANGE:-}"
 fi
 if [[ -n "$PREVIOUS_WINBOX_RANGE" && "$PREVIOUS_WINBOX_RANGE" != "$CURRENT_WINBOX_RANGE" ]]; then
-  ufw --force delete allow "$PREVIOUS_WINBOX_RANGE/tcp" >/dev/null 2>&1 || true
+  ufw delete allow "$PREVIOUS_WINBOX_RANGE/tcp" >/dev/null 2>&1 || true
 elif [[ -z "$PREVIOUS_WINBOX_RANGE" && "$CURRENT_WINBOX_RANGE" != "20000:49999" ]]; then
-  ufw --force delete allow "20000:49999/tcp" >/dev/null 2>&1 || true
+  ufw delete allow "20000:49999/tcp" >/dev/null 2>&1 || true
 fi
 if [[ -n "$PREVIOUS_ROUTER_POOL" && "$PREVIOUS_ROUTER_POOL" != "$CURRENT_ROUTER_POOL" ]]; then
-  ufw --force delete route allow in on wg0 out on wg0 from 10.250.254.0/24 to "$PREVIOUS_ROUTER_POOL" >/dev/null 2>&1 || true
+  ufw route delete allow in on wg0 out on wg0 from 10.250.254.0/24 to "$PREVIOUS_ROUTER_POOL" >/dev/null 2>&1 || true
 elif [[ -z "$PREVIOUS_ROUTER_POOL" && "$CURRENT_ROUTER_POOL" != "10.250.1.0/24" ]]; then
-  ufw --force delete route allow in on wg0 out on wg0 from 10.250.254.0/24 to 10.250.1.0/24 >/dev/null 2>&1 || true
+  ufw route delete allow in on wg0 out on wg0 from 10.250.254.0/24 to 10.250.1.0/24 >/dev/null 2>&1 || true
 fi
 ufw allow "$CURRENT_WINBOX_RANGE/tcp" >/dev/null
 ufw route allow in on wg0 out on wg0 from 10.250.254.0/24 to "$CURRENT_ROUTER_POOL" >/dev/null
