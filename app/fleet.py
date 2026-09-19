@@ -11,6 +11,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from app import errors
+from app import events
 from app import jobs
 from app import main as core
 from app import migrations
@@ -258,8 +259,17 @@ def scheduled_tick():
     if local.strftime("%H:%M") < config["backup_time"] or config["last_backup_date"] == today:
         return None
     job_id = run_backup_job("scheduler")
-    if config["analysis_enabled"]:
-        run_analysis_job("scheduler")
+    # Mark today's backup before optional analysis. Analysis is deliberately
+    # best-effort and must never cause the daily backup to repeat every timer
+    # tick if its read-only probes fail.
     with core.db() as conn:
         conn.execute("UPDATE fleet_settings SET last_backup_date=? WHERE id=1", (today,))
+    if config["analysis_enabled"]:
+        try:
+            run_analysis_job("scheduler")
+        except Exception as exc:
+            try:
+                events.record(None, "fleet-analysis", "Post-backup fleet analysis failed", errors.short(exc), "warning")
+            except Exception:
+                pass
     return job_id
