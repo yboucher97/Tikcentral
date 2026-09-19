@@ -6,7 +6,7 @@ admin: full access including users, settings and persistent/global access policy
 """
 
 from fastapi import Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 from app import main as core
 
@@ -39,7 +39,13 @@ def install_middleware(app):
         except Exception:
             user = None
         if not user:
-            return await call_next(request)
+            # Machine endpoints authenticate with the administrative API key,
+            # not a browser session.
+            if path in {"/admin/tokens", "/admin/routers"}:
+                return await call_next(request)
+            if path.startswith("/api/"):
+                return JSONResponse({"detail": "authentication required"}, status_code=401)
+            return RedirectResponse("/login", status_code=303)
 
         role = normalize(user["role"])
         method = request.method.upper()
