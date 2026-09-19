@@ -69,7 +69,7 @@ async def relay(reader: asyncio.StreamReader, writer: asyncio.StreamWriter, vpn_
 def desired_ports() -> dict[int, str]:
     with db_connect() as conn:
         rows = conn.execute(
-            "SELECT vpn_ip,public_winbox_port FROM routers WHERE enabled=1 AND public_winbox_port IS NOT NULL"
+            "SELECT vpn_ip,public_winbox_port FROM routers WHERE enabled=1 AND COALESCE(lifecycle_state,'production')<>'retired' AND public_winbox_port IS NOT NULL"
         ).fetchall()
     return {int(row["public_winbox_port"]): row["vpn_ip"] for row in rows}
 
