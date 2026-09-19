@@ -3,14 +3,28 @@
 import html
 from datetime import datetime, timezone
 
-from fastapi import Request
+from fastapi import HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
-from app import events, main as core, migrations
+from app import events, main as core, migrations, ui_time
 
 
 def _now():
     return datetime.now(timezone.utc).isoformat()
+
+
+def _local_input_now():
+    return datetime.now(ui_time.LOCAL_TZ).strftime("%Y-%m-%dT%H:%M")
+
+
+def _normalize_occurred(value: str) -> str:
+    raw=(value or "").strip()
+    if not raw:
+        return _now()
+    dt=datetime.fromisoformat(raw)
+    if dt.tzinfo is None:
+        dt=dt.replace(tzinfo=ui_time.LOCAL_TZ)
+    return dt.astimezone(timezone.utc).isoformat()
 
 
 def register(app,page_func):
@@ -38,7 +52,7 @@ def register(app,page_func):
 <form method="post" action="/maintenance-history/{router_id}">
 <input type="hidden" name="csrf" value="{csrf}">
 <div class="cards">
-<div><label>Date/time<br><input name="occurred_at" value="{html.escape(_now())}" style="width:100%"></label></div>
+<div><label>Date/time (Montréal)<br><input type="datetime-local" name="occurred_at" value="{html.escape(_local_input_now())}" style="width:100%"></label></div>
 <div><label>Technician<br><input name="technician" value="{html.escape(user["email"])}" style="width:100%"></label></div>
 <div><label>Type<br><select name="work_type"><option>service</option><option>installation</option><option>maintenance</option><option>upgrade</option><option>incident</option><option>inspection</option></select></label></div>
 <div><label>Ticket / work order<br><input name="ticket_reference" style="width:100%"></label></div>
@@ -57,7 +71,10 @@ def register(app,page_func):
         data=await core.form_data(request)
         core.require_csrf(request,data.get("csrf",""))
         values={k:str(data.get(k,"")).strip() for k in ("occurred_at","technician","work_type","ticket_reference","issue","work_performed","result","follow_up")}
-        occurred=values["occurred_at"] or _now()
+        try:
+            occurred=_normalize_occurred(values["occurred_at"])
+        except (TypeError,ValueError):
+            raise HTTPException(status_code=400,detail="invalid maintenance date/time")
         with core.db() as conn:
             conn.execute(
                 """INSERT INTO router_maintenance_history
