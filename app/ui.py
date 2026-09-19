@@ -375,7 +375,18 @@ JS = r'''
    const leftovers=[];const sections={};
    Object.keys(categoryMap).forEach(name=>{const s=document.createElement('div');s.className='tc-workspace-section';s.dataset.tab=name;sections[name]=s});
    [...content.children].forEach(el=>{
-     if(el===hero||el.classList?.contains('tc-page-tools'))return;
+     if(
+       el===hero ||
+       el.id==='tcObjectContext' ||
+       el.classList?.contains('tc-page-intro') ||
+       el.classList?.contains('tc-page-tools') ||
+       el.classList?.contains('tc-workspace-tabs') ||
+       el.classList?.contains('tc-tab-description') ||
+       el.classList?.contains('tc-workspace-section')
+     )return;
+     // Only reorganize the router page's operational content. Shared shell/context
+     // elements must stay fixed above the workspace.
+     if(!el.classList?.contains('panel') && !el.classList?.contains('cards'))return;
      const h=el.querySelector?.(':scope > h3');const title=h?.textContent?.trim()||'';
      let dest='';for(const [name,titles] of Object.entries(categoryMap)){if(titles.includes(title)){dest=name;break}}
      if(dest)sections[dest].appendChild(el);else leftovers.push(el);
@@ -398,7 +409,7 @@ JS = r'''
 
  function routerIdFromPath(){
    const patterns=[
-     /^\/(?:operations|timeline|incidents|diagnostics|network-quality|wan-probe|interfaces|lte|mtu|time-health|traffic|capacity|site|notes|customer-report|topology|desired-state|protection|recovery|security-audit|automation-inventory|local-utilization|public-ip-analysis|hardware|hardware-lifecycle|certificates|commissioning-checklist|maintenance-history|ai|audit|compliance|lifecycle)\/(\d+)(?:\/|$)/
+     /^\/(?:operations|timeline|incidents|diagnostics|network-quality|wan-probe|interfaces|lte|mtu|time-health|traffic|capacity|site|notes|customer-report|topology|desired-state|protection|recovery|security-audit|automation-inventory|local-utilization|public-ip-analysis|hardware|hardware-lifecycle|certificates|commissioning-checklist|maintenance-history|log-patterns|changes|ai|audit|compliance|lifecycle)\/(\d+)(?:\/|$)/
    ];
    for(const rx of patterns){const m=location.pathname.match(rx);if(m)return m[1]}
    return null;
