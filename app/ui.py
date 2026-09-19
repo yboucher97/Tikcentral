@@ -231,26 +231,41 @@ JS = r'''
 
 def page(title: str, body: str, user=None, active: str = "") -> HTMLResponse:
     active = active or _infer_active(title)
-    nav = ""
+    sidebar = ""
     account = ""
+    palette_items = ""
+    category = NAV_CATEGORY.get(active, "Workspace")
     if user:
         try:
             email = user["email"]
             role = user["role"] if user["role"] in {"viewer", "technician", "admin"} else "viewer"
         except Exception:
             email, role = "admin", "admin"
-        links = []
-        for key, href, label in NAV:
-            if role != "admin" and key in {"users", "settings", "ssh"}:
-                continue
-            cls = "active" if key == active else ""
-            links.append(f'<a class="{cls}" href="{href}">{html.escape(label)}</a>')
-        nav = '<nav class="tc-nav">' + ''.join(links) + '</nav>'
-        account = f'<div class="tc-account"><span>{html.escape(email)} · {html.escape(role.title())}</span><a href="/account/password"><button type="button">Account</button></a><form method="post" action="/logout" style="display:inline"><button>Logout</button></form></div>'
+        groups = []
+        palette = []
+        for group, items in NAV_GROUPS:
+            links = []
+            for key, href, label in items:
+                if role != "admin" and key in {"users", "settings", "ssh"}:
+                    continue
+                cls = "active" if key == active else ""
+                links.append(f'<a class="{cls}" href="{href}">{html.escape(label)}</a>')
+                palette.append(f'<a class="tc-palette-item" href="{href}" data-search="{html.escape((group+" "+label).lower())}"><span>{html.escape(label)}</span><span>{html.escape(group)}</span></a>')
+            if links:
+                groups.append(f'<div class="tc-nav-group"><div class="tc-nav-label">{html.escape(group)}</div><nav class="tc-nav">{"".join(links)}</nav></div>')
+        sidebar = "".join(groups)
+        palette_items = "".join(palette)
+        account = f'''<div class="tc-account"><button type="button" id="tcAccountBtn"><span>{html.escape(email)}</span> ▾</button><div class="tc-account-menu"><div style="padding:8px 10px"><strong>{html.escape(email)}</strong><div class="muted">{html.escape(role.title())}</div></div><a href="/account/password"><button type="button">Account & password</button></a><form method="post" action="/logout"><button>Sign out</button></form></div></div>'''
     light = settings.ASSETS["logo_light"]
     dark = settings.ASSETS["logo_dark"]
     icon = settings.ASSETS["icon"]
-    tools = '<div class="tc-tools"><span class="label">Search</span><input id="tcGlobalSearch" placeholder="Search this page…"><button type="button" onclick="document.getElementById(\'tcGlobalSearch\').value=\'\';document.getElementById(\'tcGlobalSearch\').dispatchEvent(new Event(\'input\'))">Clear</button><button id="tcTheme" type="button" onclick="tcToggleTheme()">Theme</button></div>' if user else ''
     localized = localize_html_iso_timestamps(body or "").replace(" UTC", " Montréal")
-    html_doc = f'''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{html.escape(title)} - Tikcentral</title><link rel="icon" href="{icon}"><script>(function(){{try{{document.documentElement.dataset.theme=localStorage.getItem('tikcentral:theme')||(matchMedia('(prefers-color-scheme: light)').matches?'light':'dark')}}catch(e){{document.documentElement.dataset.theme='dark'}}}})();</script><style>{CSS}</style></head><body><main class="tc-app"><header class="tc-head"><div class="tc-brand"><a href="/"><img class="tc-logo tc-logo-light" src="{light}" alt="Opticable"><img class="tc-logo tc-logo-dark" src="{dark}" alt="Opticable"><img class="tc-icon" src="{icon}" alt="Opticable"></a></div>{nav}{account}</header>{tools}{localized}</main><script>{JS}</script></body></html>'''
+    page_tools = '<div class="tc-page-tools"><input id="tcGlobalSearch" data-no-copy placeholder="Search within this page…"><button type="button" id="tcPageSearchClear">Clear</button><span class="hint">Use Ctrl/⌘ K for navigation</span></div>' if user else ''
+    shell = f'''<div class="tc-shell">
+<aside class="tc-sidebar" id="tcSidebar"><div class="tc-brand"><a href="/"><img class="tc-logo tc-logo-light" src="{light}" alt="Opticable"><img class="tc-logo tc-logo-dark" src="{dark}" alt="Opticable"><img class="tc-icon" src="{icon}" alt="Opticable"></a></div>{sidebar}<div class="tc-sidebar-foot">Tikcentral · Opticable<br>Management plane</div></aside>
+<div class="tc-main"><header class="tc-topbar"><button class="tc-menu-btn" id="tcMenuBtn" type="button">☰</button><div class="tc-page-meta"><div class="tc-page-title">{html.escape(title)}</div><div class="tc-breadcrumb">{html.escape(category)}</div></div>
+<div class="tc-top-actions">{f'<button class="tc-command-btn" id="tcCommandBtn" type="button"><span class="tc-command-label">Go to…</span><span class="tc-kbd">Ctrl K</span></button><button id="tcTheme" type="button" onclick="tcToggleTheme()">Theme</button>{account}' if user else ''}</div></header>
+<main class="tc-content">{page_tools}{localized}</main></div></div>'''
+    palette = f'''<div class="tc-palette" id="tcPalette"><div class="tc-palette-card"><div class="tc-palette-search"><input id="tcPaletteSearch" data-no-copy placeholder="Go to a feature…"></div><div class="tc-palette-list">{palette_items}</div></div></div>''' if user else ""
+    html_doc = f'''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{html.escape(title)} - Tikcentral</title><link rel="icon" href="{icon}"><script>(function(){{try{{document.documentElement.dataset.theme=localStorage.getItem('tikcentral:theme')||(matchMedia('(prefers-color-scheme: light)').matches?'light':'dark')}}catch(e){{document.documentElement.dataset.theme='dark'}}}})();</script><style>{CSS}</style></head><body>{shell}{palette}<script>{JS}</script></body></html>'''
     return HTMLResponse(html_doc)
