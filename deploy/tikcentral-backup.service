@@ -3,4 +3,4 @@ Description=Tikcentral database backup
 
 [Service]
 Type=oneshot
-ExecStart=/opt/tikcentral/current/scripts/backup.sh
+ExecStart=/bin/bash /opt/tikcentral/current/scripts/backup.sh
