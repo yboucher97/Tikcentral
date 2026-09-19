@@ -1076,7 +1076,8 @@ def validate_provisioning_and_updater():
         "install -d -o root -g tikcentral -m 0750 /var/backups/tikcentral",
         "chown root:tikcentral \"$DB_BACKUP\"",
         "systemctl start tikcentral-backup.service",
-        "system_health.verify_backups(); system_health.record_health()",
+        "system_health.verify_backups()",
+        "system_health.record_health()",
         "find \"$ROUTER_BACKUP_DIR\" -type d -exec chmod 0750",
     ):
         if marker not in update_text:
