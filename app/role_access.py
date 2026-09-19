@@ -12,7 +12,7 @@ from app import main as core
 
 ROLE_RANK = {"viewer": 10, "technician": 20, "admin": 30}
 
-ADMIN_PREFIXES = ("/admin/users", "/settings", "/ssh")
+ADMIN_PREFIXES = ("/admin/users", "/settings", "/ssh", "/enroll")
 ADMIN_POST_PREFIXES = ("/dashboard/access/always",)
 ADMIN_POST_FRAGMENTS = ("/dashboard/access/",)
 
