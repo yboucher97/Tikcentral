@@ -224,7 +224,7 @@ html[data-theme="light"] .tc-logo-dark{display:none}html[data-theme="light"] .tc
 .tc-table-wrap{position:relative}.tc-table-tools{display:flex;gap:7px;align-items:center;flex-wrap:wrap;padding:8px 10px;border-bottom:1px solid var(--line);background:var(--surface2);border-radius:11px 11px 0 0;position:relative;z-index:4}
 .tc-table-tools .tc-local-search{flex:1;min-width:220px}.tc-table-tools .tc-advanced{display:none;gap:7px;align-items:center;flex-wrap:wrap;width:100%;padding-top:8px;border-top:1px solid var(--line)}.tc-table-tools.filter-open .tc-advanced{display:flex}
 .tc-filter-column,.tc-filter-op,.tc-date-column{max-width:220px}.tc-filter-value{min-width:150px;flex:0 1 240px}.tc-date-range{display:none;gap:7px;align-items:center;flex-wrap:wrap;width:100%;padding-top:8px}.tc-table-tools.has-date.filter-open .tc-date-range{display:flex}.tc-date-range label{display:flex;gap:5px;align-items:center;color:var(--muted);font-size:11px}.tc-date-range input{min-height:34px}.tc-timezone-hint{font-size:10px;color:var(--muted)}.tc-count{font-size:11px;color:var(--muted);white-space:nowrap;margin-left:auto}
-.tc-colbox{position:relative}.tc-colmenu{display:none;position:absolute;right:0;top:calc(100% + 5px);z-index:100;width:230px;max-height:350px;overflow:auto;background:var(--surface);border:1px solid var(--line);border-radius:9px;padding:8px;box-shadow:var(--shadow)}.tc-colbox.open .tc-colmenu{display:block}.tc-colmenu label{display:flex;gap:8px;align-items:center;padding:6px}
+.tc-colbox{position:relative}.tc-colmenu{display:none;position:absolute;right:0;top:calc(100% + 5px);z-index:100;width:270px;max-height:420px;overflow:auto;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:8px;box-shadow:var(--shadow)}.tc-colbox.open .tc-colmenu{display:block}.tc-colmenu label{display:flex;gap:8px;align-items:center;padding:6px;border-radius:6px}.tc-colmenu label:hover{background:var(--surface2)}.tc-colmenu-head{position:sticky;top:-8px;z-index:2;background:var(--surface);padding:8px 4px;border-bottom:1px solid var(--line);margin-bottom:4px}.tc-colmenu-actions{display:flex;gap:6px;margin-top:7px}.tc-colmenu-actions button{flex:1;padding:5px 7px;font-size:11px}.tc-view-saved{font-size:10px;color:var(--muted);margin-left:4px}
 .tc-scroll{overflow:auto;max-width:100%;border-radius:0 0 11px 11px}table{width:100%;border-collapse:collapse;min-width:760px}th,td{padding:10px 12px;text-align:left;border-bottom:1px solid var(--line);vertical-align:top}
 th{font-size:10px;text-transform:uppercase;letter-spacing:.045em;color:var(--muted);background:var(--surface2);position:sticky;top:0;z-index:2;cursor:pointer;white-space:nowrap}th[data-sort]::after{content:" ↕";opacity:.3}
 tbody tr:hover{background:var(--surface2)}
@@ -273,9 +273,32 @@ JS = r'''
  const root=document.documentElement;
  const saved=localStorage.getItem('tikcentral:theme');
  root.dataset.theme=saved||(matchMedia('(prefers-color-scheme: light)').matches?'light':'dark');
+ let tcUserPrefs={},tcPrefsCsrf='',tcPrefTimers={};
 
+ function localPrefKey(key){return 'tikcentral:account-pref:'+key}
+ function prefGet(key,fallback){
+   if(Object.prototype.hasOwnProperty.call(tcUserPrefs,key))return tcUserPrefs[key];
+   try{const raw=localStorage.getItem(localPrefKey(key));if(raw!==null)return JSON.parse(raw)}catch(_){}
+   return fallback;
+ }
+ function prefSet(key,value){
+   tcUserPrefs[key]=value;
+   try{if(value===null)localStorage.removeItem(localPrefKey(key));else localStorage.setItem(localPrefKey(key),JSON.stringify(value))}catch(_){}
+   clearTimeout(tcPrefTimers[key]);
+   tcPrefTimers[key]=setTimeout(async()=>{
+     try{await fetch('/api/ui/preferences',{method:'PUT',credentials:'same-origin',headers:{'Content-Type':'application/json','X-CSRF-Token':tcPrefsCsrf},body:JSON.stringify({key,value})})}catch(_){}
+   },250);
+ }
+ async function loadUserPreferences(){
+   try{
+     const r=await fetch('/api/ui/preferences',{credentials:'same-origin',cache:'no-store'});
+     if(!r.ok)return;
+     const data=await r.json();tcUserPrefs=data.preferences||{};tcPrefsCsrf=data.csrf||'';
+     Object.entries(tcUserPrefs).forEach(([k,v])=>{try{localStorage.setItem(localPrefKey(k),JSON.stringify(v))}catch(_){}});
+   }catch(_){}
+ }
  function themeLabel(){const b=document.getElementById('tcTheme');if(b)b.textContent=root.dataset.theme==='light'?'Dark':'Light'}
- window.tcToggleTheme=function(){root.dataset.theme=root.dataset.theme==='light'?'dark':'light';localStorage.setItem('tikcentral:theme',root.dataset.theme);themeLabel()};
+ window.tcToggleTheme=function(){root.dataset.theme=root.dataset.theme==='light'?'dark':'light';localStorage.setItem('tikcentral:theme',root.dataset.theme);prefSet('ui:theme',root.dataset.theme);themeLabel()};
 
  async function tcWriteClipboard(text){
    text=String(text??'');
@@ -362,14 +385,28 @@ JS = r'''
    });
    const count=wrap.querySelector('.tc-count');if(count)count.textContent=shown+' / '+total;
  }
+ function defaultHiddenColumns(table){
+   const raw=(table.dataset.defaultHidden||'').trim();
+   if(!raw)return [];
+   return raw.split(',').map(x=>x.trim()).filter(Boolean).map(Number).filter(Number.isFinite);
+ }
+ function tableViewKey(table,headers,index){
+   if(table.dataset.viewKey)return 'table:'+table.dataset.viewKey;
+   const signature=headers.map(h=>(h.innerText||'').trim().toLowerCase()).join('|').replace(/[^a-z0-9|:_ -]/g,'').slice(0,260);
+   return 'table:'+location.pathname+':'+signature+':'+index;
+ }
  function enhanceTable(table,index){
    if(table.dataset.tcReady)return;table.dataset.tcReady='1';
    const panel=table.parentElement,wrap=document.createElement('div');wrap.className='tc-table-wrap';panel.insertBefore(wrap,table);
    const tools=document.createElement('div');tools.className='tc-table-tools';
-   tools.innerHTML='<input class="tc-local-search" data-no-copy placeholder="Search rows…"><button type="button" class="tc-filter-toggle">Filter</button><span class="tc-count"></span><button type="button" class="tc-copy-table">Copy visible</button><div class="tc-colbox"><button type="button" class="tc-colbtn">Columns</button><div class="tc-colmenu"></div></div><button type="button" class="tc-reset">Reset</button><div class="tc-advanced"><select class="tc-filter-column" data-no-copy></select><select class="tc-filter-op" data-no-copy><option value="contains">contains</option><option value="!contains">does not contain</option><option value="=">=</option><option value="!=">!=</option><option value=">">&gt;</option><option value=">=">&gt;=</option><option value="<">&lt;</option><option value="<=">&lt;=</option></select><input class="tc-filter-value" data-no-copy placeholder="Filter value…"><button type="button" class="tc-copy-column">Copy selected column</button></div><div class="tc-date-range"><select class="tc-date-column" data-no-copy></select><label>From <input type="datetime-local" class="tc-date-from" data-no-copy></label><label>To <input type="datetime-local" class="tc-date-to" data-no-copy></label><span class="tc-timezone-hint">Montréal local time</span></div>';
+   tools.innerHTML='<input class="tc-local-search" data-no-copy placeholder="Search rows…"><button type="button" class="tc-filter-toggle">Filter</button><span class="tc-count"></span><button type="button" class="tc-copy-table">Copy visible</button><div class="tc-colbox"><button type="button" class="tc-colbtn">Columns</button><div class="tc-colmenu"></div></div><button type="button" class="tc-reset">Clear filters</button><div class="tc-advanced"><select class="tc-filter-column" data-no-copy></select><select class="tc-filter-op" data-no-copy><option value="contains">contains</option><option value="!contains">does not contain</option><option value="=">=</option><option value="!=">!=</option><option value=">">&gt;</option><option value=">=">&gt;=</option><option value="<">&lt;</option><option value="<=">&lt;=</option></select><input class="tc-filter-value" data-no-copy placeholder="Filter value…"><button type="button" class="tc-copy-column">Copy selected column</button></div><div class="tc-date-range"><select class="tc-date-column" data-no-copy></select><label>From <input type="datetime-local" class="tc-date-from" data-no-copy></label><label>To <input type="datetime-local" class="tc-date-to" data-no-copy></label><span class="tc-timezone-hint">Montréal local time</span></div>';
    wrap.appendChild(tools);const scroll=document.createElement('div');scroll.className='tc-scroll';wrap.appendChild(scroll);scroll.appendChild(table);
-   const key='tikcentral:columns:'+location.pathname+':'+index;let hidden=[];const stored=localStorage.getItem(key);try{hidden=stored!==null?JSON.parse(stored):(table.dataset.defaultHidden||'').split(',').map(x=>Number(x.trim())).filter(Number.isFinite)}catch(_){hidden=[]}
    const headers=[...table.querySelectorAll('thead th')],menu=tools.querySelector('.tc-colmenu'),filterColumn=tools.querySelector('.tc-filter-column'),dateColumn=tools.querySelector('.tc-date-column');
+   const defaults=defaultHiddenColumns(table),viewKey=tableViewKey(table,headers,index),savedHidden=prefGet(viewKey,null);
+   let hidden=Array.isArray(savedHidden)?savedHidden.map(Number).filter(Number.isFinite):defaults.slice();
+   hidden=[...new Set(hidden)].filter(i=>i>=0&&i<headers.length);
+   if(headers.length&&hidden.length>=headers.length)hidden=[];
+   const head=document.createElement('div');head.className='tc-colmenu-head';head.innerHTML='<strong>Visible columns</strong><div class="tc-view-saved">Saved to your account</div><div class="tc-colmenu-actions"><button type="button" class="tc-show-all">Show all</button><button type="button" class="tc-reset-columns">Reset defaults</button></div>';menu.appendChild(head);
    const dateIndexes=[];
    headers.forEach((th,i)=>{
      th.dataset.sort='1';let dir=1;th.onclick=e=>{if(e.target.closest('input,button,select'))return;sortTable(table,i,dir);dir*=-1};
@@ -380,14 +417,23 @@ JS = r'''
    });
    if(dateIndexes.length)tools.classList.add('has-date');else tools.querySelector('.tc-date-range')?.remove();
    installCellCopy(table,headers);
-   function setCol(i,show,save=true){[...table.rows].forEach(r=>{if(r.cells[i])r.cells[i].style.display=show?'':'none'});hidden=hidden.filter(x=>x!==i);if(!show)hidden.push(i);if(save)localStorage.setItem(key,JSON.stringify(hidden))}
+   function syncColumnChecks(){menu.querySelectorAll('label input').forEach((cb,i)=>cb.checked=!hidden.includes(i))}
+   function setCol(i,show,save=true){
+     const visibleCount=headers.length-hidden.length;
+     if(!show&&visibleCount<=1){syncColumnChecks();return}
+     [...table.rows].forEach(r=>{if(r.cells[i])r.cells[i].style.display=show?'':'none'});
+     hidden=hidden.filter(x=>x!==i);if(!show)hidden.push(i);hidden.sort((a,b)=>a-b);
+     if(save)prefSet(viewKey,hidden.slice());
+   }
+   tools.querySelector('.tc-show-all').onclick=()=>{hidden=[];headers.forEach((_,i)=>setCol(i,true,false));syncColumnChecks();prefSet(viewKey,[])};
+   tools.querySelector('.tc-reset-columns').onclick=()=>{hidden=defaults.slice();headers.forEach((_,i)=>setCol(i,!hidden.includes(i),false));syncColumnChecks();prefSet(viewKey,hidden.slice())};
    tools.querySelector('.tc-filter-toggle').onclick=()=>tools.classList.toggle('filter-open');
    tools.querySelector('.tc-copy-table').onclick=e=>{e.preventDefault();copyVisibleTable(table,headers,e.currentTarget)};
    tools.querySelector('.tc-copy-column').onclick=e=>{e.preventDefault();copyVisibleColumn(table,headers,Number(filterColumn.value??-1),e.currentTarget)};
    tools.querySelector('.tc-colbtn').onclick=e=>{e.stopPropagation();tools.querySelector('.tc-colbox').classList.toggle('open')};
    ['input','change'].forEach(ev=>{tools.querySelector('.tc-local-search').addEventListener(ev,()=>filterTable(wrap));tools.querySelector('.tc-filter-value').addEventListener(ev,()=>filterTable(wrap));tools.querySelector('.tc-date-from')?.addEventListener(ev,()=>filterTable(wrap));tools.querySelector('.tc-date-to')?.addEventListener(ev,()=>filterTable(wrap))});
    filterColumn.onchange=()=>filterTable(wrap);tools.querySelector('.tc-filter-op').onchange=()=>filterTable(wrap);if(dateColumn)dateColumn.onchange=()=>filterTable(wrap);
-   tools.querySelector('.tc-reset').onclick=()=>{tools.querySelector('.tc-local-search').value='';tools.querySelector('.tc-filter-value').value='';tools.querySelector('.tc-filter-op').value='contains';if(tools.querySelector('.tc-date-from'))tools.querySelector('.tc-date-from').value='';if(tools.querySelector('.tc-date-to'))tools.querySelector('.tc-date-to').value='';hidden=[];localStorage.removeItem(key);headers.forEach((_,i)=>setCol(i,true,false));menu.querySelectorAll('input').forEach(x=>x.checked=true);filterTable(wrap)};
+   tools.querySelector('.tc-reset').onclick=()=>{tools.querySelector('.tc-local-search').value='';tools.querySelector('.tc-filter-value').value='';tools.querySelector('.tc-filter-op').value='contains';if(tools.querySelector('.tc-date-from'))tools.querySelector('.tc-date-from').value='';if(tools.querySelector('.tc-date-to'))tools.querySelector('.tc-date-to').value='';filterTable(wrap)};
    filterTable(wrap);
  }
 
@@ -467,9 +513,9 @@ JS = r'''
    const tabColors={'Summary':'#45bd7a','Connectivity':'#4d98e8','Configuration':'#9b7de0','Assets':'#d7a84d','Activity':'#7f8b84'};
    const tabs=document.createElement('div');tabs.className='tc-workspace-tabs';
    const desc=document.createElement('div');desc.className='tc-tab-description';
-   Object.keys(sections).forEach((name,i)=>{const b=document.createElement('button');b.type='button';b.textContent=name;b.dataset.tab=name;b.className=i===0?'active':'';b.onclick=()=>{tabs.querySelectorAll('button').forEach(x=>x.classList.remove('active'));b.classList.add('active');Object.values(sections).forEach(s=>s.classList.remove('active'));sections[name].classList.add('active');desc.textContent=tabHelp[name]||'';desc.style.setProperty('--tab-description-accent',tabColors[name]||'var(--section-accent)');localStorage.setItem('tikcentral:router-tab',name)};tabs.appendChild(b)});
+   Object.keys(sections).forEach((name,i)=>{const b=document.createElement('button');b.type='button';b.textContent=name;b.dataset.tab=name;b.className=i===0?'active':'';b.onclick=()=>{tabs.querySelectorAll('button').forEach(x=>x.classList.remove('active'));b.classList.add('active');Object.values(sections).forEach(s=>s.classList.remove('active'));sections[name].classList.add('active');desc.textContent=tabHelp[name]||'';desc.style.setProperty('--tab-description-accent',tabColors[name]||'var(--section-accent)');localStorage.setItem('tikcentral:router-tab',name);prefSet('ui:router-tab',name)};tabs.appendChild(b)});
    hero.insertAdjacentElement('afterend',tabs);tabs.insertAdjacentElement('afterend',desc);Object.values(sections).forEach(s=>content.appendChild(s));
-   const saved=localStorage.getItem('tikcentral:router-tab');const target=sections[saved]?saved:Object.keys(sections)[0];[...tabs.children].find(b=>b.textContent===target)?.click();
+   const saved=prefGet('ui:router-tab',localStorage.getItem('tikcentral:router-tab'));const target=sections[saved]?saved:Object.keys(sections)[0];[...tabs.children].find(b=>b.textContent===target)?.click();
  }
 
  function routerIdFromPath(){
@@ -565,11 +611,13 @@ JS = r'''
  }
 
  function installGuidancePreference(){
-   if(localStorage.getItem('tikcentral:hide-guidance')==='1')document.body.classList.add('tc-hide-guidance');
-   if(localStorage.getItem('tikcentral:density')==='compact')document.body.classList.add('tc-compact');
-   document.querySelector('.tc-intro-dismiss')?.addEventListener('click',()=>{document.body.classList.add('tc-hide-guidance');localStorage.setItem('tikcentral:hide-guidance','1')});
-   document.getElementById('tcRestoreGuidance')?.addEventListener('click',()=>{document.body.classList.remove('tc-hide-guidance');localStorage.removeItem('tikcentral:hide-guidance')});
-   document.getElementById('tcDensityToggle')?.addEventListener('click',()=>{document.body.classList.toggle('tc-compact');localStorage.setItem('tikcentral:density',document.body.classList.contains('tc-compact')?'compact':'comfortable')});
+   const hidden=prefGet('ui:hide-guidance',localStorage.getItem('tikcentral:hide-guidance')==='1');
+   const density=prefGet('ui:density',localStorage.getItem('tikcentral:density')||'comfortable');
+   if(hidden)document.body.classList.add('tc-hide-guidance');
+   if(density==='compact')document.body.classList.add('tc-compact');
+   document.querySelector('.tc-intro-dismiss')?.addEventListener('click',()=>{document.body.classList.add('tc-hide-guidance');localStorage.setItem('tikcentral:hide-guidance','1');prefSet('ui:hide-guidance',true)});
+   document.getElementById('tcRestoreGuidance')?.addEventListener('click',()=>{document.body.classList.remove('tc-hide-guidance');localStorage.removeItem('tikcentral:hide-guidance');prefSet('ui:hide-guidance',false)});
+   document.getElementById('tcDensityToggle')?.addEventListener('click',()=>{document.body.classList.toggle('tc-compact');const d=document.body.classList.contains('tc-compact')?'compact':'comfortable';localStorage.setItem('tikcentral:density',d);prefSet('ui:density',d)});
  }
 
  function decorateStatuses(){document.querySelectorAll('td').forEach(td=>{if(td.children.length)return;const s=(td.innerText||'').trim().toLowerCase();let tone='';if(['healthy','online','passed','success','succeeded','enabled','ready','commissioned','matches baseline','ok','up'].includes(s))tone='ok';else if(['warning','partial','degraded','pending','queued','running','verifying','drift','drift detected','saturated'].includes(s))tone='warn';else if(['failed','error','critical','offline','down'].includes(s))tone='bad';if(tone){const text=td.innerText;td.innerHTML='<span class="tc-status '+tone+'"><span class="tc-status-dot"></span><span></span></span>';td.firstChild.lastChild.textContent=text}})}
@@ -591,7 +639,9 @@ JS = r'''
      tcGotoPrefix=false;if(dest){e.preventDefault();location.href=dest}
    }
  });
- document.addEventListener('DOMContentLoaded',()=>{
+ document.addEventListener('DOMContentLoaded',async()=>{
+   await loadUserPreferences();
+   const preferredTheme=prefGet('ui:theme',null);if(preferredTheme==='light'||preferredTheme==='dark')root.dataset.theme=preferredTheme;
    themeLabel();installCopyButtons();installGuidancePreference();installRouterContext();installRecentRouters();organizeRouterWorkspace();emphasizeNestedSections();installDisclosureState();decorateStatuses();decorateEmptyStates();classifyActions();protectDirtyForms();
    const observer=new MutationObserver(ms=>ms.forEach(m=>m.addedNodes.forEach(node=>{if(node.nodeType===1)installCopyButtons(node)})));observer.observe(document.body,{childList:true,subtree:true});
    document.querySelectorAll('table').forEach(enhanceTable);
