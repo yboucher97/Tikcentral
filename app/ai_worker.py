@@ -35,6 +35,7 @@ def _claim_one():
             """SELECT a.* FROM router_ai_analyses a
                JOIN routers r ON r.id=a.router_id
                WHERE a.status='queued' AND r.enabled=1
+                 AND a.trigger_source='human_web'
                  AND NOT EXISTS (
                    SELECT 1 FROM router_jobs j
                    WHERE j.router_id=a.router_id
@@ -64,6 +65,8 @@ def run_once() -> int:
 
     job_id = int(job["id"])
     router_id = int(job["router_id"])
+    if job.get("trigger_source") != "human_web":
+        return 0
     try:
         snapshot = ai_analysis.collect_snapshot(
             router_id,
