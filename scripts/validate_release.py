@@ -455,9 +455,9 @@ def validate_source_boundaries():
     if '"/ssh"' not in role_guard or "ADMIN_PREFIXES" not in role_guard:
         fail("Arbitrary Web SSH is not admin-only")
     preview_guard = (ROOT / "app/change_preview.py").read_text(encoding="utf-8")
-    for marker in ("Protected objects", "protected_hits", "Blocked by protected object policy"):
+    for marker in ("Protected objects", "protected_hits", "blocked_reasons", "router is disabled or retired"):
         if marker not in preview_guard:
-            fail(f"Protected-object preview integration missing: {marker}")
+            fail(f"Protected-object/lifecycle preview integration missing: {marker}")
     final_guard = (ROOT / "app/final.py").read_text(encoding="utf-8")
     if "Normalization blocked by protected object rule" not in final_guard:
         fail("Normalization does not enforce protected-object policy")
