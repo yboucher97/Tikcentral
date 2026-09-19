@@ -2,6 +2,7 @@ import hashlib
 import hmac
 import html
 import ipaddress
+import json
 import secrets
 import sqlite3
 import subprocess
@@ -11,7 +12,7 @@ from datetime import datetime, timedelta, timezone
 from urllib.parse import parse_qs
 
 from fastapi import FastAPI, Header, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from pydantic import BaseModel, Field
 
 from app import migrations
@@ -277,6 +278,62 @@ def health():
     except HTTPException:
         wg = "error"
     return {"ok": wg == "ok", "database": "ok", "wireguard": wg}
+
+
+@app.get("/api/ui/preferences")
+def ui_preferences(request: Request):
+    """Return account-scoped GUI preferences plus a CSRF token for preference writes."""
+    user = require_web_role(request, "viewer")
+    if not user:
+        raise HTTPException(status_code=401, detail="authentication required")
+    with db() as conn:
+        rows = conn.execute(
+            "SELECT preference_key,value_json FROM user_ui_preferences WHERE user_id=?",
+            (user["id"],),
+        ).fetchall()
+    preferences = {}
+    for row in rows:
+        try:
+            preferences[row["preference_key"]] = json.loads(row["value_json"])
+        except Exception:
+            continue
+    return JSONResponse({"preferences": preferences, "csrf": csrf_token(request)})
+
+
+@app.put("/api/ui/preferences")
+async def update_ui_preference(request: Request):
+    """Persist one GUI preference for the authenticated account."""
+    user = require_web_role(request, "viewer")
+    if not user:
+        raise HTTPException(status_code=401, detail="authentication required")
+    require_csrf(request, request.headers.get("x-csrf-token", ""))
+    try:
+        payload = await request.json()
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="invalid JSON") from exc
+    key = str(payload.get("key", "")).strip()
+    if not key or len(key) > 500 or not (key.startswith("table:") or key.startswith("ui:")):
+        raise HTTPException(status_code=400, detail="invalid preference key")
+    value = payload.get("value")
+    now = iso(utcnow())
+    with db() as conn:
+        if value is None:
+            conn.execute(
+                "DELETE FROM user_ui_preferences WHERE user_id=? AND preference_key=?",
+                (user["id"], key),
+            )
+        else:
+            encoded = json.dumps(value, separators=(",", ":"), ensure_ascii=False)
+            if len(encoded) > 20000:
+                raise HTTPException(status_code=413, detail="preference value too large")
+            conn.execute(
+                """INSERT INTO user_ui_preferences(user_id,preference_key,value_json,updated_at)
+                   VALUES(?,?,?,?)
+                   ON CONFLICT(user_id,preference_key) DO UPDATE SET
+                     value_json=excluded.value_json,updated_at=excluded.updated_at""",
+                (user["id"], key, encoded, now),
+            )
+    return {"ok": True}
 
 
 @app.get("/login", response_class=HTMLResponse)
