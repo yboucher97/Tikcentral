@@ -161,6 +161,16 @@ html[data-theme="light"] .tc-logo-dark{display:none}html[data-theme="light"] .tc
 .tc-icon{display:none;width:34px;height:34px}
 .tc-nav-group{margin:8px 0 3px;border-radius:9px;border:1px solid transparent}.tc-nav-label{list-style:none;cursor:pointer;padding:7px 10px;color:var(--muted);font-size:10px;letter-spacing:.10em;text-transform:uppercase;font-weight:800;border-radius:8px}.tc-nav-label::-webkit-details-marker{display:none}.tc-nav-label:after{content:"›";float:right;font-size:14px;line-height:10px;transition:transform .14s}.tc-nav-group[open]>.tc-nav-label:after{transform:rotate(90deg)}.tc-nav-label:hover{background:var(--surface2);color:var(--text)}
 .tc-nav-group[open]{border-color:color-mix(in srgb,var(--section-accent) 20%,var(--line));background:color-mix(in srgb,var(--section-soft) 55%,transparent)}.tc-nav-group[open]>.tc-nav-label{color:var(--section-accent);background:color-mix(in srgb,var(--section-soft) 70%,transparent)}
+
+.tc-nav-overview{--group-accent:#45bd7a;--group-soft:color-mix(in srgb,#45bd7a 11%,transparent)}
+.tc-nav-fleet{--group-accent:#4d98e8;--group-soft:color-mix(in srgb,#4d98e8 11%,transparent)}
+.tc-nav-operations{--group-accent:#36b6aa;--group-soft:color-mix(in srgb,#36b6aa 11%,transparent)}
+.tc-nav-changes{--group-accent:#d7a84d;--group-soft:color-mix(in srgb,#d7a84d 11%,transparent)}
+.tc-nav-intelligence{--group-accent:#9b7de0;--group-soft:color-mix(in srgb,#9b7de0 11%,transparent)}
+.tc-nav-administration{--group-accent:#7f8b84;--group-soft:color-mix(in srgb,#7f8b84 11%,transparent)}
+.tc-nav-group[class*="tc-nav-"][open]{border-color:color-mix(in srgb,var(--group-accent) 24%,var(--line));background:var(--group-soft)}
+.tc-nav-group[class*="tc-nav-"][open]>.tc-nav-label{color:var(--group-accent);background:color-mix(in srgb,var(--group-soft) 72%,transparent)}
+.tc-nav-group[class*="tc-nav-"] .tc-nav a.active{background:var(--group-soft);box-shadow:inset 3px 0 0 var(--group-accent)}
 .tc-nav{display:grid;gap:2px;margin:2px 5px 6px}.tc-nav a{display:flex;align-items:center;min-height:36px;padding:8px 10px;border-radius:8px;color:var(--muted);font-weight:650}
 .tc-nav a:hover{background:var(--surface2);color:var(--text)}.tc-nav a.active{background:var(--section-soft);color:var(--text);box-shadow:inset 3px 0 0 var(--section-accent);font-weight:760}
 .tc-sidebar-foot{margin-top:18px;padding:12px 8px 0;border-top:1px solid var(--line);font-size:12px;color:var(--muted)}
@@ -480,16 +490,18 @@ def page(title: str, body: str, user=None, active: str = "") -> HTMLResponse:
                 palette.append(f'<a class="tc-palette-item" href="{href}" data-search="{html.escape((group+" "+label).lower())}"><span>{html.escape(label)}</span><span>{html.escape(group)}</span></a>')
             if links:
                 opened = " open" if group in {"Overview", category} else ""
-                groups.append(f'<details class="tc-nav-group"{opened}><summary class="tc-nav-label">{html.escape(group)}</summary><nav class="tc-nav">{"".join(links)}</nav></details>')
+                group_slug = CATEGORY_SLUG.get(group, "workspace")
+                groups.append(f'<details class="tc-nav-group tc-nav-{group_slug}"{opened}><summary class="tc-nav-label">{html.escape(group)}</summary><nav class="tc-nav">{"".join(links)}</nav></details>')
         sidebar = "".join(groups)
         palette_items = "".join(palette)
         account = f'''<div class="tc-account"><button type="button" id="tcAccountBtn"><span>{html.escape(email)}</span> ▾</button><div class="tc-account-menu"><div style="padding:8px 10px"><strong>{html.escape(email)}</strong><div class="muted">{html.escape(role.title())}</div></div><a href="/account/password"><button type="button">Account & password</button></a><a href="/training"><button type="button">Training & progress</button></a><button type="button" id="tcDensityToggle">Toggle compact density</button><button type="button" id="tcRestoreGuidance">Show page tips</button><form method="post" action="/logout"><button>Sign out</button></form></div></div>'''
     guide_title, guide_text = PAGE_GUIDANCE.get(active, (category, "Use page search or Ctrl/⌘ K to move quickly through Tikcentral."))
     page_intro = f'<div class="tc-page-intro"><div><strong>{html.escape(guide_title)}</strong><div>{html.escape(guide_text)}</div></div><button type="button" class="tc-intro-dismiss" title="Hide page guidance">×</button></div>'
     page_tools = '<div class="tc-page-tools"><input id="tcGlobalSearch" data-no-copy placeholder="Search this page…"><button type="button" id="tcPageSearchClear">Clear</button><span class="hint"><kbd>/</kbd> search · <kbd>Ctrl/⌘ K</kbd> go to</span></div>' if user else ''
-    shell = f'''<div class="tc-shell">
+    category_slug = CATEGORY_SLUG.get(category, "workspace")
+    shell = f'''<div class="tc-shell tc-cat-{category_slug}" data-workflow="{html.escape(category_slug)}">
 <aside class="tc-sidebar" id="tcSidebar"><div class="tc-brand"><a href="/"><img class="tc-logo tc-logo-light" src="{light}" alt="Opticable"><img class="tc-logo tc-logo-dark" src="{dark}" alt="Opticable"><img class="tc-icon" src="{icon}" alt="Opticable"></a></div>{sidebar}<div class="tc-sidebar-foot">Tikcentral · Opticable<br>Management plane</div></aside>
-<div class="tc-main"><header class="tc-topbar"><button class="tc-menu-btn" id="tcMenuBtn" type="button">☰</button><div class="tc-page-meta"><div class="tc-page-title">{html.escape(title)}</div><div class="tc-breadcrumb">{html.escape(category)}</div></div>
+<div class="tc-main"><header class="tc-topbar"><button class="tc-menu-btn" id="tcMenuBtn" type="button">☰</button><div class="tc-page-meta"><div class="tc-page-title">{html.escape(title)}</div><div class="tc-breadcrumb"><span style="color:var(--section-accent);font-weight:750">{html.escape(category)}</span> · {html.escape(guide_title)}</div></div>
 <div class="tc-top-actions">{f'<button class="tc-command-btn" id="tcCommandBtn" type="button"><span class="tc-command-label">Go to…</span><span class="tc-kbd">Ctrl K</span></button><button id="tcTheme" type="button" onclick="tcToggleTheme()">Theme</button>{account}' if user else ''}</div></header>
 <main class="tc-content">{page_intro}<div id="tcObjectContext"></div>{page_tools}{localized}</main></div></div>'''
     palette = f'''<div class="tc-palette" id="tcPalette"><div class="tc-palette-card"><div class="tc-palette-search"><input id="tcPaletteSearch" data-no-copy placeholder="Go to a feature…"></div><div class="tc-palette-list">{palette_items}</div></div></div>''' if user else ""
