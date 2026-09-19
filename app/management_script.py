@@ -47,6 +47,7 @@ def access_repair_command() -> str:
 
 def build_routeros_script(site_name: str, token: str) -> str:
     """Build one paste-safe, idempotent RouterOS 7 enrollment block."""
+    site_label = " ".join((site_name or "").replace("\r", " ").replace("\n", " ").split())
     domain = settings.WG_ENDPOINT.rsplit(":", 1)[0]
     enrollment_token = _ros(token)
     api_password = _ros(settings.ROUTER_API_PASSWORD)
@@ -62,7 +63,7 @@ def build_routeros_script(site_name: str, token: str) -> str:
     password_set = f' password="{api_password}"' if api_password else ""
     access_policy = firewall_reconcile_command()
 
-    return f'''# Tikcentral enrollment for: {site_name}
+    return f'''# Tikcentral enrollment for: {site_label}
 # Paste this entire block into a RouterOS 7 terminal.
 {{
 :local token "{enrollment_token}"
