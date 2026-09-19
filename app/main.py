@@ -363,7 +363,7 @@ def dashboard(request: Request):
         online = bool(live.get("online"))
         public_ip = live.get("public_ip") or "-"
         latest = live.get("latest_handshake", 0)
-        last_seen = datetime.fromtimestamp(latest, timezone.utc).strftime("%Y-%m-%d %H:%M:%S") if latest else "Never"
+        last_seen = datetime.fromtimestamp(latest, timezone.utc).isoformat() if latest else "Never"
         remote_winbox = f'{PUBLIC_HOSTNAME}:{row["public_winbox_port"]}'
         direct_winbox = f'{row["vpn_ip"]}:8291'
         enrichment = ip_enrichment.current_for_router(row["id"])
@@ -386,7 +386,7 @@ def dashboard(request: Request):
             expiry_dt = datetime.fromisoformat(item["expires_at"]) if item["expires_at"] else now
             if expiry_dt <= now:
                 continue
-            expiry, mode = expiry_dt.strftime("%Y-%m-%d %H:%M UTC"), "Temporary"
+            expiry, mode = expiry_dt.astimezone(timezone.utc).isoformat(), "Temporary"
         access_html.append(
             f'''<tr><td><code>{html.escape(item['ip_address'])}</code></td><td>{html.escape(item['label'] or '-')}</td><td>{mode}</td><td>{html.escape(expiry)}</td><td><form method="post" action="/dashboard/access/{item['id']}/delete"><input type="hidden" name="csrf" value="{csrf}"><button class="danger">Remove</button></form></td></tr>'''
         )
@@ -404,7 +404,7 @@ def dashboard(request: Request):
 {attention_html}
 <div class="panel pad"><div class="inline" style="justify-content:space-between"><div><h2>Remote access</h2><div>Authorize this workstation for public WinBox relay access.</div><div class="muted">Temporary authorization lasts {TEMP_ACCESS_DAYS} days.</div></div><form method="post" action="/dashboard/access/current"><input type="hidden" name="csrf" value="{csrf}"><button class="primary">Authorize current IP</button></form></div></div>
 <div class="tc-section-title"><h2>Fleet overview</h2><div class="muted">Operational fields first; use Columns for full inventory detail.</div></div>
-<div class="panel"><table data-default-hidden="3,5,6,10"><thead><tr><th>Status</th><th>Identity</th><th>Model</th><th>Serial</th><th>RouterOS</th><th>RouterBOOT</th><th>Public IP</th><th>ISP / ASN</th><th>VPN IP</th><th>Remote WinBox</th><th>VPN WinBox</th><th>Last handshake UTC</th><th>Troubleshooting</th></tr></thead><tbody>{''.join(router_rows)}</tbody></table></div>
+<div class="panel"><table data-default-hidden="3,5,6,10"><thead><tr><th>Status</th><th>Identity</th><th>Model</th><th>Serial</th><th>RouterOS</th><th>RouterBOOT</th><th>Public IP</th><th>ISP / ASN</th><th>VPN IP</th><th>Remote WinBox</th><th>VPN WinBox</th><th>Last handshake</th><th>Troubleshooting</th></tr></thead><tbody>{''.join(router_rows)}</tbody></table></div>
 <details class="panel pad"><summary><strong>Authorized public IPs</strong> <span class="muted">· access administration</span></summary>
 <div style="margin-top:14px"><form class="inline" method="post" action="/dashboard/access/always"><input type="hidden" name="csrf" value="{csrf}"><input name="ip_address" placeholder="203.0.113.10" required><input name="label" placeholder="Office / Home / Technician"><button>Add permanent IP</button></form></div>
 <div style="margin-top:14px"><table><thead><tr><th>IP address</th><th>Label</th><th>Type</th><th>Expires</th><th></th></tr></thead><tbody>{''.join(access_html)}</tbody></table></div></details>'''
