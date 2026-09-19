@@ -91,7 +91,10 @@ def register(app,page_func):
         if not user:return RedirectResponse("/login",303)
         try: collect(router_id)
         except Exception: pass
-        hours=int(request.query_params.get("hours","24") or 24)
+        try:
+            hours=int(request.query_params.get("hours","24") or 24)
+        except (TypeError,ValueError):
+            hours=24
         hours=24 if hours not in {24,168,720} else hours
         cutoff=(_now()-timedelta(hours=hours)).isoformat()
         with core.db() as conn:
