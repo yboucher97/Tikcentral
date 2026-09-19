@@ -32,10 +32,10 @@ def ssh_router_list(request: Request):
         return RedirectResponse("/login", status_code=303)
     with core.db() as conn:
         routers = conn.execute(
-            "SELECT id,site_name,identity,model,vpn_ip,enabled FROM routers ORDER BY site_name COLLATE NOCASE,id"
+            "SELECT id,site_name,identity,model,vpn_ip,enabled,lifecycle_state FROM routers ORDER BY site_name COLLATE NOCASE,id"
         ).fetchall()
     rows = "".join(
-        f'''<tr><td>{html.escape(r['site_name'])}</td><td>{html.escape(r['identity'] or '-')}</td><td>{html.escape(r['model'] or '-')}</td><td><code>{html.escape(r['vpn_ip'])}</code></td><td>{'Enabled' if r['enabled'] else 'Disabled'}</td><td><a href="/ssh/{r['id']}"><button {'disabled' if not r['enabled'] else ''}>Open SSH console</button></a></td></tr>'''
+        f'''<tr><td>{html.escape(r['site_name'])}</td><td>{html.escape(r['identity'] or '-')}</td><td>{html.escape(r['model'] or '-')}</td><td><code>{html.escape(r['vpn_ip'])}</code></td><td>{'Retired' if (r['lifecycle_state'] or 'production')=='retired' else ('Enabled' if r['enabled'] else 'Disabled')}</td><td><a href="/ssh/{r['id']}"><button {'disabled' if (not r['enabled'] or (r['lifecycle_state'] or 'production')=='retired') else ''}>Open SSH console</button></a></td></tr>'''
         for r in routers
     ) or '<tr><td colspan="6">No routers enrolled.</td></tr>'
     body = f'''<div class="panel pad"><h2>Web SSH</h2><div class="muted">Commands run from the Tikcentral VPS over the private WireGuard address. Because arbitrary RouterOS commands may change state, they are serialized and never automatically retried.</div></div><div class="panel"><table><thead><tr><th>Site</th><th>Identity</th><th>Model</th><th>VPN IP</th><th>State</th><th></th></tr></thead><tbody>{rows}</tbody></table></div>'''
@@ -49,11 +49,11 @@ def ssh_console(router_id: int, request: Request):
         return RedirectResponse("/login", status_code=303)
     with core.db() as conn:
         router = conn.execute(
-            "SELECT id,site_name,identity,model,vpn_ip,public_key,enabled FROM routers WHERE id=?",
+            "SELECT id,site_name,identity,model,vpn_ip,public_key,enabled,lifecycle_state FROM routers WHERE id=?",
             (router_id,),
         ).fetchone()
-    if not router or not router["enabled"]:
-        raise HTTPException(status_code=404, detail="enabled router not found")
+    if not router or not router["enabled"] or (router["lifecycle_state"] or "production") == "retired":
+        raise HTTPException(status_code=404, detail="active router not found")
     csrf = core.csrf_token(request)
     body = f'''<div class="panel pad"><h2>SSH — {html.escape(router['site_name'])}</h2><div class="muted">{html.escape(router['identity'] or '')} · {html.escape(router['model'] or '')} · <code>{html.escape(router['vpn_ip'])}</code></div><form method="post" action="/ssh/{router_id}" style="margin-top:16px"><input type="hidden" name="csrf" value="{csrf}"><textarea name="command" style="width:100%;min-height:100px" placeholder="/system resource print" required></textarea>
 <div class="panel pad" style="margin-top:12px;background:var(--surface2)">
@@ -81,7 +81,7 @@ async def ssh_console_run(router_id: int, request: Request):
         raise HTTPException(status_code=409, detail=f"command blocked by protected object rule(s): {names}")
     with core.db() as conn:
         router = conn.execute(
-            "SELECT id,site_name,identity,model,vpn_ip,enabled FROM routers WHERE id=?",
+            "SELECT id,site_name,identity,model,vpn_ip,enabled,lifecycle_state FROM routers WHERE id=?",
             (router_id,),
         ).fetchone()
     if not router or not router["enabled"]:
