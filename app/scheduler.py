@@ -7,7 +7,7 @@ next timer tick.
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from app import alert_queue, automation_inventory, capacity_forecast, certificate_monitor, commissioning_checklist, compliance, database_health, desired_state, errors, events, fleet_health, identity_collision, interface_monitor, ip_enrichment, jobs, local_utilization, log_patterns, lte_monitor, main as core, maintenance_automation, model_capabilities, mtu_diagnostics, operations, outage_classifier, public_ip_analysis, retention_policy, security_audit, settings, state_capture, system_health, time_health, topology, traffic_monitor, upgrade_campaigns, wan_probe
+from app import alert_queue, automation_inventory, capacity_forecast, certificate_monitor, commissioning_checklist, compliance, database_health, desired_state, errors, events, fleet_health, hardware_lifecycle, identity_collision, interface_monitor, ip_enrichment, jobs, local_utilization, log_patterns, lte_monitor, main as core, maintenance_automation, model_capabilities, mtu_diagnostics, operations, outage_classifier, public_ip_analysis, retention_policy, security_audit, settings, state_capture, system_health, time_health, topology, traffic_monitor, upgrade_campaigns, wan_probe
 
 
 def _eligible_healthy_router_ids() -> list[int]:
@@ -154,6 +154,7 @@ def scheduled_tick():
     _optional("public_ip_enrichment", ip_enrichment.refresh_all)
     _optional("public_ip_analysis", public_ip_analysis.assess_all)
     _optional("identity_collisions", identity_collision.scan)
+    _optional("hardware_lifecycle", hardware_lifecycle.assess_all)
     _optional("outage_classification", outage_classifier.assess_all)
     _optional("fleet_health", fleet_health.counts)
     _optional("database_health", database_health.collect)
