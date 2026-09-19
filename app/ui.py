@@ -391,7 +391,9 @@ JS = r'''
    const q=(wrap.querySelector('.tc-local-search')?.value||'').toLowerCase();
    const col=Number(wrap.querySelector('.tc-filter-column')?.value??-1),op=wrap.querySelector('.tc-filter-op')?.value||'contains',wanted=wrap.querySelector('.tc-filter-value')?.value||'';
    const dateCol=Number(wrap.querySelector('.tc-date-column')?.value??-1),from=wrap.querySelector('.tc-date-from')?.value||'',to=wrap.querySelector('.tc-date-to')?.value||'';
-   const fromVal=from?localWallTime(from):null,toVal=to?localWallTime(to):null;
+   const fromVal=from?localWallTime(from):null;
+   let toVal=to?localWallTime(to):null;
+   if(toVal!==null&&/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(to))toVal+=59;
    let shown=0,total=0;
    wrap.querySelectorAll('tbody tr').forEach(r=>{
      total++;const rowText=[...r.cells].map(cellTextForCopy).join(' ').toLowerCase();const textOk=!q||rowText.includes(q);
