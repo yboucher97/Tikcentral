@@ -44,12 +44,15 @@ def routers_page(request: Request):
         if retired:
             actions = f'<a href="/lifecycle/{row["id"]}"><button>Lifecycle</button></a>'
         elif row["enabled"]:
-            actions = f'<a href="/operations/{row["id"]}"><button>Open</button></a> <a href="/ai/{row["id"]}"><button class="primary">AI Analysis</button></a>'
+            actions = f'<a href="/operations/{row["id"]}"><button>Open</button></a>'
         else:
             actions = '<span class="muted">Disabled</span>'
+        tone = "ok" if state == fleet_health.HEALTHY else ("bad" if state == fleet_health.OFFLINE else "warn" if state in {fleet_health.ACCESS_DEGRADED, fleet_health.CONFIG_DRIFT, fleet_health.COMMISSIONING_ISSUE, fleet_health.UPGRADE_PENDING, fleet_health.CHANGE_IN_PROGRESS} else "")
+        site = html.escape(row["site_name"] or "-")
+        site_href = f'/operations/{row["id"]}' if active else f'/lifecycle/{row["id"]}'
         rendered.append(
-            f'''<tr><td>{html.escape(state)}<div class="muted">{html.escape(detail)}</div></td>
-<td><strong>{html.escape(row['site_name'] or '-')}</strong></td>
+            f'''<tr><td><span class="tc-status {tone}" title="{html.escape(detail)}">{html.escape(state)}</span></td>
+<td><a href="{site_href}"><strong>{site}</strong></a></td>
 <td>{html.escape(row['identity'] or '-')}</td><td>{html.escape(row['model'] or '-')}</td>
 <td>{html.escape(row['serial'] or '-')}</td><td>{html.escape(row['routeros_version'] or '-')}</td>
 <td>{html.escape(row['routerboot_version'] or '-')}</td><td><code>{html.escape(public_ip)}</code></td>
@@ -68,7 +71,7 @@ def routers_page(request: Request):
     enroll_action = '<a href="/enroll"><button class="primary">Enroll router</button></a>' if user["role"] == "admin" else ""
     body = f'''<div class="cards"><div class="card"><div class="muted">Total routers</div><div class="value">{len(rows)}</div></div>{cards}</div>
 <div class="panel pad"><div class="inline">{enroll_action}<span class="muted">Fleet state comes from Guardian, active changes, drift, commissioning and upgrade state.</span></div></div>
-<div class="panel"><table data-default-hidden="4,6,7,10"><thead><tr><th>Health</th><th>Site</th><th>Identity</th><th>Model</th><th>Serial</th><th>RouterOS</th><th>RouterBOOT</th><th>Public IP</th><th>VPN IP</th><th>Remote WinBox</th><th>VPN WinBox</th><th>State</th><th>Last handshake</th><th>Actions</th></tr></thead><tbody>{''.join(rendered)}</tbody></table></div>'''
+<div class="panel"><table class="tc-router-inventory" data-default-hidden="2,4,6,7,10,11,12"><thead><tr><th>Health</th><th>Site</th><th>Identity</th><th>Model</th><th>Serial</th><th>RouterOS</th><th>RouterBOOT</th><th>Public IP</th><th>VPN IP</th><th>Remote WinBox</th><th>VPN WinBox</th><th>State</th><th>Last handshake</th><th>Actions</th></tr></thead><tbody>{''.join(rendered)}</tbody></table></div>'''
     return ui.page("Routers", body, user, "routers")
 
 

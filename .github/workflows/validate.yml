@@ -65,3 +65,21 @@ jobs:
 
       - name: Validate release architecture
         run: python scripts/validate_release.py
+
+      - name: Request regression tests
+        run: python -m unittest discover -s tests -p 'test_*.py' -v
+
+      - name: Set up Node for browser regressions
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install browser test dependencies
+        run: |
+          npm install --no-save --ignore-scripts playwright@1.62.1
+          npx playwright install --with-deps chromium
+
+      - name: Shared GUI browser regressions
+        run: |
+          python tests/render_ui_fixtures.py "$RUNNER_TEMP/tikcentral-ui"
+          node tests/ui_regressions.cjs "$RUNNER_TEMP/tikcentral-ui"

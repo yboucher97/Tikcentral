@@ -16,6 +16,7 @@ from urllib.parse import parse_qs
 from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from pydantic import BaseModel, Field
+from starlette.concurrency import run_in_threadpool
 
 from app import migrations
 from app import settings
@@ -417,7 +418,9 @@ async def update_ui_preference(request: Request):
         raise
     except Exception as exc:
         raise HTTPException(status_code=400, detail="invalid JSON") from exc
-    key = str(payload.get("key", "")).strip()
+    if not isinstance(payload, dict) or not isinstance(payload.get("key"), str) or "value" not in payload:
+        raise HTTPException(status_code=400, detail="expected a preference object with key and value")
+    key = payload["key"].strip()
     if not key or len(key) > 500 or not (key.startswith("table:") or key.startswith("ui:")):
         raise HTTPException(status_code=400, detail="invalid preference key")
     value = payload.get("value")
@@ -429,7 +432,10 @@ async def update_ui_preference(request: Request):
                 (user["id"], key),
             )
         else:
-            encoded = json.dumps(value, separators=(",", ":"), ensure_ascii=False)
+            try:
+                encoded = json.dumps(value, separators=(",", ":"), ensure_ascii=False, allow_nan=False)
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail="preference values must be valid JSON") from exc
             if len(encoded) > 20000:
                 raise HTTPException(status_code=413, detail="preference value too large")
             existing = conn.execute(
@@ -595,7 +601,7 @@ def dashboard(request: Request):
 <div class="card"><div class="muted">Current public IP</div><div style="margin-top:8px"><code>{html.escape(current_ip or 'Unknown')}</code></div><div class="muted">Operator access source</div></div>
 </div>
 {attention_html}
-<div class="panel pad"><div class="inline" style="justify-content:space-between"><div><h2>Remote access</h2><div>Authorize this workstation for public WinBox relay access.</div><div class="muted">Temporary authorization lasts {TEMP_ACCESS_DAYS} days.</div></div>{f'<form method="post" action="/dashboard/access/current"><input type="hidden" name="csrf" value="{csrf}"><button class="primary">Authorize current IP</button></form>' if can_operate else '<span class="muted">Viewer accounts cannot authorize remote access.</span>'}</div></div>
+<div class="panel pad tc-dashboard-access"><div class="inline" style="justify-content:space-between"><div><h2>Remote access</h2><div>Authorize this workstation for public WinBox relay access.</div><div class="muted">Temporary authorization lasts {TEMP_ACCESS_DAYS} days.</div></div>{f'<form method="post" action="/dashboard/access/current"><input type="hidden" name="csrf" value="{csrf}"><button class="primary">Authorize current IP</button></form>' if can_operate else '<span class="muted">Viewer accounts cannot authorize remote access.</span>'}</div></div>
 <div class="tc-section-title"><h2>Fleet overview</h2><div class="muted">Operational fields first; use Columns for full inventory detail.</div></div>
 <div class="panel"><table data-default-hidden="3,5,6,10"><thead><tr><th>Status</th><th>Identity</th><th>Model</th><th>Serial</th><th>RouterOS</th><th>RouterBOOT</th><th>Public IP</th><th>ISP / ASN</th><th>VPN IP</th><th>Remote WinBox</th><th>VPN WinBox</th><th>Last handshake</th><th>Troubleshooting</th></tr></thead><tbody>{''.join(router_rows)}</tbody></table></div>
 <details class="panel pad"><summary><strong>Authorized public IPs</strong> <span class="muted">· {'access administration' if can_admin else 'read only'}</span></summary>
@@ -835,6 +841,12 @@ async def enroll(request: Request):
         raise
     except Exception as exc:
         raise HTTPException(status_code=422, detail="invalid enrollment payload") from exc
+    # WireGuard subprocesses and SQLite reservations must not block all other
+    # requests while an enrollment is waiting for the host network service.
+    return await run_in_threadpool(_enroll, req)
+
+
+def _enroll(req: EnrollRequest):
     now = utcnow()
     if not re.fullmatch(r"[A-Za-z0-9+/]{43}=", req.public_key):
         raise HTTPException(status_code=400, detail="invalid WireGuard public key")

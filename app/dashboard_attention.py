@@ -263,7 +263,7 @@ def render() -> str:
         items.append((db_health["status"],"Tikcentral",f'Database/storage: {db_health["summary"]}',"/database-health"))
 
     queue_total=sum(int(queue_counts[k] or 0) for k in ("new_count","acknowledged_count","assigned_count","investigating_count")) if queue_counts else 0
-    queue_banner=f'<div class="panel pad"><h2>Alert workflow</h2><div><strong>{queue_total} open alert(s)</strong> · {int(queue_counts["new_count"] or 0) if queue_counts else 0} new · {int(queue_counts["assigned_count"] or 0) if queue_counts else 0} assigned · {int(queue_counts["investigating_count"] or 0) if queue_counts else 0} investigating</div><div style="margin-top:10px"><a href="/alerts"><button class="primary">Open alert queue</button></a></div></div>'
+    queue_banner=f'<div class="panel pad tc-dashboard-queue"><h2>Alert workflow</h2><div><strong>{queue_total} open alert(s)</strong> · {int(queue_counts["new_count"] or 0) if queue_counts else 0} new · {int(queue_counts["assigned_count"] or 0) if queue_counts else 0} assigned · {int(queue_counts["investigating_count"] or 0) if queue_counts else 0} investigating</div><div style="margin-top:10px"><a href="/alerts"><button class="primary">Open alert queue</button></a></div></div>'
     if not items:
         return queue_banner+'<div class="panel pad"><h2>Attention</h2><div class="muted">No current fleet items require attention.</div></div>'
     rows = "".join(
