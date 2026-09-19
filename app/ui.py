@@ -294,7 +294,7 @@ JS = r'''
    if(rootNode&&rootNode.matches&&rootNode.matches('input,textarea,select'))fields.unshift(rootNode);
    fields.forEach(el=>{
      const type=(el.getAttribute('type')||'text').toLowerCase();
-     if(['hidden','checkbox','radio','submit','button','file','password'].includes(type)||el.dataset.noCopy||['tcGlobalSearch','tcPaletteSearch'].includes(el.id)||el.dataset.tcCopyReady)return;
+     if(['hidden','checkbox','radio','submit','button','file','password'].includes(type)||el.hasAttribute('data-no-copy')||['tcGlobalSearch','tcPaletteSearch'].includes(el.id)||el.dataset.tcCopyReady)return;
      el.dataset.tcCopyReady='1';const b=document.createElement('button');b.type='button';b.className='tc-copy-btn';b.textContent='Copy';b.title='Copy field value';
      b.onclick=e=>{e.preventDefault();e.stopPropagation();window.tcCopy(el,b)};el.insertAdjacentElement('afterend',b);
    });
