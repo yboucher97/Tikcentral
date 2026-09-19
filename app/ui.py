@@ -576,7 +576,9 @@ JS = r'''
      const blocked=(role==='viewer'&&!personal)||(role==='technician'&&adminOnly(action));
      if(!blocked)return;
      form.classList.add('tc-readonly-form');
-     form.querySelectorAll('button,input:not([type=hidden]),select,textarea').forEach(el=>{el.disabled=true;el.title=role==='viewer'?'Viewer account — read only':'Administrator access required'});
+     const controls=[...form.querySelectorAll('button,input:not([type=hidden]),select,textarea')];
+     if(form.id)controls.push(...document.querySelectorAll('[form="'+CSS.escape(form.id)+'"]'));
+     [...new Set(controls)].forEach(el=>{if(el.matches('input[type=hidden]'))return;el.disabled=true;el.title=role==='viewer'?'Viewer account — read only':'Administrator access required'});
    });
  }
  function classifyActions(){
