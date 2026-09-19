@@ -30,6 +30,10 @@ POLICIES=[
     ("operator_audit_days","Operator audit","operator_audit_log","event_at",""),
     ("database_health_days","DB health history","database_health_history","checked_at",""),
     ("mtu_days","MTU diagnostics","router_mtu_history","captured_at",""),
+    ("dns_health_days","DNS health history","router_dns_health","captured_at",""),
+    ("wan_quality_days","WAN quality / bufferbloat","router_wan_quality","captured_at",""),
+    ("pppoe_days","PPPoE history","router_pppoe_history","captured_at",""),
+    ("isp_gateway_days","ISP gateway history","router_isp_gateway_history","captured_at",""),
     ("resolved_alert_days","Resolved alerts","alert_queue","resolved_at","status='resolved'"),
     ("snapshot_days","Configuration snapshots","router_snapshots","captured_at",""),
 ]
