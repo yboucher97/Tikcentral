@@ -55,21 +55,26 @@ def evaluate(router_id:int):
     status="complete" if complete else "incomplete"
     promoted=""
     current=(r["lifecycle_state"] or "production")
-    if complete and cfg["auto_promote"] and current in {"new","commissioning"}:
-        promoted=_now()
-        with core.db() as conn:
-            conn.execute("UPDATE routers SET lifecycle_state='production',lifecycle_updated_at=?,lifecycle_updated_by='commissioning-checklist' WHERE id=?",(promoted,router_id))
-        events.record(router_id,"commissioning","Commissioning checklist complete · promoted to Production",f"{passed}/{len(required)} required checks passed","info")
+    should_promote=bool(complete and cfg["auto_promote"] and current in {"new","commissioning"})
+    checked_at=_now()
     with core.db() as conn:
         prior=conn.execute("SELECT promoted_at FROM commissioning_checklist_status WHERE router_id=?",(router_id,)).fetchone()
+        if should_promote:
+            promoted=checked_at
+            conn.execute(
+                "UPDATE routers SET lifecycle_state='production',lifecycle_updated_at=?,lifecycle_updated_by='commissioning-checklist' WHERE id=?",
+                (promoted,router_id),
+            )
         conn.execute(
             """INSERT INTO commissioning_checklist_status(router_id,checked_at,status,passed,required,details_json,promoted_at)
                VALUES(?,?,?,?,?,?,?)
                ON CONFLICT(router_id) DO UPDATE SET checked_at=excluded.checked_at,status=excluded.status,passed=excluded.passed,
                  required=excluded.required,details_json=excluded.details_json,
                  promoted_at=CASE WHEN excluded.promoted_at<>'' THEN excluded.promoted_at ELSE commissioning_checklist_status.promoted_at END""",
-            (router_id,_now(),status,passed,len(required),json.dumps(checks),promoted or (prior["promoted_at"] if prior else "")),
+            (router_id,checked_at,status,passed,len(required),json.dumps(checks),promoted or (prior["promoted_at"] if prior else "")),
         )
+    if promoted:
+        events.record(router_id,"commissioning","Commissioning checklist complete · promoted to Production",f"{passed}/{len(required)} required checks passed","info")
     return {"status":status,"passed":passed,"required":len(required),"checks":checks,"promoted":bool(promoted)}
 
 
