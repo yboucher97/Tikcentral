@@ -763,14 +763,15 @@ def routers(x_api_key: str = Header(default="")):
     peers = wireguard_peers()
     with db() as conn:
         rows = conn.execute(
-            "SELECT id,site_name,identity,serial,model,routeros_version,routerboot_version,vpn_ip,public_winbox_port,public_key,enabled,created_at FROM routers ORDER BY id"
+            "SELECT id,site_name,identity,serial,model,routeros_version,routerboot_version,vpn_ip,public_winbox_port,public_key,enabled,lifecycle_state,created_at FROM routers ORDER BY id"
         ).fetchall()
     result = []
     for row in rows:
         item = dict(row)
         item.update(peers.get(row["public_key"], {}))
-        item["remote_winbox"] = f'{PUBLIC_HOSTNAME}:{row["public_winbox_port"]}'
-        item["vpn_winbox"] = f'{row["vpn_ip"]}:8291'
+        active = bool(row["enabled"]) and (row["lifecycle_state"] or "production") != "retired"
+        item["remote_winbox"] = f'{PUBLIC_HOSTNAME}:{row["public_winbox_port"]}' if active and row["public_winbox_port"] else None
+        item["vpn_winbox"] = f'{row["vpn_ip"]}:8291' if active else None
         result.append(item)
     return result
 
@@ -796,12 +797,14 @@ def enroll(req: EnrollRequest, request: Request):
             if datetime.fromisoformat(token["expires_at"]) < now:
                 raise HTTPException(status_code=401, detail="enrollment token expired")
             existing = conn.execute(
-                "SELECT site_name,vpn_ip,public_key,enabled,public_winbox_port FROM routers WHERE public_key=?",
+                "SELECT site_name,vpn_ip,public_key,enabled,lifecycle_state,public_winbox_port FROM routers WHERE public_key=?",
                 (req.public_key,),
             ).fetchone()
             if existing:
                 if not existing["enabled"]:
                     raise HTTPException(status_code=403, detail="router disabled")
+                if (existing["lifecycle_state"] or "production") == "retired":
+                    raise HTTPException(status_code=403, detail="router retired")
                 wg_helper("add", existing["public_key"], existing["vpn_ip"])
                 conn.execute(
                     "UPDATE routers SET identity=?,serial=?,model=?,routeros_version=?,routerboot_version=? WHERE public_key=?",
