@@ -23,6 +23,10 @@ def now_iso():
     return datetime.now(timezone.utc).isoformat()
 
 
+def _ros_string(value: str) -> str:
+    return (value or "").replace("\\", "\\\\").replace('"', '\\"').replace("$", "\\$")
+
+
 def ensure_schema():
     migrations.migrate()
 
@@ -132,7 +136,7 @@ def _backup_one(router, stamp, tier="daily"):
     binary_note = ""
     if settings.BACKUP_PASSWORD:
         remote_name = f"tikcentral-{stamp}"
-        safe_pw = settings.BACKUP_PASSWORD.replace('"', '')
+        safe_pw = _ros_string(settings.BACKUP_PASSWORD)
         router_exec.mutate(
             router["vpn_ip"],
             f'/system backup save name={remote_name} password="{safe_pw}"',
