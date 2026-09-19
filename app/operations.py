@@ -743,7 +743,7 @@ def register(app, page_func):
                    LEFT JOIN router_capabilities c ON c.router_id=r.id
                    LEFT JOIN router_update_status u ON u.router_id=r.id
                    LEFT JOIN approved_versions v ON v.model=r.model
-                   WHERE r.enabled=1 ORDER BY r.site_name COLLATE NOCASE,r.id"""
+                   WHERE r.enabled=1 AND COALESCE(r.lifecycle_state,'production')<>'retired' ORDER BY r.site_name COLLATE NOCASE,r.id"""
             ).fetchall()
         body_rows = []
         counts = {"Healthy":0,"Access degraded":0,"Config drift":0,"Commissioning issue":0,"Upgrade pending":0}
