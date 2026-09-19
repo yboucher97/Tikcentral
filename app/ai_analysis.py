@@ -341,6 +341,9 @@ def queue_analysis(router_id: int, actor: str, focus_start: str = "", focus_end:
     if not router or not router["enabled"] or (router["lifecycle_state"] or "production") == "retired":
         raise errors.OperationError("ROUTER_NOT_FOUND", "Active router not found")
     with core.db() as conn:
+        # Serialize the duplicate check and insert so two simultaneous human
+        # requests cannot both create billable queued analyses for one router.
+        conn.execute("BEGIN IMMEDIATE")
         existing = conn.execute(
             "SELECT id FROM router_ai_analyses WHERE router_id=? AND status IN ('queued','running') ORDER BY id DESC LIMIT 1",
             (router_id,),
