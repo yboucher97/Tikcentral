@@ -84,10 +84,16 @@ def _preview_page(request: Request, router_id: int, title: str, touch: str, fiel
         protection_text += " · BLOCKED: " + ", ".join(f'{x["object_type"]}:{x["selector"]}' for x in protected_hits[:8])
     blocked_banner = '<div class="warn"><strong>Blocked by protected object policy.</strong></div>' if protected_hits else ""
     button_disabled = "disabled" if protected_hits else ""
-    hidden = "".join(
-        f'<input type="hidden" name="{html.escape(k)}" value="{html.escape(v)}">'
-        for k, v in fields.items() if k != "preview_ack"
-    )
+    hidden_parts = []
+    for k, v in fields.items():
+        if k == "preview_ack":
+            continue
+        values = fields.getlist(k) if hasattr(fields, "getlist") else [v]
+        for item in values:
+            hidden_parts.append(
+                f'<input type="hidden" name="{html.escape(k)}" value="{html.escape(str(item))}">'
+            )
+    hidden = "".join(hidden_parts)
     hidden += '<input type="hidden" name="preview_ack" value="1">'
     body = f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width">
 <title>Change Preview</title><style>
@@ -127,7 +133,7 @@ def install_middleware(app):
 
         body = await core._read_limited_body(request, max(262144, core.settings.MAX_COMMAND_LENGTH + 65536))
         parsed = parse_qs(body.decode("utf-8", "replace"), keep_blank_values=True)
-        fields = {k: values[-1] for k, values in parsed.items()}
+        fields = core.FormValues(parsed)
         if fields.get("preview_ack") == "1":
             async def receive():
                 return {"type": "http.request", "body": body, "more_body": False}
