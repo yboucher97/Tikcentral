@@ -86,7 +86,7 @@ def register(app, page_func):
         site_name = data.get("site_name", "").strip()
         mode = data.get("mode", "enroll")
         profile = data.get("performance_profile", "throughput")
-        if not site_name or len(site_name) > 120 or mode not in {"enroll", "default"} or profile not in performance_profile.PROFILE_LABELS:
+        if not core.valid_site_name(site_name) or mode not in {"enroll", "default"} or profile not in performance_profile.PROFILE_LABELS:
             raise HTTPException(status_code=400, detail="invalid enrollment request")
         try:
             vlan_count = int(data.get("vlan_count", "12"))
