@@ -248,6 +248,10 @@ systemctl stop tikcentral-fleet.timer tikcentral-fleet.service >/dev/null 2>&1 |
 systemctl stop tikcentral-backup.timer tikcentral-backup.service >/dev/null 2>&1 || true
 systemctl stop tikcentral-winbox-proxy tikcentral >/dev/null 2>&1 || true
 
+# Preserve a legacy non-symlink installation before any operation that may need
+# rollback. Modern installations already have PREVIOUS pointing at a release.
+if [[ -d "$CURRENT" && ! -L "$CURRENT" ]]; then mv "$CURRENT" "$PREVIOUS"; fi
+
 if [[ -f /var/lib/tikcentral/tikcentral.db ]]; then
   sqlite3 /var/lib/tikcentral/tikcentral.db ".backup '$ACTIVATION_DB_BACKUP'"
   chown root:tikcentral "$ACTIVATION_DB_BACKUP"
@@ -258,7 +262,6 @@ fi
 # failure restores the exact pre-migration activation snapshot in rollback().
 sudo -u tikcentral bash -c "set -a; source '$ENV_FILE'; set +a; cd '$RELEASE'; '$RELEASE/.venv/bin/python3' -c 'from app import migrations; migrations.migrate()'"
 
-if [[ -d "$CURRENT" && ! -L "$CURRENT" ]]; then mv "$CURRENT" "$PREVIOUS"; fi
 switch_current "$RELEASE"
 install_runtime_files "$RELEASE"
 
