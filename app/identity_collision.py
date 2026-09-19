@@ -10,6 +10,7 @@ def _now(): return datetime.now(timezone.utc).isoformat()
 
 def scan():
     migrations.migrate(); checked=_now()
+    event_records=[]
     with core.db() as conn:
         rows=conn.execute("""SELECT LOWER(TRIM(identity)) ident,COUNT(*) c,GROUP_CONCAT(id) ids,GROUP_CONCAT(site_name,' | ') names
                              FROM routers WHERE enabled=1 AND TRIM(identity)<>'' AND COALESCE(lifecycle_state,'production')<>'retired'
@@ -25,9 +26,11 @@ def scan():
                             router_ids_json=excluded.router_ids_json,status='collision',summary=excluded.summary""",
                          (r["ident"],checked,r["c"],json.dumps(ids),summary))
             if r["ident"] not in existing:
-                for rid in ids: events.record(rid,"identity-collision","Duplicate RouterOS identity detected",summary,"warning")
+                event_records.extend((rid,summary) for rid in ids)
         for ident in existing-current:
             conn.execute("DELETE FROM router_identity_collisions WHERE identity=?",(ident,))
+    for rid,summary in event_records:
+        events.record(rid,"identity-collision","Duplicate RouterOS identity detected",summary,"warning")
     return len(rows)
 
 def register(app,page_func):
