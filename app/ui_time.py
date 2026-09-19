@@ -15,12 +15,12 @@ from app import settings
 LOCAL_TZ = ZoneInfo(settings.TIMEZONE)
 DISPLAY_ZONE_NAME = "Montréal"
 _ISO_RE = re.compile(
-    r"(?<![\\w])"
-    r"(\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?(?:Z|[+-]\\d{2}:\\d{2}))"
+    r"(?<![\w])"
+    r"(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2}))"
 )
 _LEGACY_UTC_RE = re.compile(
     r"(?<![\\w])"
-    r"(\\d{4}-\\d{2}-\\d{2})[ T](\\d{2}:\\d{2}(?::\\d{2})?)\\s+UTC\\b"
+    r"(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}(?::\d{2})?)\s+UTC\b"
 )
 
 
