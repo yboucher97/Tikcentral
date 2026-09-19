@@ -52,7 +52,7 @@ def assess(router_id:int):
 
 
 def assess_all():
-    with core.db() as conn:ids=[x["id"] for x in conn.execute("SELECT id FROM routers WHERE enabled=1").fetchall()]
+    with core.db() as conn:ids=[x["id"] for x in conn.execute("SELECT id FROM routers WHERE enabled=1 AND COALESCE(lifecycle_state,'production')<>'retired'").fetchall()]
     for rid in ids:
         try:assess(rid)
         except Exception:pass
