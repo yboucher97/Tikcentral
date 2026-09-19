@@ -561,6 +561,11 @@ def _process_upgrade_job():
         return job["id"]
     kind = job["kind"]
     if job["status"] == "queued":
+        if not router["enabled"] or (router["lifecycle_state"] or "production") == "retired":
+            err = errors.OperationError("ROUTER_INACTIVE", "Queued upgrade cancelled because the router is disabled or retired")
+            jobs.failed(job["id"], err)
+            events.record(router["id"], "upgrade", "Queued upgrade cancelled", err.message, "warning")
+            return job["id"]
         if not _access_ok(router):
             return job["id"]
         tx_id = None
