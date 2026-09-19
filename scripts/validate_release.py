@@ -719,7 +719,7 @@ def validate_source_boundaries():
         if marker not in attention_quality:
             fail(f"Network quality attention integration missing: {marker}")
     ui_time_text = (ROOT / "app/ui_time.py").read_text(encoding="utf-8")
-    for marker in ("Montréal", "_LEGACY_UTC_RE", "format_montreal", "localize_html_iso_timestamps"):
+    for marker in ("Montréal", 'ZoneInfo("America/Toronto")', "_LEGACY_UTC_RE", "format_montreal", "localize_html_iso_timestamps"):
         if marker not in ui_time_text:
             fail(f"Montreal UI time formatter missing: {marker}")
     training_text = (ROOT / "app/training.py").read_text(encoding="utf-8")
@@ -785,7 +785,7 @@ def validate_source_boundaries():
     if "resource_monitor.evaluate" not in operations_resource:
         fail("Telemetry does not feed resource/reboot monitor")
     changes_text = (ROOT / "app/changes.py").read_text(encoding="utf-8")
-    for marker in ("_render_diff", "_diff_counts", "Directly attributed to Tikcentral", "source_kind", "source_actor", "Semantic configuration diff", "semantic_config.compare", "Measured change impact"):
+    for marker in ("_render_diff", "_diff_counts", "Directly attributed to Tikcentral", "source_kind", "source_actor", "Semantic configuration diff", "semantic_config.compare", "Measured change impact", "Events in interval", "<th>Started</th>", "<th>Time</th>"):
         if marker not in changes_text:
             fail(f"Configuration history feature missing: {marker}")
     for path in (ROOT / "app").glob("*.py"):
