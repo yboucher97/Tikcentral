@@ -11,6 +11,7 @@ NAV_GROUPS = [
     ("Overview", [
         ("dashboard", "/", "Dashboard"),
         ("alerts", "/alerts", "Alerts"),
+        ("training", "/training", "Training"),
     ]),
     ("Fleet", [
         ("routers", "/routers", "Routers"),
@@ -59,6 +60,7 @@ NAV_CATEGORY = {key: group for group, items in NAV_GROUPS for key, _, _ in items
 PAGE_GUIDANCE = {
     "dashboard": ("Fleet overview", "Start here: current fleet health, exceptions and operator access."),
     "alerts": ("Exceptions", "Acknowledge, assign and resolve issues that need operator attention."),
+    "training": ("Training", "Learn Tikcentral through short practical missions and track exactly what you have completed."),
     "routers": ("Inventory", "Find a router, check health, then open its workspace for troubleshooting or changes."),
     "fleet-search": ("Fleet search", "Search operational inventory across the whole MikroTik fleet."),
     "customers": ("Customer view", "Move from customer → site → router without losing operational context."),
@@ -150,6 +152,8 @@ html[data-theme="light"] .tc-logo-dark{display:none}html[data-theme="light"] .tc
 .tc-empty{padding:22px!important;text-align:center!important;color:var(--muted)!important;background:var(--surface2)}.tc-empty:before{content:"No data yet";display:block;color:var(--text);font-weight:750;margin-bottom:3px}
 .tc-danger-action{border-color:color-mix(in srgb,var(--danger) 40%,var(--line))!important;color:var(--danger)!important}.tc-warning-action{border-color:color-mix(in srgb,var(--warn) 42%,var(--line))!important;color:var(--warn)!important}
 .tc-dirty{box-shadow:0 0 0 2px color-mix(in srgb,var(--warn) 22%,transparent)}kbd{font:10px ui-monospace,SFMono-Regular,Menlo,monospace;border:1px solid var(--line);background:var(--surface3);border-bottom-width:2px;padding:1px 4px;border-radius:4px;color:var(--muted)}
+
+.tc-training-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:9px;margin-top:12px}.tc-training-card{display:block;padding:12px;border:1px solid var(--line);border-radius:9px;background:var(--surface2);color:var(--text);transition:.14s}.tc-training-card:hover{border-color:color-mix(in srgb,var(--accent) 38%,var(--line));background:var(--accent-soft)}.tc-training-meta{margin-top:9px;color:var(--muted);font-size:11px}.tc-progress{height:7px;background:var(--surface3);border-radius:999px;overflow:hidden;margin-top:8px}.tc-progress>span{display:block;height:100%;background:var(--accent);border-radius:999px}.tc-mission-hero{border-left:3px solid var(--accent)}.tc-mission-list{list-style:none;padding:0;margin:0;display:grid;gap:8px}.tc-mission-list li{display:flex;gap:10px;align-items:flex-start;padding:9px;border:1px solid var(--line);background:var(--surface2);border-radius:8px}.tc-mission-step{display:inline-flex;align-items:center;justify-content:center;min-width:24px;height:24px;border-radius:50%;background:var(--accent-soft);color:var(--accent);font-weight:800}
 
 .panel,.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);box-shadow:none;margin-bottom:14px}
 .panel{overflow:visible}.panel.pad,.pad{padding:16px}.panel>table:first-child{border-radius:var(--radius)}
@@ -451,7 +455,7 @@ def page(title: str, body: str, user=None, active: str = "") -> HTMLResponse:
                 groups.append(f'<details class="tc-nav-group"{opened}><summary class="tc-nav-label">{html.escape(group)}</summary><nav class="tc-nav">{"".join(links)}</nav></details>')
         sidebar = "".join(groups)
         palette_items = "".join(palette)
-        account = f'''<div class="tc-account"><button type="button" id="tcAccountBtn"><span>{html.escape(email)}</span> ▾</button><div class="tc-account-menu"><div style="padding:8px 10px"><strong>{html.escape(email)}</strong><div class="muted">{html.escape(role.title())}</div></div><a href="/account/password"><button type="button">Account & password</button></a><button type="button" id="tcDensityToggle">Toggle compact density</button><button type="button" id="tcRestoreGuidance">Show page tips</button><form method="post" action="/logout"><button>Sign out</button></form></div></div>'''
+        account = f'''<div class="tc-account"><button type="button" id="tcAccountBtn"><span>{html.escape(email)}</span> ▾</button><div class="tc-account-menu"><div style="padding:8px 10px"><strong>{html.escape(email)}</strong><div class="muted">{html.escape(role.title())}</div></div><a href="/account/password"><button type="button">Account & password</button></a><a href="/training"><button type="button">Training & progress</button></a><button type="button" id="tcDensityToggle">Toggle compact density</button><button type="button" id="tcRestoreGuidance">Show page tips</button><form method="post" action="/logout"><button>Sign out</button></form></div></div>'''
     guide_title, guide_text = PAGE_GUIDANCE.get(active, (category, "Use page search or Ctrl/⌘ K to move quickly through Tikcentral."))
     page_intro = f'<div class="tc-page-intro"><div><strong>{html.escape(guide_title)}</strong><div>{html.escape(guide_text)}</div></div><button type="button" class="tc-intro-dismiss" title="Hide page guidance">×</button></div>'
     page_tools = '<div class="tc-page-tools"><input id="tcGlobalSearch" data-no-copy placeholder="Search this page…"><button type="button" id="tcPageSearchClear">Clear</button><span class="hint"><kbd>/</kbd> search · <kbd>Ctrl/⌘ K</kbd> go to</span></div>' if user else ''
