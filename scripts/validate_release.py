@@ -745,7 +745,7 @@ def validate_source_boundaries():
     if "training.register(app, ui.page)" not in (ROOT / "app/final.py").read_text(encoding="utf-8"):
         fail("Training routes are not registered")
     shared_ui_training = (ROOT / "app/ui.py").read_text(encoding="utf-8")
-    for marker in ('("training", "/training", "Training")', "tc-training-grid", "tc-mission-list", "tc-smart-kind", "Smart help", "/training/intelligence-guide", "smartKind", "tikcentral:density", "tcRestoreGuidance", "CATEGORY_HOME"):
+    for marker in ('("training", "/training", "Training")', "tc-training-grid", "tc-mission-list", "tc-smart-kind", "Smart help", "/training/intelligence-guide", "smartKind", "localPrefKey('ui:density')", "localPrefKey('ui:hide-guidance')", "tcRestoreGuidance", "CATEGORY_HOME"):
         if marker not in shared_ui_training:
             fail(f"Training/refined UI integration missing: {marker}")
     system_health_text = (ROOT / "app/system_health.py").read_text(encoding="utf-8")
