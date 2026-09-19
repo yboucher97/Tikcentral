@@ -405,11 +405,16 @@ def register(app, page_func):
             report_html = '<div class="muted">No completed AI analysis yet.</div>'
 
         active = next((r for r in rows if r["status"] in {"queued", "running"}), None)
-        if active:
+        inactive = (not router["enabled"]) or (router["lifecycle_state"] or "production") == "retired"
+        queue_error = request.query_params.get("queue_error", "")
+        if inactive:
+            status_notice = '<div class="panel pad"><strong>Router inactive.</strong><div class="muted">Historical AI reports remain available, but new analysis is disabled for retired or disabled routers.</div></div>'
+            button = '<button disabled>Router inactive</button>'
+        elif active:
             status_notice = f'''<div class="panel pad"><strong>AI analysis {html.escape(active['status'])}.</strong><div class="muted">Job #{active['id']} is isolated from Guardian and router-changing jobs. Refresh this page shortly.</div></div>'''
             button = '<button disabled>Analysis in progress…</button>'
         else:
-            status_notice = ""
+            status_notice = '<div class="panel pad"><div class="error">AI analysis could not be queued. Check router state and try again.</div></div>' if queue_error else ""
             button = '<button class="primary">Analyze router now</button>'
 
         history_rows = []
@@ -445,5 +450,5 @@ def register(app, page_func):
         try:
             queue_analysis(router_id, actor, focus_start, focus_end, focus_note, human_requested=True)
         except Exception:
-            pass
+            return RedirectResponse(f"/ai/{router_id}?queue_error=1", status_code=303)
         return RedirectResponse(f"/ai/{router_id}", status_code=303)
