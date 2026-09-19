@@ -262,6 +262,7 @@ td.tc-copyable-cell{position:relative;padding-right:34px}.tc-cell-copy{position:
  .tc-contextbar{align-items:flex-start}.tc-context-main{width:100%}.tc-context-links{width:100%;overflow:auto;flex-wrap:nowrap}.tc-page-intro{font-size:12px}
  .tc-account>button span{display:none}.tc-logo{width:178px}.tc-table-tools .tc-local-search{min-width:100%}.tc-count{margin-left:0}
  table{min-width:680px}.tc-log{grid-template-columns:1fr}.tc-router-primary{display:grid;grid-template-columns:1fr 1fr}.tc-router-primary a button{width:100%}
+ .tc-cell-copy{opacity:.65}.tc-copy-priority>.tc-cell-copy{opacity:1}.tc-date-range{align-items:flex-start}.tc-date-range label{width:100%}.tc-date-range input{flex:1}
  .tc-smart-explain{grid-template-columns:1fr}.tc-smart-card>summary .muted{width:100%}
 }
 @media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important;transition:none!important}}
