@@ -25,7 +25,7 @@ def routers_page(request: Request):
     with core.db() as conn:
         rows = conn.execute(
             """SELECT id,site_name,identity,serial,model,routeros_version,routerboot_version,
-                      public_key,vpn_ip,public_winbox_port,enabled,created_at
+                      public_key,vpn_ip,public_winbox_port,enabled,lifecycle_state,created_at
                FROM routers ORDER BY site_name COLLATE NOCASE,id"""
         ).fetchall()
 
@@ -35,11 +35,17 @@ def routers_page(request: Request):
         public_ip = live.get("public_ip") or "-"
         latest = int(live.get("latest_handshake", 0) or 0)
         last_seen = datetime.fromtimestamp(latest, timezone.utc).isoformat() if latest else "Never"
-        remote_winbox = f'{settings.PUBLIC_HOSTNAME}:{row["public_winbox_port"]}' if row["public_winbox_port"] else "-"
+        retired = (row["lifecycle_state"] or "production") == "retired"
+        remote_winbox = f'{settings.PUBLIC_HOSTNAME}:{row["public_winbox_port"]}' if row["public_winbox_port"] and not retired else "-"
         item_health = health.get(row["id"])
-        state = item_health.state if item_health else ("Disabled" if not row["enabled"] else "Unknown")
-        detail = item_health.detail if item_health else ""
-        actions = f'<a href="/operations/{row["id"]}"><button>Open</button></a> <a href="/ai/{row["id"]}"><button class="primary">AI Analysis</button></a>' if row["enabled"] else '<span class="muted">Disabled</span>'
+        state = "Retired" if retired else (item_health.state if item_health else ("Disabled" if not row["enabled"] else "Unknown"))
+        detail = "Excluded from active monitoring and remote relay" if retired else (item_health.detail if item_health else "")
+        if retired:
+            actions = f'<a href="/lifecycle/{row["id"]}"><button>Lifecycle</button></a>'
+        elif row["enabled"]:
+            actions = f'<a href="/operations/{row["id"]}"><button>Open</button></a> <a href="/ai/{row["id"]}"><button class="primary">AI Analysis</button></a>'
+        else:
+            actions = '<span class="muted">Disabled</span>'
         rendered.append(
             f'''<tr><td>{html.escape(state)}<div class="muted">{html.escape(detail)}</div></td>
 <td><strong>{html.escape(row['site_name'] or '-')}</strong></td>
@@ -47,7 +53,7 @@ def routers_page(request: Request):
 <td>{html.escape(row['serial'] or '-')}</td><td>{html.escape(row['routeros_version'] or '-')}</td>
 <td>{html.escape(row['routerboot_version'] or '-')}</td><td><code>{html.escape(public_ip)}</code></td>
 <td><code>{html.escape(row['vpn_ip'])}</code></td><td><code>{html.escape(remote_winbox)}</code></td>
-<td><code>{html.escape(row['vpn_ip'])}:8291</code></td><td>{'Enabled' if row['enabled'] else 'Disabled'}</td>
+<td><code>{html.escape(row['vpn_ip'])}:8291</code></td><td>{'Retired' if retired else ('Enabled' if row['enabled'] else 'Disabled')}</td>
 <td class="muted">{html.escape(last_seen)}</td><td>{actions}</td></tr>'''
         )
     if not rendered:
