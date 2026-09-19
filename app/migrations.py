@@ -1276,7 +1276,32 @@ def _m29(conn):
         conn.execute("ALTER TABLE router_local_utilization ADD COLUMN utilization_percent REAL")
 
 
-MIGRATIONS = [_m1, _m2, _m3, _m4, _m5, _m6, _m7, _m8, _m9, _m10, _m11, _m12, _m13, _m14, _m15, _m16, _m17, _m18, _m19, _m20, _m21, _m22, _m23, _m24, _m25, _m26, _m27, _m28, _m29]
+def _m30(conn):
+    """Hardware lifecycle intelligence and operator replacement notes."""
+    conn.executescript("""
+    CREATE TABLE IF NOT EXISTS router_hardware_lifecycle (
+        router_id INTEGER PRIMARY KEY,
+        assessed_at TEXT NOT NULL,
+        first_seen_at TEXT NOT NULL DEFAULT '',
+        observed_days INTEGER NOT NULL DEFAULT 0,
+        model_first_seen_at TEXT NOT NULL DEFAULT '',
+        model_observed_days INTEGER NOT NULL DEFAULT 0,
+        reboot_count INTEGER NOT NULL DEFAULT 0,
+        total_memory_bytes INTEGER,
+        total_storage_bytes INTEGER,
+        installed_at TEXT NOT NULL DEFAULT '',
+        warranty_until TEXT NOT NULL DEFAULT '',
+        lifecycle_state TEXT NOT NULL DEFAULT '',
+        replacement_notes TEXT NOT NULL DEFAULT '',
+        notes_updated_by TEXT NOT NULL DEFAULT '',
+        notes_updated_at TEXT NOT NULL DEFAULT '',
+        summary TEXT NOT NULL DEFAULT '',
+        FOREIGN KEY(router_id) REFERENCES routers(id) ON DELETE CASCADE
+    );
+    """)
+
+
+MIGRATIONS = [_m1, _m2, _m3, _m4, _m5, _m6, _m7, _m8, _m9, _m10, _m11, _m12, _m13, _m14, _m15, _m16, _m17, _m18, _m19, _m20, _m21, _m22, _m23, _m24, _m25, _m26, _m27, _m28, _m29, _m30]
 
 
 def migrate() -> int:
