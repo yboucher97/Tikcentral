@@ -285,6 +285,11 @@ def run_analysis_job(created_by="scheduler"):
                     "INSERT INTO fleet_findings(router_id,detected_at,severity,category,summary,evidence) VALUES(?,?,?,?,?,?)",
                     (row["router_id"], now_iso(), severity, category, summary, row["output"][-4000:]),
                 )
+            conn.execute(
+                """DELETE FROM fleet_findings WHERE router_id=? AND id NOT IN
+                   (SELECT id FROM fleet_findings WHERE router_id=? ORDER BY id DESC LIMIT 1000)""",
+                (row["router_id"], row["router_id"]),
+            )
     return job_id
 
 
