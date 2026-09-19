@@ -404,9 +404,13 @@ JS = r'''
    wrap.appendChild(tools);const scroll=document.createElement('div');scroll.className='tc-scroll';wrap.appendChild(scroll);scroll.appendChild(table);
    const headers=[...table.querySelectorAll('thead th')],menu=tools.querySelector('.tc-colmenu'),filterColumn=tools.querySelector('.tc-filter-column'),dateColumn=tools.querySelector('.tc-date-column');
    const defaults=defaultHiddenColumns(table),viewKey=tableViewKey(table,headers,index),savedHidden=prefGet(viewKey,null);
-   let hidden=Array.isArray(savedHidden)?savedHidden.map(Number).filter(Number.isFinite):defaults.slice();
+   const legacyKey='tikcentral:columns:'+location.pathname+':'+index;let legacyHidden=null;
+   try{const raw=localStorage.getItem(legacyKey);legacyHidden=raw===null?null:JSON.parse(raw)}catch(_){}
+   const legacyLooksLikeColumnZeroBug=defaults.length===0&&Array.isArray(legacyHidden)&&legacyHidden.length===1&&Number(legacyHidden[0])===0;
+   let hidden=Array.isArray(savedHidden)?savedHidden.map(Number).filter(Number.isFinite):(Array.isArray(legacyHidden)&&!legacyLooksLikeColumnZeroBug?legacyHidden.map(Number).filter(Number.isFinite):defaults.slice());
    hidden=[...new Set(hidden)].filter(i=>i>=0&&i<headers.length);
    if(headers.length&&hidden.length>=headers.length)hidden=[];
+   if(savedHidden===null&&Array.isArray(legacyHidden)){prefSet(viewKey,hidden.slice());try{localStorage.removeItem(legacyKey)}catch(_){}}
    const head=document.createElement('div');head.className='tc-colmenu-head';head.innerHTML='<strong>Visible columns</strong><div class="tc-view-saved">Saved to your account</div><div class="tc-colmenu-actions"><button type="button" class="tc-show-all">Show all</button><button type="button" class="tc-reset-columns">Reset defaults</button></div>';menu.appendChild(head);
    const dateIndexes=[];
    headers.forEach((th,i)=>{
