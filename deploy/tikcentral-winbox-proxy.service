@@ -15,7 +15,7 @@ RestartSec=3
 PrivateTmp=yes
 ProtectSystem=strict
 ProtectHome=yes
-ReadOnlyPaths=/var/lib/tikcentral
+ReadWritePaths=/var/lib/tikcentral
 
 [Install]
 WantedBy=multi-user.target
