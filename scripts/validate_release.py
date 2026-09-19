@@ -118,6 +118,10 @@ REQUIRED_ROUTES = {
     ("GET", "/hardware-lifecycle"),
     ("GET", "/hardware-lifecycle/{router_id}"),
     ("POST", "/hardware-lifecycle/{router_id}/notes"),
+    ("GET", "/network-quality/{router_id}"),
+    ("POST", "/network-quality/{router_id}/run"),
+    ("GET", "/cross-site-anomalies"),
+    ("GET", "/change-impact/{transaction_id}"),
 }
 
 FORBIDDEN_FILES = {
@@ -243,6 +247,10 @@ def validate_routes():
         ("GET", "/hardware-lifecycle"): "app.hardware_lifecycle",
         ("GET", "/hardware-lifecycle/{router_id}"): "app.hardware_lifecycle",
         ("POST", "/hardware-lifecycle/{router_id}/notes"): "app.hardware_lifecycle",
+        ("GET", "/network-quality/{router_id}"): "app.network_quality",
+        ("POST", "/network-quality/{router_id}/run"): "app.network_quality",
+        ("GET", "/cross-site-anomalies"): "app.cross_site_anomaly",
+        ("GET", "/change-impact/{transaction_id}"): "app.change_impact",
     }
     for path in (
         "/operations/{router_id}/telemetry", "/operations/{router_id}/commission",
@@ -566,7 +574,7 @@ def validate_source_boundaries():
         if marker not in config_search_text:
             fail(f"Fleet config search missing: {marker}")
     retention_text = (ROOT / "app/retention_policy.py").read_text(encoding="utf-8")
-    for marker in ("retention_settings", "retention_cleanup_history", "snapshot_days", "mtu_days", "router_mtu_history", "public_ip_sighting_days", "router_public_ip_sightings", "local_utilization_days", "router_local_utilization", "log_pattern_days", "router_log_patterns", "0 days means keep forever", "router_access_history", "router_wan_probe_history", "router_public_ip_history"):
+    for marker in ("retention_settings", "retention_cleanup_history", "snapshot_days", "mtu_days", "router_mtu_history", "public_ip_sighting_days", "router_public_ip_sightings", "local_utilization_days", "router_local_utilization", "log_pattern_days", "router_log_patterns", "dns_health_days", "router_dns_health", "wan_quality_days", "router_wan_quality", "pppoe_days", "router_pppoe_history", "isp_gateway_days", "router_isp_gateway_history", "0 days means keep forever", "router_access_history", "router_wan_probe_history", "router_public_ip_history"):
         if marker not in retention_text:
             fail(f"Retention policy missing: {marker}")
     commissioning_text = (ROOT / "app/commissioning_checklist.py").read_text(encoding="utf-8")
@@ -652,6 +660,34 @@ def validate_source_boundaries():
     for marker in ("tc-filter-column", "tc-filter-op", "tc-filter-value", "matchOperator", "contains", "!contains", ">=", "<=", "!="):
         if marker not in shared_ui:
             fail(f"Advanced shared table filter missing: {marker}")
+    network_quality_text = (ROOT / "app/network_quality.py").read_text(encoding="utf-8")
+    for marker in (
+        "router_dns_health", "resolver reachability", "router_interface_negotiation", "downgrade",
+        "SATURATION_PERCENT", "bufferbloat", "router_pppoe_history", "reconnect/reset",
+        "router_isp_gateway_history", "ISP gateway state changed", "circuit_down_mbps", "circuit_up_mbps",
+    ):
+        if marker not in network_quality_text:
+            fail(f"Network quality intelligence missing: {marker}")
+    cross_site_text = (ROOT / "app/cross_site_anomaly.py").read_text(encoding="utf-8")
+    for marker in ("fleet_cross_site_anomalies", "MIN_PROVIDER_ROUTERS", "MIN_FLEET_ROUTERS", "provider-network", "multi-provider"):
+        if marker not in cross_site_text:
+            fail(f"Cross-site anomaly detection missing: {marker}")
+    change_impact_text = (ROOT / "app/change_impact.py").read_text(encoding="utf-8")
+    for marker in ("change_impact_analysis", "BEFORE_MINUTES", "AFTER_MINUTES", "Temporal correlation", "semantic_config.compare", "Measured degradation"):
+        if marker not in change_impact_text:
+            fail(f"Change impact analysis missing: {marker}")
+    scheduler_quality_text = (ROOT / "app/scheduler.py").read_text(encoding="utf-8")
+    for marker in ("network_quality.collect", "cross_site_anomaly.scan", "change_impact.assess_recent"):
+        if marker not in scheduler_quality_text:
+            fail(f"Network quality/correlation scheduling missing: {marker}")
+    site_metadata_quality = (ROOT / "app/site_metadata.py").read_text(encoding="utf-8")
+    for marker in ("circuit_down_mbps", "circuit_up_mbps", "Circuit download Mbps", "Circuit upload Mbps"):
+        if marker not in site_metadata_quality:
+            fail(f"Circuit capacity metadata missing: {marker}")
+    attention_quality = (ROOT / "app/dashboard_attention.py").read_text(encoding="utf-8")
+    for marker in ("router_wan_quality", "router_interface_negotiation", "router_dns_health", "router_isp_gateway_history", "fleet_cross_site_anomalies"):
+        if marker not in attention_quality:
+            fail(f"Network quality attention integration missing: {marker}")
     resource_text = (ROOT / "app/resource_monitor.py").read_text(encoding="utf-8")
     for marker in ("_uptime_seconds", "_memory_bytes", "_record_reboot", "RESOURCE_CPU_WARN", "Unexpected router reboot detected"):
         if marker not in resource_text:
@@ -668,7 +704,7 @@ def validate_source_boundaries():
     if "resource_monitor.evaluate" not in operations_resource:
         fail("Telemetry does not feed resource/reboot monitor")
     changes_text = (ROOT / "app/changes.py").read_text(encoding="utf-8")
-    for marker in ("_render_diff", "_diff_counts", "Directly attributed to Tikcentral", "source_kind", "source_actor", "Semantic configuration diff", "semantic_config.compare"):
+    for marker in ("_render_diff", "_diff_counts", "Directly attributed to Tikcentral", "source_kind", "source_actor", "Semantic configuration diff", "semantic_config.compare", "Measured change impact"):
         if marker not in changes_text:
             fail(f"Configuration history feature missing: {marker}")
     for path in (ROOT / "app").glob("*.py"):
@@ -764,6 +800,9 @@ def validate_persistence_and_jobs():
         "router_public_ip_analysis", "router_public_ip_sightings", "router_identity_collisions",
         "router_local_utilization", "router_model_capability_observations", "router_model_capability_catalog",
         "router_log_patterns", "router_hardware_lifecycle",
+        "router_dns_health", "router_interface_negotiation", "router_wan_quality",
+        "router_pppoe_history", "router_isp_gateway_history", "fleet_cross_site_anomalies",
+        "change_impact_analysis",
     }
     with sqlite3.connect(settings.DB_PATH) as conn:
         version = conn.execute("SELECT MAX(version) FROM schema_version").fetchone()[0]
