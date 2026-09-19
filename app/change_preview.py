@@ -125,7 +125,7 @@ def install_middleware(app):
         if not matched:
             return await call_next(request)
 
-        body = await request.body()
+        body = await core._read_limited_body(request, max(262144, core.settings.MAX_COMMAND_LENGTH + 65536))
         parsed = parse_qs(body.decode("utf-8", "replace"), keep_blank_values=True)
         fields = {k: values[-1] for k, values in parsed.items()}
         if fields.get("preview_ack") == "1":
