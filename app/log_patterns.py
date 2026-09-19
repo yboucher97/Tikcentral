@@ -70,8 +70,10 @@ def register(app,page_func):
         except Exception:pass
         with core.db() as conn:
             r=conn.execute("SELECT site_name FROM routers WHERE id=?",(router_id,)).fetchone()
-            t=conn.execute("SELECT MAX(captured_at) t FROM router_log_patterns WHERE router_id=?",(router_id,)).fetchone()["t"]
-            rows=conn.execute("SELECT * FROM router_log_patterns WHERE router_id=? AND captured_at=? ORDER BY occurrences DESC LIMIT 100",(router_id,t or "")).fetchall() if t else []
+            rows=conn.execute(
+                "SELECT * FROM router_log_patterns WHERE router_id=? ORDER BY captured_at DESC,occurrences DESC,id DESC LIMIT 1000",
+                (router_id,),
+            ).fetchall()
         if not r:return RedirectResponse("/operations",303)
         rendered="".join(f'<tr><td>{html.escape(x["captured_at"])}</td><td>{html.escape(x["severity"])}</td><td>{html.escape(x["category"])}</td><td>{x["occurrences"]}</td><td><code>{html.escape(x["normalized_pattern"])}</code></td></tr>' for x in rows) or '<tr><td colspan="5">No log patterns collected.</td></tr>'
         body=f'''<div class="panel pad"><h2>Router log patterns · {html.escape(r["site_name"])}</h2><div class="muted">Raw logs are normalized and redacted before storage. IPs, MACs and changing numeric identifiers are generalized so recurring patterns can be grouped.</div></div>
