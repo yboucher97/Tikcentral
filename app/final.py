@@ -148,7 +148,7 @@ async def normalize_router(router_id: int, request: Request):
     data = await core.form_data(request)
     core.require_csrf(request, data.get("csrf", ""))
     router = _router(router_id)
-    if not router or not router["enabled"]:
+    if not router or not router["enabled"] or (router["lifecycle_state"] or "production") == "retired":
         return RedirectResponse("/audit", status_code=303)
     actor = user["email"] if "email" in user.keys() else "admin"
     tx_id = None
