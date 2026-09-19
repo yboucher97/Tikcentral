@@ -17,7 +17,7 @@ RETENTION_DAYS="${TIKCENTRAL_DB_BACKUP_RETENTION_DAYS:-14}"
 [[ -f "$DB" ]] || { echo "Tikcentral database is missing: $DB" >&2; exit 1; }
 
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
-mkdir -p "$DEST"
+install -d -o root -g tikcentral -m 0750 "$DEST"
 OUT="$DEST/tikcentral-$STAMP.db"
 sqlite3 "$DB" ".backup '$OUT'"
 chown root:tikcentral "$OUT"
