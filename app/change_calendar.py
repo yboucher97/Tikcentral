@@ -143,7 +143,7 @@ def register(app,page_func):
         body=f'''<div class="panel pad"><h2>{html.escape(p["title"])}</h2><div>{html.escape(p["site_name"] or "Fleet")} · {html.escape(p["change_type"])} · {html.escape(p["status"])}</div>
 <div class="muted">{html.escape(p["start_at"])} → {html.escape(p["end_at"] or "")} · ticket {html.escape(p["ticket_reference"] or "-")}</div><p>{html.escape(p["notes"] or "")}</p>
 <form method="post" action="/change-calendar/{change_id}/status" class="inline"><input type="hidden" name="csrf" value="{csrf}">
-<select name="status"><option>planned</option><option>in_progress</option><option>completed</option><option>cancelled</option></select><button class="primary">Update status</button></form>
+<select name="status">{''.join(f'<option value="{s}" {"selected" if s==p["status"] else ""}>{s}</option>' for s in ("planned","in_progress","completed","cancelled"))}</select><button class="primary">Update status</button></form>
 {note_link}</div>'''
         return page_func("Planned Change",body,user,"operations")
 
@@ -153,7 +153,8 @@ def register(app,page_func):
         data=await core.form_data(request)
         core.require_csrf(request,data.get("csrf",""))
         status=str(data.get("status","planned"))
-        if status not in {"planned","in_progress","completed","cancelled"}: status="planned"
+        if status not in {"planned","in_progress","completed","cancelled"}:
+            return HTMLResponse("<h1>400</h1><p>Invalid planned change status.</p>",status_code=400)
         with core.db() as conn:
             conn.execute("UPDATE planned_changes SET status=?,completed_at=? WHERE id=?",(status,_now() if status=="completed" else "",change_id))
         return RedirectResponse(f"/change-calendar/{change_id}",303)
