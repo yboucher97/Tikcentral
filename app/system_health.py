@@ -267,7 +267,7 @@ def _verify_database_backup(path: Path):
 def _router_backup_status():
     results = []
     with core.db() as conn:
-        routers = conn.execute("SELECT id,site_name FROM routers WHERE enabled=1 ORDER BY id").fetchall()
+        routers = conn.execute("SELECT id,site_name FROM routers WHERE enabled=1 AND COALESCE(lifecycle_state,'production')<>'retired' ORDER BY id").fetchall()
     roots = [settings.BACKUP_ROOT, settings.BACKUP_FALLBACK_ROOT]
     for router in routers:
         found = []
