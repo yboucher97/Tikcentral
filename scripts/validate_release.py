@@ -1087,7 +1087,15 @@ def validate_provisioning_and_updater():
         if marker not in migrations_text:
             fail(f"Cross-process migration serialization missing: {marker}")
     updater_markers = (
-        'DB_FILE="' + '
+        'DB_FILE="${DB_PATH:-/var/lib/tikcentral/tikcentral.db}"',
+        "ACTIVATION_DB_BACKUP",
+        "Quiesce every Tikcentral process",
+        "pre-migration activation snapshot",
+        'install -o tikcentral -g tikcentral -m 0640 "$ACTIVATION_DB_BACKUP" "$DB_FILE"',
+    )
+    for marker in updater_markers:
+        if marker not in update_text:
+            fail(f"Migration-safe updater rollback missing: {marker}")
     bootstrap_text = (ROOT / "bootstrap.sh").read_text(encoding="utf-8")
     if 'install -d -o root -g tikcentral -m 0750 "$BACKUP_DIR"' not in bootstrap_text:
         fail("Bootstrap backup-directory group permissions are unsafe for self-health verification")
