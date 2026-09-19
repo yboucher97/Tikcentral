@@ -816,6 +816,8 @@ def enroll(req: EnrollRequest, request: Request):
                     raise HTTPException(status_code=403, detail="router disabled")
                 if (existing["lifecycle_state"] or "production") == "retired":
                     raise HTTPException(status_code=403, detail="router retired")
+                if (existing["site_name"] or "").strip() != (token["site_name"] or "").strip():
+                    raise HTTPException(status_code=409, detail="enrollment token belongs to a different site")
                 wg_helper("add", existing["public_key"], existing["vpn_ip"])
                 conn.execute(
                     "UPDATE routers SET identity=?,serial=?,model=?,routeros_version=?,routerboot_version=? WHERE public_key=?",
