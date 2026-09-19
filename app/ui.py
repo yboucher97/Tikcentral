@@ -275,7 +275,7 @@ JS = r'''
  root.dataset.theme=saved||(matchMedia('(prefers-color-scheme: light)').matches?'light':'dark');
  let tcUserPrefs={},tcPrefsCsrf='',tcPrefTimers={};
 
- function localPrefKey(key){return 'tikcentral:account-pref:'+key}
+ function localPrefKey(key){const who=document.body?.dataset?.tcUser||'anonymous';return 'tikcentral:account-pref:'+who+':'+key}
  function prefGet(key,fallback){
    if(Object.prototype.hasOwnProperty.call(tcUserPrefs,key))return tcUserPrefs[key];
    try{const raw=localStorage.getItem(localPrefKey(key));if(raw!==null)return JSON.parse(raw)}catch(_){}
@@ -392,8 +392,9 @@ JS = r'''
  }
  function tableViewKey(table,headers,index){
    if(table.dataset.viewKey)return 'table:'+table.dataset.viewKey;
-   const signature=headers.map(h=>(h.innerText||'').trim().toLowerCase()).join('|').replace(/[^a-z0-9|:_ -]/g,'').slice(0,260);
-   return 'table:'+location.pathname+':'+signature+':'+index;
+   const signature=headers.map(h=>(h.innerText||'').trim().toLowerCase()).join('|').replace(/[^a-z0-9|:_ -]/g,'').slice(0,220);
+   const panel=table.closest('.panel,details');const heading=(panel?.querySelector(':scope > h2,:scope > h3,:scope > summary')?.innerText||'').trim().toLowerCase().replace(/[^a-z0-9 _:-]/g,'').slice(0,100);
+   return 'table:'+location.pathname+':'+(heading||('table-'+index))+':'+signature;
  }
  function enhanceTable(table,index){
    if(table.dataset.tcReady)return;table.dataset.tcReady='1';
@@ -703,5 +704,14 @@ def page(title: str, body: str, user=None, active: str = "") -> HTMLResponse:
 <div class="tc-top-actions">{f'<button class="tc-command-btn" id="tcCommandBtn" type="button"><span class="tc-command-label">Go to…</span><span class="tc-kbd">Ctrl K</span></button><a href="/training/intelligence-guide"><button type="button" title="Simple explanations for Tikcentral intelligence">Smart help</button></a><button id="tcTheme" type="button" onclick="tcToggleTheme()">Theme</button>{account}' if user else ''}</div></header>
 <main class="tc-content">{page_intro}<div id="tcObjectContext"></div>{page_tools}{localized}</main></div></div>'''
     palette = f'''<div class="tc-palette" id="tcPalette"><div class="tc-palette-card"><div class="tc-palette-search"><input id="tcPaletteSearch" data-no-copy placeholder="Go to a feature…"></div><div class="tc-palette-list">{palette_items}</div></div></div>''' if user else ""
-    html_doc = f'''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{html.escape(title)} - Tikcentral</title><link rel="icon" href="{icon}"><script>(function(){{try{{document.documentElement.dataset.theme=localStorage.getItem('tikcentral:theme')||(matchMedia('(prefers-color-scheme: light)').matches?'light':'dark')}}catch(e){{document.documentElement.dataset.theme='dark'}}}})();</script><style>{CSS}</style></head><body>{shell}{palette}<script>{JS}</script></body></html>'''
+    user_scope = ""
+    if user:
+        try:
+            user_scope = str(user["id"])
+        except Exception:
+            try:
+                user_scope = str(user["email"])
+            except Exception:
+                user_scope = "authenticated"
+    html_doc = f'''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{html.escape(title)} - Tikcentral</title><link rel="icon" href="{icon}"><script>(function(){{try{{document.documentElement.dataset.theme=localStorage.getItem('tikcentral:theme')||(matchMedia('(prefers-color-scheme: light)').matches?'light':'dark')}}catch(e){{document.documentElement.dataset.theme='dark'}}}})();</script><style>{CSS}</style></head><body data-tc-user="{html.escape(user_scope)}">{shell}{palette}<script>{JS}</script></body></html>'''
     return HTMLResponse(html_doc)
