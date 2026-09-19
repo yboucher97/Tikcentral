@@ -128,8 +128,21 @@ def collect_health():
     except Exception as exc:
         checks["known_hosts"] = _status(False, str(exc))
 
-    writable, detail = _writable_dir(settings.BACKUP_ROOT)
-    checks["router_backup_storage"] = _status(writable, detail)
+    primary_ok, primary_detail = _writable_dir(settings.BACKUP_ROOT)
+    fallback_ok, fallback_detail = _writable_dir(settings.BACKUP_FALLBACK_ROOT)
+    if primary_ok:
+        checks["router_backup_storage"] = _status(True, f"primary writable · {primary_detail}")
+    elif fallback_ok:
+        checks["router_backup_storage"] = _status(
+            True,
+            f"primary unavailable: {primary_detail} · fallback writable: {fallback_detail}",
+            warning=True,
+        )
+    else:
+        checks["router_backup_storage"] = _status(
+            False,
+            f"primary unavailable: {primary_detail} · fallback unavailable: {fallback_detail}",
+        )
 
     helper = Path(settings.AI_CODEX_HELPER)
     checks["codex_helper"] = _status(helper.is_file(), f"{helper}")
@@ -140,11 +153,13 @@ def collect_health():
         ).fetchone()
     if verified:
         age_h = _age_seconds(verified["checked_at"]) / 3600
-        checks["db_restore_test"] = _status(
-            verified["status"] == "ok" and age_h <= 36,
-            f"{verified['status']} · {age_h:.1f}h ago · {verified['details']}",
-            warning=verified["status"] == "ok" and age_h > 24,
-        )
+        detail = f"{verified['status']} · {age_h:.1f}h ago · {verified['details']}"
+        if verified["status"] == "critical" or age_h > 36:
+            checks["db_restore_test"] = _status(False, detail)
+        elif verified["status"] == "warning" or age_h > 24:
+            checks["db_restore_test"] = _status(True, detail, warning=True)
+        else:
+            checks["db_restore_test"] = _status(True, detail)
     else:
         checks["db_restore_test"] = _status(True, "No restore verification has run yet", warning=True)
 
@@ -169,8 +184,19 @@ def record_health():
 
 def _latest_db_backup():
     root = Path("/var/backups/tikcentral")
-    files = sorted(root.glob("tikcentral-*.db"), key=lambda p: p.stat().st_mtime, reverse=True)
-    return files[0] if files else None
+    try:
+        scheduled = sorted(root.glob("tikcentral-*.db"), key=lambda p: p.stat().st_mtime, reverse=True)
+    except OSError:
+        scheduled = []
+    if scheduled:
+        return scheduled[0], "scheduled"
+    try:
+        pre_update = sorted(root.glob("pre-update-*.db"), key=lambda p: p.stat().st_mtime, reverse=True)
+    except OSError:
+        pre_update = []
+    if pre_update:
+        return pre_update[0], "pre-update"
+    return None, ""
 
 
 def _verify_database_backup(path: Path):
@@ -204,11 +230,17 @@ def _router_backup_status():
         found = []
         for root in roots:
             folder = root / str(router["id"])
-            if folder.exists():
-                found.extend(folder.glob("*/*.rsc"))
-        found = sorted(found, key=lambda p: p.stat().st_mtime, reverse=True)
+            try:
+                if folder.exists():
+                    found.extend(folder.glob("*/*.rsc"))
+            except OSError:
+                continue
+        try:
+            found = sorted(found, key=lambda p: p.stat().st_mtime, reverse=True)
+        except OSError:
+            found = []
         if not found:
-            results.append((False, f"{router['site_name']}: no .rsc backup found"))
+            results.append((False, "", f"{router['site_name']}: no .rsc backup found"))
             continue
         path = found[0]
         try:
@@ -223,9 +255,9 @@ def _router_backup_status():
                     (router["id"], digest),
                 ).fetchone()
             suffix = f"snapshot #{snapshot['id']} hash matched" if snapshot else "readable export; no matching retained snapshot hash"
-            results.append((True, f"{router['site_name']}: {path.name} · {suffix}"))
+            results.append((True, str(path), f"{router['site_name']}: {path.name} · {suffix}"))
         except Exception as exc:
-            results.append((False, f"{router['site_name']}: {path}: {exc}"))
+            results.append((False, str(path), f"{router['site_name']}: {path}: {exc}"))
     return results
 
 
@@ -234,13 +266,21 @@ def verify_backups():
     checked = now_iso()
     records = []
 
-    db_backup = _latest_db_backup()
+    db_backup, db_backup_kind = _latest_db_backup()
     if not db_backup:
-        records.append(("database", "", "warning", "No scheduled Tikcentral database backup found"))
+        records.append(("database", "", "warning", "No local Tikcentral database backup found yet"))
     else:
         try:
             detail = _verify_database_backup(db_backup)
-            records.append(("database", str(db_backup), "ok", detail))
+            if db_backup_kind == "scheduled":
+                records.append(("database", str(db_backup), "ok", detail))
+            else:
+                records.append((
+                    "database",
+                    str(db_backup),
+                    "warning",
+                    f"{detail} · scheduled backup not found; verified latest pre-update backup instead",
+                ))
         except Exception as exc:
             records.append(("database", str(db_backup), "critical", str(exc)))
 
@@ -248,8 +288,8 @@ def verify_backups():
     if not router_results:
         records.append(("router", "", "warning", "No enabled routers to verify"))
     else:
-        for ok, detail in router_results:
-            records.append(("router", "", "ok" if ok else "warning", detail))
+        for ok, path, detail in router_results:
+            records.append(("router", path, "ok" if ok else "warning", detail))
 
     with core.db() as conn:
         for kind, path, status, detail in records:
@@ -308,7 +348,7 @@ def register(app, page_func):
         ) or '<tr><td colspan="5">No backup verification has run yet.</td></tr>'
 
         history_dots = "".join(
-            f'<span title="{html.escape(h["checked_at"])} · {html.escape(h["overall_status"])}" style="display:inline-block;width:8px;height:24px;border-radius:2px;background:{("var(--green)" if h["overall_status"]=="ok" else ("var(--warn)" if h["overall_status"]=="warning" else "var(--danger)"))}"></span>'
+            f'<span title="{html.escape(h["checked_at"])} · {html.escape(h["overall_status"])}" style="display:inline-block;width:8px;height:24px;border-radius:2px;background:{("var(--ok)" if h["overall_status"]=="ok" else ("var(--warn)" if h["overall_status"]=="warning" else "var(--danger)"))}"></span>'
             for h in reversed(health_history)
         ) or '<span class="muted">No history yet.</span>'
 
