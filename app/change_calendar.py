@@ -44,7 +44,7 @@ def register(app,page_func):
         query_start=month_start.astimezone(timezone.utc).isoformat()
         query_end=next_month.astimezone(timezone.utc).isoformat()
         with core.db() as conn:
-            routers=conn.execute("SELECT id,site_name FROM routers WHERE lifecycle_state<>'retired' ORDER BY site_name COLLATE NOCASE").fetchall()
+            routers=conn.execute("SELECT id,site_name FROM routers WHERE enabled=1 AND COALESCE(lifecycle_state,'production')<>'retired' ORDER BY site_name COLLATE NOCASE").fetchall()
             planned=conn.execute(
                 """SELECT p.*,r.site_name FROM planned_changes p LEFT JOIN routers r ON r.id=p.router_id
                    WHERE p.start_at>=? AND p.start_at<? ORDER BY p.start_at,id""",
@@ -113,6 +113,13 @@ def register(app,page_func):
         if end_at and end_at < start_at:
             return HTMLResponse("<h1>400</h1><p>End date/time must be after start.</p>",status_code=400)
         with core.db() as conn:
+            if rid is not None:
+                router=conn.execute(
+                    "SELECT enabled,lifecycle_state FROM routers WHERE id=?",
+                    (rid,),
+                ).fetchone()
+                if not router or not router["enabled"] or (router["lifecycle_state"] or "production")=="retired":
+                    return HTMLResponse("<h1>400</h1><p>Selected router is not active.</p>",status_code=400)
             conn.execute(
                 """INSERT INTO planned_changes(router_id,title,change_type,start_at,end_at,status,ticket_reference,notes,created_by,created_at)
                    VALUES(?,?,?,?,?,'planned',?,?,?,?)""",
