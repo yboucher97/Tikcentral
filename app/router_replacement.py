@@ -3,7 +3,7 @@
 import html
 from datetime import datetime, timezone
 
-from fastapi import Request
+from fastapi import HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app import events, main as core, migrations
@@ -27,12 +27,14 @@ def execute(replacement_id:int,actor:str):
     migrations.migrate()
     now=_now()
     with core.db() as conn:
+        conn.execute("BEGIN IMMEDIATE")
         rep=conn.execute("SELECT * FROM router_replacements WHERE id=?",(replacement_id,)).fetchone()
         if not rep: raise ValueError("replacement not found")
         if rep["status"]=="completed": return
         src=conn.execute("SELECT * FROM routers WHERE id=?",(rep["source_router_id"],)).fetchone()
         dst=conn.execute("SELECT * FROM routers WHERE id=?",(rep["target_router_id"],)).fetchone()
         if not src or not dst: raise ValueError("source/target router missing")
+        if int(src["id"]) == int(dst["id"]): raise ValueError("source and target routers must be different")
         if (src["lifecycle_state"] or "production")=="retired": raise ValueError("source router already retired")
         if (dst["lifecycle_state"] or "production") not in {"new","commissioning"}:
             raise ValueError("target router must be New or Commissioning")
@@ -80,8 +82,8 @@ def execute(replacement_id:int,actor:str):
         conn.execute("UPDATE routers SET site_name=?,lifecycle_state='retired',lifecycle_updated_at=?,lifecycle_updated_by=? WHERE id=?",(retired_name,now,actor,src["id"]))
         conn.execute("UPDATE routers SET site_name=?,lifecycle_state='commissioning',lifecycle_updated_at=?,lifecycle_updated_by=? WHERE id=?",(src["site_name"],now,actor,dst["id"]))
         conn.execute("UPDATE router_replacements SET status='completed',completed_by=?,completed_at=? WHERE id=?",(actor,now,replacement_id))
-    events.record(src["id"],"replacement",f"Router replaced by #{dst['id']} {dst['site_name']}",f"replacement_id={replacement_id}","info")
-    events.record(dst["id"],"replacement",f"Router replacing #{src['id']} {src['site_name']}",f"replacement_id={replacement_id}","info")
+    events.record(src["id"],"replacement",f"Router retired; replaced by #{dst['id']} {src['site_name']}",f"replacement_id={replacement_id}","info")
+    events.record(dst["id"],"replacement",f"Router commissioned as replacement for #{src['id']} {src['site_name']}",f"replacement_id={replacement_id}","info")
 
 
 def register(app,page_func):
@@ -129,16 +131,22 @@ def register(app,page_func):
     @app.post("/replacements")
     async def create(request:Request):
         user=core.require_web_role(request,"admin")
+        if not user:
+            return RedirectResponse("/login",303)
         data=await core.form_data(request); core.require_csrf(request,data.get("csrf",""))
-        src=int(data.get("source_router_id")); dst=int(data.get("target_router_id"))
-        if src==dst:return RedirectResponse("/replacements",303)
+        try:
+            src=int(data.get("source_router_id") or 0); dst=int(data.get("target_router_id") or 0)
+        except (TypeError,ValueError):
+            raise HTTPException(status_code=400,detail="invalid source or target router")
+        if src<=0 or dst<=0 or src==dst:
+            raise HTTPException(status_code=400,detail="source and target routers must be different")
         with core.db() as conn:
-            source=conn.execute("SELECT lifecycle_state FROM routers WHERE id=?",(src,)).fetchone()
-            target=conn.execute("SELECT lifecycle_state FROM routers WHERE id=?",(dst,)).fetchone()
-            if not source or not target:
-                return RedirectResponse("/replacements",303)
+            source=conn.execute("SELECT lifecycle_state,enabled FROM routers WHERE id=?",(src,)).fetchone()
+            target=conn.execute("SELECT lifecycle_state,enabled FROM routers WHERE id=?",(dst,)).fetchone()
+            if not source or not target or not source["enabled"] or not target["enabled"]:
+                raise HTTPException(status_code=400,detail="source and target routers must exist and be enabled")
             if (source["lifecycle_state"] or "production")=="retired" or (target["lifecycle_state"] or "production") not in {"new","commissioning"}:
-                return RedirectResponse("/replacements",303)
+                raise HTTPException(status_code=400,detail="source must be active and target must be New or Commissioning")
             cur=conn.execute(
                 """INSERT INTO router_replacements(source_router_id,target_router_id,status,copy_site_metadata,copy_protection,copy_desired_state,copy_wan_profile,move_hardware,move_future_changes,created_by,created_at,notes)
                    VALUES(?,?,'planned',?,?,?,?,?,?,?,?,?)""",
@@ -171,6 +179,8 @@ def register(app,page_func):
     @app.post("/replacements/{replacement_id}/execute")
     async def complete(replacement_id:int,request:Request):
         user=core.require_web_role(request,"admin")
+        if not user:
+            return RedirectResponse("/login",303)
         data=await core.form_data(request); core.require_csrf(request,data.get("csrf",""))
         execute(replacement_id,user["email"])
         return RedirectResponse(f"/replacements/{replacement_id}",303)
