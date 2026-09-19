@@ -111,6 +111,31 @@ STATUS_LABELS={
 }
 
 
+RANKS=[
+    (0,"Explorer"),
+    (400,"Operator"),
+    (900,"Troubleshooter"),
+    (1500,"Specialist"),
+    (2200,"Tikcentral Expert"),
+]
+
+
+def _rank(xp):
+    name=RANKS[0][1]
+    next_at=None
+    for threshold,label in RANKS:
+        if xp>=threshold:
+            name=label
+        elif next_at is None:
+            next_at=threshold
+            break
+    return name,next_at
+
+
+def _track_slug(track):
+    return track.lower().replace(" & ","-").replace(" ","-")
+
+
 def _now():
     return datetime.now(timezone.utc).isoformat()
 
@@ -165,6 +190,7 @@ def register(app,page_func):
         if not user:return RedirectResponse("/login",303)
         uid=_user_id(user);progress=_progress(uid)
         total,completed,skipped,started,xp,percent=_stats(progress)
+        rank,next_rank=_rank(xp)
         tracks=[]
         for track in dict.fromkeys(x["track"] for x in LESSONS):
             lessons=[x for x in LESSONS if x["track"]==track]
@@ -178,7 +204,10 @@ def register(app,page_func):
 <div class="inline" style="justify-content:space-between"><strong>{html.escape(lesson["title"])}</strong>{badge}</div>
 <div class="muted" style="margin-top:6px">{html.escape(lesson["objective"])}</div>
 <div class="tc-training-meta">{lesson["xp"]} XP · ~{lesson["minutes"]} min</div></a>''')
-            tracks.append(f'''<div class="panel pad"><div class="inline" style="justify-content:space-between"><div><h3>{html.escape(track)}</h3><div class="muted">{done}/{len(lessons)} finished or skipped</div></div><span class="badge">{round(done*100/len(lessons)) if lessons else 0}%</span></div>
+            track_complete=done==len(lessons)
+            track_badge='<span class="tc-status ok">Track complete</span>' if track_complete else f'<span class="badge">{round(done*100/len(lessons)) if lessons else 0}%</span>'
+            track_action='' if track_complete else f'''<form method="post" action="/training/track/{_track_slug(track)}/skip"><input type="hidden" name="csrf" value="{core.csrf_token(request)}"><button onclick="return confirm('Mark all unfinished lessons in {html.escape(track)} as already known?')">I know this track · Skip unfinished</button></form>'''
+            tracks.append(f'''<div class="panel pad"><div class="inline" style="justify-content:space-between"><div><h3>{html.escape(track)}</h3><div class="muted">{done}/{len(lessons)} finished or skipped</div></div><div class="inline">{track_badge}{track_action}</div></div>
 <div class="tc-training-grid">{"".join(cards)}</div></div>''')
         next_lesson=next((x for x in LESSONS if progress.get(x["id"],{}).get("status") not in {"completed","skipped"}),None)
         next_html=f'<a href="/training/{next_lesson["id"]}"><button class="primary">Continue: {html.escape(next_lesson["title"])}</button></a>' if next_lesson else '<span class="tc-status ok">Training path complete</span>'
@@ -186,6 +215,7 @@ def register(app,page_func):
         body=f'''<div class="cards">
 <div class="card"><div class="muted">Training progress</div><div class="value">{percent}%</div><div class="tc-progress"><span style="width:{percent}%"></span></div></div>
 <div class="card"><div class="muted">XP earned</div><div class="value">{xp}</div><div class="muted">Completed missions only</div></div>
+<div class="card"><div class="muted">Rank</div><div class="value" style="font-size:20px">{html.escape(rank)}</div><div class="muted">{f'{next_rank-xp} XP to next rank' if next_rank is not None else 'Highest rank reached'}</div></div>
 <div class="card"><div class="muted">Completed</div><div class="value">{completed}/{total}</div><div class="muted">{skipped} skipped · {started} in progress</div></div>
 <div class="card"><div class="muted">Learning mode</div><div>Normal or Fast on every mission</div><div class="muted">Fast mode removes explanation, not progress tracking.</div></div>
 </div>
@@ -237,9 +267,24 @@ def register(app,page_func):
         status=str(data.get("status","")).strip()
         if status not in {"completed","skipped","in_progress"}:
             return RedirectResponse(f"/training/{lesson_id}",303)
-        _set_status(_user_id(user),lesson_id,status)
-        next_l=next((x for x in LESSONS[LESSONS.index(lesson)+1:] if _progress(_user_id(user)).get(x["id"],{}).get("status") not in {"completed","skipped"}),None)
+        uid=_user_id(user)
+        _set_status(uid,lesson_id,status)
+        progress=_progress(uid)
+        next_l=next((x for x in LESSONS[LESSONS.index(lesson)+1:] if progress.get(x["id"],{}).get("status") not in {"completed","skipped"}),None)
         return RedirectResponse(f"/training/{next_l['id']}" if next_l else "/training",303)
+
+    @app.post("/training/track/{track_slug}/skip")
+    async def skip_track(track_slug:str,request:Request):
+        user=core.require_web_role(request,"viewer")
+        if not user:return RedirectResponse("/login",303)
+        data=await core.form_data(request);core.require_csrf(request,data.get("csrf",""))
+        track=next((name for name in dict.fromkeys(x["track"] for x in LESSONS) if _track_slug(name)==track_slug),None)
+        if not track:return RedirectResponse("/training",303)
+        progress=_progress(_user_id(user))
+        for lesson in (x for x in LESSONS if x["track"]==track):
+            if progress.get(lesson["id"],{}).get("status") not in {"completed","skipped"}:
+                _set_status(_user_id(user),lesson["id"],"skipped")
+        return RedirectResponse("/training",303)
 
     @app.post("/training/reset")
     async def reset_training(request:Request):
