@@ -93,7 +93,7 @@ def _queue_stage(campaign_id:int,stage:str,actor:str):
                 serialize_router=True,serialize_global_kind="upgrade_",
             )
         except errors.OperationError as exc:
-            if exc.code=="JOB_BUSY":
+            if exc.code in {"JOB_BUSY","ROUTER_BUSY"}:
                 return 0
             raise
         with core.db() as conn:
