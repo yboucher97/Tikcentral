@@ -3,7 +3,7 @@
 import html
 from datetime import datetime, timezone
 
-from fastapi import Request
+from fastapi import HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app import errors, jobs, main as core, migrations, operations
@@ -146,14 +146,30 @@ def register(app,page_func):
     @app.post("/upgrade-campaigns")
     async def create_campaign(request:Request):
         user=core.require_web_role(request,"admin")
+        if not user:
+            return RedirectResponse("/login",303)
         data=await core.form_data(request)
         core.require_csrf(request,data.get("csrf",""))
-        ids=[int(x) for x in data.getlist("router_ids") if str(x).isdigit()]
-        canary=int(data.get("canary_router_id") or 0)
-        if canary not in ids: ids.append(canary)
+        ids=sorted({int(x) for x in data.getlist("router_ids") if str(x).isdigit() and int(x)>0})
+        try:
+            canary=int(data.get("canary_router_id") or 0)
+        except (TypeError,ValueError):
+            canary=0
+        if canary<=0:
+            raise HTTPException(status_code=400,detail="valid canary router required")
+        if canary not in ids:
+            ids.append(canary)
         name=str(data.get("name","")).strip()[:200]
         target=operations._version_number(str(data.get("target_version","")).strip())
-        if not name or not target or not ids: return RedirectResponse("/upgrade-campaigns",303)
+        if not name or not target or not ids:
+            raise HTTPException(status_code=400,detail="campaign name, target version and routers are required")
+        with core.db() as conn:
+            valid_ids={int(r[0]) for r in conn.execute(
+                "SELECT id FROM routers WHERE enabled=1 AND lifecycle_state<>'retired' AND id IN ("+(",".join("?" for _ in ids))+")",
+                tuple(ids),
+            ).fetchall()}
+        if canary not in valid_ids or valid_ids != set(ids):
+            raise HTTPException(status_code=400,detail="campaign contains an invalid, disabled or retired router")
         now=_now()
         with core.db() as conn:
             cur=conn.execute("INSERT INTO upgrade_campaigns(name,target_version,status,created_by,created_at,notes) VALUES(?,?,'canary_pending',?,?,?)",
@@ -196,6 +212,8 @@ def register(app,page_func):
     @app.post("/upgrade-campaigns/{campaign_id}/approve")
     async def approve_rollout(campaign_id:int,request:Request):
         user=core.require_web_role(request,"admin")
+        if not user:
+            return RedirectResponse("/login",303)
         data=await core.form_data(request)
         core.require_csrf(request,data.get("csrf",""))
         _sync(campaign_id)
