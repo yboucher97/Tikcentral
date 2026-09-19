@@ -112,6 +112,7 @@ html[data-theme="light"]{
 *{box-sizing:border-box}
 html,body{margin:0;min-height:100%;background:var(--bg);color:var(--text);font:14px/1.48 Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif}
 body{background:var(--bg)}
+body.tc-compact .tc-content{padding-top:14px}body.tc-compact .panel.pad,body.tc-compact .pad{padding:11px}body.tc-compact .card{padding:10px}body.tc-compact th,body.tc-compact td{padding:7px 9px}body.tc-compact .cards{gap:7px}body.tc-compact .panel,body.tc-compact .card{margin-bottom:9px}
 a{color:var(--accent);text-decoration:none}a:hover{color:color-mix(in srgb,var(--accent) 82%,white)}
 button,input,select,textarea{font:inherit}
 button{border:1px solid var(--line);background:var(--surface2);color:var(--text);border-radius:8px;padding:8px 11px;cursor:pointer;transition:.14s ease}
@@ -376,7 +377,10 @@ JS = r'''
  }
  function installGuidancePreference(){
    if(localStorage.getItem('tikcentral:hide-guidance')==='1')document.body.classList.add('tc-hide-guidance');
+   if(localStorage.getItem('tikcentral:density')==='compact')document.body.classList.add('tc-compact');
    document.querySelector('.tc-intro-dismiss')?.addEventListener('click',()=>{document.body.classList.add('tc-hide-guidance');localStorage.setItem('tikcentral:hide-guidance','1')});
+   document.getElementById('tcRestoreGuidance')?.addEventListener('click',()=>{document.body.classList.remove('tc-hide-guidance');localStorage.removeItem('tikcentral:hide-guidance')});
+   document.getElementById('tcDensityToggle')?.addEventListener('click',()=>{document.body.classList.toggle('tc-compact');localStorage.setItem('tikcentral:density',document.body.classList.contains('tc-compact')?'compact':'comfortable')});
  }
 
  function decorateStatuses(){document.querySelectorAll('td').forEach(td=>{if(td.children.length)return;const s=(td.innerText||'').trim().toLowerCase();let tone='';if(['healthy','online','passed','success','succeeded','enabled','ready','commissioned','matches baseline','ok','up'].includes(s))tone='ok';else if(['warning','partial','degraded','pending','queued','running','verifying','drift','drift detected','saturated'].includes(s))tone='warn';else if(['failed','error','critical','offline','down'].includes(s))tone='bad';if(tone){const text=td.innerText;td.innerHTML='<span class="tc-status '+tone+'"><span class="tc-status-dot"></span><span></span></span>';td.firstChild.lastChild.textContent=text}})}
@@ -447,7 +451,7 @@ def page(title: str, body: str, user=None, active: str = "") -> HTMLResponse:
                 groups.append(f'<details class="tc-nav-group"{opened}><summary class="tc-nav-label">{html.escape(group)}</summary><nav class="tc-nav">{"".join(links)}</nav></details>')
         sidebar = "".join(groups)
         palette_items = "".join(palette)
-        account = f'''<div class="tc-account"><button type="button" id="tcAccountBtn"><span>{html.escape(email)}</span> ▾</button><div class="tc-account-menu"><div style="padding:8px 10px"><strong>{html.escape(email)}</strong><div class="muted">{html.escape(role.title())}</div></div><a href="/account/password"><button type="button">Account & password</button></a><form method="post" action="/logout"><button>Sign out</button></form></div></div>'''
+        account = f'''<div class="tc-account"><button type="button" id="tcAccountBtn"><span>{html.escape(email)}</span> ▾</button><div class="tc-account-menu"><div style="padding:8px 10px"><strong>{html.escape(email)}</strong><div class="muted">{html.escape(role.title())}</div></div><a href="/account/password"><button type="button">Account & password</button></a><button type="button" id="tcDensityToggle">Toggle compact density</button><button type="button" id="tcRestoreGuidance">Show page tips</button><form method="post" action="/logout"><button>Sign out</button></form></div></div>'''
     guide_title, guide_text = PAGE_GUIDANCE.get(active, (category, "Use page search or Ctrl/⌘ K to move quickly through Tikcentral."))
     page_intro = f'<div class="tc-page-intro"><div><strong>{html.escape(guide_title)}</strong><div>{html.escape(guide_text)}</div></div><button type="button" class="tc-intro-dismiss" title="Hide page guidance">×</button></div>'
     page_tools = '<div class="tc-page-tools"><input id="tcGlobalSearch" data-no-copy placeholder="Search this page…"><button type="button" id="tcPageSearchClear">Clear</button><span class="hint"><kbd>/</kbd> search · <kbd>Ctrl/⌘ K</kbd> go to</span></div>' if user else ''
