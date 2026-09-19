@@ -16,7 +16,7 @@ from datetime import datetime, timedelta, timezone
 from fastapi import Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
-from app import errors, main as core, migrations, operations, router_exec, settings
+from app import errors, main as core, migrations, operations, router_exec, semantic_config, settings
 
 
 def _now() -> str:
@@ -107,6 +107,7 @@ def collect_snapshot(router_id: int, focus_start: str = "", focus_end: str = "",
         public_ip_analysis = conn.execute("SELECT * FROM router_public_ip_analysis WHERE router_id=?",(router_id,)).fetchone()
         local_utilization = conn.execute("SELECT * FROM router_local_utilization WHERE router_id=? ORDER BY id DESC LIMIT 1",(router_id,)).fetchone()
         model_capability = conn.execute("SELECT * FROM router_model_capability_observations WHERE router_id=?",(router_id,)).fetchone()
+        hardware_lifecycle = conn.execute("SELECT * FROM router_hardware_lifecycle WHERE router_id=?",(router_id,)).fetchone()
         identity_collision = conn.execute("SELECT * FROM router_identity_collisions WHERE identity=LOWER(TRIM(?))",(router["identity"] or "",)).fetchone() if router["identity"] else None
         log_pattern_time = conn.execute("SELECT MAX(captured_at) t FROM router_log_patterns WHERE router_id=?",(router_id,)).fetchone()["t"]
         log_patterns = conn.execute(
@@ -220,6 +221,7 @@ def collect_snapshot(router_id: int, focus_start: str = "", focus_end: str = "",
         "public_ip_change_analysis": row_dict(public_ip_analysis),
         "local_network_utilization": row_dict(local_utilization),
         "model_capability_observation": row_dict(model_capability),
+        "hardware_lifecycle": row_dict(hardware_lifecycle),
         "identity_collision": row_dict(identity_collision),
         "router_log_patterns": [dict(r) for r in log_patterns],
         "wan_probe": row_dict(wan_probe),
@@ -236,6 +238,7 @@ def collect_snapshot(router_id: int, focus_start: str = "", focus_end: str = "",
         "configuration_history": {
             "snapshots": [{"id": r["id"], "captured_at": r["captured_at"], "sha256": r["sha256"]} for r in snapshots],
             "latest_diff": _sanitize(diff_summary),
+            "semantic_latest_diff": semantic_config.compare(snapshots[1]["content"], snapshots[0]["content"])[:100] if len(snapshots)>=2 else [],
         },
         "previous_ai_reports": [
             {
@@ -275,7 +278,7 @@ Return concise Markdown with these headings exactly:
 # Improvements to Consider
 # Data Gaps
 
-Prioritize management access, multi-target WAN probe evidence, public-IP churn, time/NTP health, MTU/path-MSS evidence, outage-domain evidence, ISP correlation, local-network utilization estimates and their confidence, router identity collisions, observed model capabilities, desired-state results, external UniFi/Omada topology context, capacity-trend evidence, security exposure findings, RouterOS automation changes, traffic-rate/usage anomalies, interface errors/drops/link flaps, LTE signal/band/cell changes when present, routes, DHCP/PPPoE, CPU/memory, versions, golden-policy compliance, configuration drift, recent jobs/events, operator notes/tickets, and normalized RouterOS log patterns. Treat operator notes as human context, not measured evidence. Treat topology as dependency context only; do not assume Tikcentral manages external switches or APs. Use site/customer metadata only as operational context.
+Prioritize management access, multi-target WAN probe evidence, public-IP churn, time/NTP health, MTU/path-MSS evidence, outage-domain evidence, ISP correlation, local-network utilization estimates and their confidence, router identity collisions, observed model capabilities, factual hardware lifecycle history, semantic configuration changes, desired-state results, external UniFi/Omada topology context, capacity-trend evidence, security exposure findings, RouterOS automation changes, traffic-rate/usage anomalies, interface errors/drops/link flaps, LTE signal/band/cell changes when present, routes, DHCP/PPPoE, CPU/memory, versions, golden-policy compliance, configuration drift, recent jobs/events, operator notes/tickets, and normalized RouterOS log patterns. Treat operator notes as human context, not measured evidence. Treat topology as dependency context only; do not assume Tikcentral manages external switches or APs. Use site/customer metadata only as operational context.
 If incident_focus contains a time window or operator note, treat that as the primary investigation scope and distinguish evidence inside that window from current live state.
 Use access-history timing, maintenance windows, correlated incidents, configuration diffs and change transactions to explain what likely changed and when. Distinguish a Tikcentral-attributed change from a change that has no matching Tikcentral job. Treat previous AI reports only as historical context, not as authoritative evidence.
 End with: **No action was taken.**
