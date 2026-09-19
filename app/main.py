@@ -150,6 +150,11 @@ def valid_email(value: str) -> bool:
     return 3 <= len(value) <= 254 and "@" in value and "." in value.rsplit("@", 1)[-1]
 
 
+def valid_site_name(value: str) -> bool:
+    value = (value or "").strip()
+    return bool(value) and len(value) <= 120 and all(ord(ch) >= 32 and ord(ch) != 127 for ch in value)
+
+
 def allocate_public_port(conn: sqlite3.Connection) -> int:
     used = {int(row[0]) for row in conn.execute("SELECT public_winbox_port FROM routers WHERE public_winbox_port IS NOT NULL")}
     span = WINBOX_PUBLIC_PORT_MAX - WINBOX_PUBLIC_PORT_MIN + 1
@@ -789,8 +794,8 @@ async def create_token(request: Request, x_api_key: str = Header(default="")):
     except Exception as exc:
         raise HTTPException(status_code=422, detail="invalid token request payload") from exc
     site_name = req.site_name.strip()
-    if not site_name:
-        raise HTTPException(status_code=400, detail="site name is required")
+    if not valid_site_name(site_name):
+        raise HTTPException(status_code=400, detail="site name must be 1-120 characters without control characters")
     raw = secrets.token_urlsafe(24)
     now = utcnow()
     expires = now + timedelta(hours=TOKEN_TTL_HOURS)
