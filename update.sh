@@ -9,6 +9,8 @@ ENV_FILE="/etc/tikcentral/tikcentral.env"
 SSH_DIR="/etc/tikcentral/ssh"
 ROUTER_BACKUP_DIR="/var/backups/tikcentral/routers"
 KEEP_RELEASES="${TIKCENTRAL_KEEP_RELEASES:-5}"
+[[ "$KEEP_RELEASES" =~ ^[0-9]+$ ]] || KEEP_RELEASES=5
+(( KEEP_RELEASES >= 2 && KEEP_RELEASES <= 50 )) || KEEP_RELEASES=5
 
 [[ "$EUID" -eq 0 ]] || { echo "Run as root (use sudo)." >&2; exit 1; }
 [[ -f "$ENV_FILE" ]] || { echo "Tikcentral is not installed: $ENV_FILE is missing. Run bootstrap.sh once first." >&2; exit 1; }
