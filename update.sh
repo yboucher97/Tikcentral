@@ -184,6 +184,7 @@ rollback() {
   systemctl stop tikcentral-fleet.timer tikcentral-fleet.service >/dev/null 2>&1 || true
   systemctl stop tikcentral-backup.timer tikcentral-backup.service >/dev/null 2>&1 || true
   systemctl stop tikcentral-winbox-proxy tikcentral >/dev/null 2>&1 || true
+systemctl stop caddy >/dev/null 2>&1 || true
   if [[ -f "$ACTIVATION_DB_BACKUP" ]]; then
     rm -f "${DB_FILE}-wal" "${DB_FILE}-shm"
     install -o tikcentral -g tikcentral -m 0640 "$ACTIVATION_DB_BACKUP" "$DB_FILE"
@@ -276,7 +277,9 @@ systemctl daemon-reload
 systemctl enable tikcentral tikcentral-winbox-proxy tikcentral-backup.timer tikcentral-fleet.timer tikcentral-ai.timer >/dev/null
 systemctl restart tikcentral
 systemctl restart tikcentral-winbox-proxy
-systemctl restart caddy
+# Keep Caddy offline until local activation validation has passed. This prevents
+# user writes from landing in the new database and then being lost if rollback
+# restores the pre-activation snapshot.
 # Seed a real scheduled-format database backup immediately after activation.
 # The daily timer remains the ongoing schedule; this avoids a false "no scheduled
 # backup" state until the next 03:15 timer window.
@@ -296,9 +299,9 @@ if ! wait_health 20; then
   exit 1
 fi
 
-# Refresh backup verification and self-health immediately so the dashboard does
-# not keep showing a stale pre-update warning after permissions/backups were fixed.
-sudo -u tikcentral bash -c "set -a; source '$ENV_FILE'; set +a; cd '$CURRENT'; '$CURRENT/.venv/bin/python3' -c 'from app import system_health; system_health.verify_backups(); system_health.record_health()'"
+# Refresh backup verification while public HTTPS remains offline. Record full
+# self-health only after Caddy is successfully back online.
+sudo -u tikcentral bash -c "set -a; source '$ENV_FILE'; set +a; cd '$CURRENT'; '$CURRENT/.venv/bin/python3' -c 'from app import system_health; system_health.verify_backups()'"
 
 for path in /enroll /routers /guardian /operations /rescue /changes /audit /automation /ssh; do
   code="$(curl -sS -o /dev/null -w '%{http_code}' "http://127.0.0.1:8080$path" || true)"
@@ -311,8 +314,12 @@ for asset_path in "${ASSET_PATHS[@]}"; do
   if [[ "$code" != "200" ]]; then rollback "$asset_path returned HTTP $code" || true; exit 1; fi
 done
 
+systemctl restart caddy
 CADDY_CODE="$(curl -ksS --resolve "$DOMAIN:443:127.0.0.1" -o /dev/null -w '%{http_code}' "https://$DOMAIN/operations" || true)"
 if [[ "$CADDY_CODE" != "200" && "$CADDY_CODE" != "303" ]]; then rollback "Caddy /operations returned HTTP $CADDY_CODE" || true; exit 1; fi
+
+# Now that public HTTPS is healthy, persist a complete self-health sample.
+sudo -u tikcentral bash -c "set -a; source '$ENV_FILE'; set +a; cd '$CURRENT'; '$CURRENT/.venv/bin/python3' -c 'from app import system_health; system_health.record_health()'"
 
 ACTIVATION_STARTED=0
 trap - ERR
