@@ -489,7 +489,12 @@ def register(app,page_func):
             gw=conn.execute("SELECT * FROM router_isp_gateway_history WHERE router_id=? ORDER BY id DESC LIMIT 1",(router_id,)).fetchone()
         if not r:return RedirectResponse("/operations",303)
         csrf=core.csrf_token(request)
-        dns_rows="".join(f'<tr><td>{html.escape(x["resolver"])}</td><td>{"OK" if x["ok"] else ("FAIL" if x["ok"] is not None else "UNKNOWN")}</td><td>{f"{x["latency_ms"]:.1f} ms" if x["latency_ms"] is not None else "—"}</td><td>{html.escape(x["source"])}</td><td>{html.escape(x["summary"])}</td></tr>' for x in dns) or '<tr><td colspan="5">No DNS sample.</td></tr>'
+        dns_parts=[]
+        for x in dns:
+            state="OK" if x["ok"] else ("FAIL" if x["ok"] is not None else "UNKNOWN")
+            latency=f'{x["latency_ms"]:.1f} ms' if x["latency_ms"] is not None else "—"
+            dns_parts.append(f'<tr><td>{html.escape(x["resolver"])}</td><td>{state}</td><td>{latency}</td><td>{html.escape(x["source"])}</td><td>{html.escape(x["summary"])}</td></tr>')
+        dns_rows="".join(dns_parts) or '<tr><td colspan="5">No DNS sample.</td></tr>'
         neg_rows="".join(f'<tr><td>{html.escape(x["interface"])}</td><td>{html.escape(x["current_rate"] or "-")}</td><td>{"full" if x["current_full_duplex"] else ("half" if x["current_full_duplex"] is not None else "—")}</td><td>{x["flaps_24h"]}</td><td>{html.escape(x["status"])}</td><td>{html.escape(x["summary"])}</td></tr>' for x in neg) or '<tr><td colspan="6">No negotiation sample.</td></tr>'
         pppoe_rows="".join(f'<tr><td>{html.escape(x["interface"])}</td><td>{html.escape(x["status"])}</td><td>{html.escape(x["uptime"] or "-")}</td><td>{html.escape(x["ac_name"] or "-")}</td><td>{html.escape(x["local_address"] or "-")}</td><td>{x["mtu"] or "—"} / {x["mru"] or "—"}</td></tr>' for x in pppoe) or '<tr><td colspan="6">No PPPoE client observed.</td></tr>'
         wan_status=wan["summary"] if wan else "No WAN quality sample."
