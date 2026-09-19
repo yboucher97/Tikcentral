@@ -1445,7 +1445,26 @@ def _m31(conn):
             conn.execute(f"ALTER TABLE retention_settings ADD COLUMN {name} INTEGER NOT NULL DEFAULT {default}")
 
 
-MIGRATIONS = [_m1, _m2, _m3, _m4, _m5, _m6, _m7, _m8, _m9, _m10, _m11, _m12, _m13, _m14, _m15, _m16, _m17, _m18, _m19, _m20, _m21, _m22, _m23, _m24, _m25, _m26, _m27, _m28, _m29, _m30, _m31]
+def _m32(conn):
+    """Persist per-user interactive training progress."""
+    conn.executescript("""
+    CREATE TABLE IF NOT EXISTS user_training_progress (
+        user_id INTEGER NOT NULL,
+        lesson_id TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'not_started',
+        started_at TEXT NOT NULL DEFAULT '',
+        completed_at TEXT NOT NULL DEFAULT '',
+        attempts INTEGER NOT NULL DEFAULT 0,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY(user_id,lesson_id),
+        FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_training_progress_user_status
+      ON user_training_progress(user_id,status,updated_at DESC);
+    """)
+
+
+MIGRATIONS = [_m1, _m2, _m3, _m4, _m5, _m6, _m7, _m8, _m9, _m10, _m11, _m12, _m13, _m14, _m15, _m16, _m17, _m18, _m19, _m20, _m21, _m22, _m23, _m24, _m25, _m26, _m27, _m28, _m29, _m30, _m31, _m32]
 
 
 def migrate() -> int:
