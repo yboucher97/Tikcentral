@@ -323,11 +323,13 @@ def repair_router(router_id: int, actor: str = "guardian"):
     ensure_schema()
     with core.db() as conn:
         router = conn.execute(
-            "SELECT id,site_name,vpn_ip,public_key,enabled FROM routers WHERE id=?",
+            "SELECT id,site_name,vpn_ip,public_key,enabled,lifecycle_state FROM routers WHERE id=?",
             (router_id,),
         ).fetchone()
     if not router or not router["enabled"]:
         raise errors.OperationError("ROUTER_NOT_FOUND", "Enabled router not found")
+    if (router["lifecycle_state"] or "production") == "retired":
+        raise errors.OperationError("ROUTER_RETIRED", "Retired routers cannot receive Guardian repair mutations")
 
     before = probe_router(router)
     tx_id = change_control.begin(router_id, "guardian_repair", actor, pre_access=before)
