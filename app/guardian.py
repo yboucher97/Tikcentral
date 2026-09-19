@@ -558,7 +558,7 @@ def register(app, page_func):
             newest_first = histories.get(int(r["id"]), [])
             probes = list(reversed(newest_first[-60:]))
             strip = ''.join(
-                f'<span title="{html.escape(p["checked_at"] or "")}" style="display:inline-block;width:4px;height:18px;border-radius:2px;background:{("var(--green)" if p["management_ok"] else "var(--danger)")};opacity:.85"></span>'
+                f'<span title="{html.escape(p["checked_at"] or "")}" style="display:inline-block;width:4px;height:18px;border-radius:2px;background:{("var(--ok)" if p["management_ok"] else "var(--danger)")};opacity:.85"></span>'
                 for p in probes
             ) or '<span class="muted">No history</span>'
             quality = _quality_metrics(newest_first)
