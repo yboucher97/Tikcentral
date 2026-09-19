@@ -784,6 +784,13 @@ def validate_source_boundaries():
     operations_resource = (ROOT / "app/operations.py").read_text(encoding="utf-8")
     if "resource_monitor.evaluate" not in operations_resource:
         fail("Telemetry does not feed resource/reboot monitor")
+    for marker in ("Recovered interrupted upgrade job", "transaction_id=tx_id or None", 'if job["status"] == "running"'):
+        if marker not in operations_resource:
+            fail(f"Upgrade restart/verification recovery missing: {marker}")
+    guardian_source = (ROOT / "app/guardian.py").read_text(encoding="utf-8")
+    for marker in ("inactive_ids", "lifecycle_state", "Guardian no longer probes or escalates it"):
+        if marker not in guardian_source:
+            fail(f"Guardian retired/disabled suppression missing: {marker}")
     changes_text = (ROOT / "app/changes.py").read_text(encoding="utf-8")
     for marker in ("_render_diff", "_diff_counts", "Directly attributed to Tikcentral", "source_kind", "source_actor", "Semantic configuration diff", "semantic_config.compare", "Measured change impact", "Events in interval", "<th>Started</th>", "<th>Time</th>"):
         if marker not in changes_text:
@@ -827,6 +834,12 @@ def validate_ui_and_assets():
     protected_attr = '<input value="2026-09-19T11:40:00+00:00">'
     if ui_time.localize_html_iso_timestamps(protected_attr) != protected_attr:
         fail("Timestamp localization modified an HTML attribute value")
+    raw_pre = '<pre>2026-09-19T11:40:00+00:00</pre>'
+    if ui_time.localize_html_iso_timestamps(raw_pre) != raw_pre:
+        fail("Timestamp localization modified raw preformatted technical output")
+    form_values = core.FormValues({"router_ids": ["1", "2"], "name": ["campaign"]})
+    if form_values.get("router_ids") != "2" or form_values.getlist("router_ids") != ["1", "2"]:
+        fail("Multi-value form parser lost repeated values")
     route_counts, _ = routes()
     for group, items in ui.NAV_GROUPS:
         for key, href, label in items:
@@ -921,6 +934,7 @@ def validate_persistence_and_jobs():
         snapshot_columns = {r[1] for r in conn.execute("PRAGMA table_info(router_snapshots)")}
         ai_columns = {r[1] for r in conn.execute("PRAGMA table_info(router_ai_analyses)")}
         router_columns = {r[1] for r in conn.execute("PRAGMA table_info(routers)")}
+        router_indexes = {r[1] for r in conn.execute("PRAGMA index_list(routers)")}
         site_columns = {r[1] for r in conn.execute("PRAGMA table_info(router_site_metadata)")}
         retention_columns = {r[1] for r in conn.execute("PRAGMA table_info(retention_settings)")}
     if version != expected or not required.issubset(tables):
@@ -931,6 +945,8 @@ def validate_persistence_and_jobs():
         fail("Incident AI schema validation failed")
     if not {"lifecycle_state", "lifecycle_updated_at", "lifecycle_updated_by"}.issubset(router_columns):
         fail("Router lifecycle schema validation failed")
+    if "idx_routers_public_winbox_port_unique" not in router_indexes:
+        fail("Public WinBox relay ports are not protected by a unique index")
     if not {"circuit_down_mbps", "circuit_up_mbps"}.issubset(site_columns):
         fail("Circuit capacity metadata schema validation failed")
     if not {"dns_health_days", "wan_quality_days", "pppoe_days", "isp_gateway_days"}.issubset(retention_columns):
