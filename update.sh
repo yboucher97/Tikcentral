@@ -184,7 +184,7 @@ rollback() {
   systemctl stop tikcentral-fleet.timer tikcentral-fleet.service >/dev/null 2>&1 || true
   systemctl stop tikcentral-backup.timer tikcentral-backup.service >/dev/null 2>&1 || true
   systemctl stop tikcentral-winbox-proxy tikcentral >/dev/null 2>&1 || true
-systemctl stop caddy >/dev/null 2>&1 || true
+  systemctl stop caddy >/dev/null 2>&1 || true
   if [[ -f "$ACTIVATION_DB_BACKUP" ]]; then
     rm -f "${DB_FILE}-wal" "${DB_FILE}-shm"
     install -o tikcentral -g tikcentral -m 0640 "$ACTIVATION_DB_BACKUP" "$DB_FILE"
@@ -252,6 +252,7 @@ systemctl stop tikcentral-ai.timer tikcentral-ai.service >/dev/null 2>&1 || true
 systemctl stop tikcentral-fleet.timer tikcentral-fleet.service >/dev/null 2>&1 || true
 systemctl stop tikcentral-backup.timer tikcentral-backup.service >/dev/null 2>&1 || true
 systemctl stop tikcentral-winbox-proxy tikcentral >/dev/null 2>&1 || true
+systemctl stop caddy >/dev/null 2>&1 || true
 
 # Preserve a legacy non-symlink installation before any operation that may need
 # rollback. Modern installations already have PREVIOUS pointing at a release.
