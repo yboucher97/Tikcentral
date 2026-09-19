@@ -93,7 +93,7 @@ def _admin(request: Request):
 def _router(router_id: int):
     with core.db() as conn:
         return conn.execute(
-            "SELECT id,site_name,identity,model,vpn_ip,public_key,enabled FROM routers WHERE id=?",
+            "SELECT id,site_name,identity,model,vpn_ip,public_key,enabled,lifecycle_state FROM routers WHERE id=?",
             (router_id,),
         ).fetchone()
 
@@ -111,10 +111,10 @@ def audit_index(request: Request):
         return RedirectResponse("/login", status_code=303)
     with core.db() as conn:
         routers = conn.execute(
-            "SELECT id,site_name,identity,model,vpn_ip,enabled FROM routers ORDER BY site_name COLLATE NOCASE,id"
+            "SELECT id,site_name,identity,model,vpn_ip,enabled,lifecycle_state FROM routers ORDER BY site_name COLLATE NOCASE,id"
         ).fetchall()
     rows = "".join(
-        f'''<tr><td>{html.escape(r['site_name'])}</td><td>{html.escape(r['identity'] or '-')}</td><td>{html.escape(r['model'] or '-')}</td><td><code>{html.escape(r['vpn_ip'])}</code></td><td>{'Enabled' if r['enabled'] else 'Disabled'}</td><td><a href="/audit/{r['id']}"><button {'disabled' if not r['enabled'] else ''}>Audit configuration</button></a></td></tr>'''
+        f'''<tr><td>{html.escape(r['site_name'])}</td><td>{html.escape(r['identity'] or '-')}</td><td>{html.escape(r['model'] or '-')}</td><td><code>{html.escape(r['vpn_ip'])}</code></td><td>{'Retired' if (r['lifecycle_state'] or 'production')=='retired' else ('Enabled' if r['enabled'] else 'Disabled')}</td><td><a href="/audit/{r['id']}"><button {'disabled' if (not r['enabled'] or (r['lifecycle_state'] or 'production')=='retired') else ''}>Audit configuration</button></a></td></tr>'''
         for r in routers
     ) or '<tr><td colspan="6">No routers enrolled.</td></tr>'
     body = f'''<div class="panel pad"><h2>Router Audit</h2><div class="muted">Live read-only audit over WireGuard. RouterOS export uses its default secret-redaction behavior.</div></div><div class="panel"><table><thead><tr><th>Site</th><th>Identity</th><th>Model</th><th>VPN IP</th><th>State</th><th></th></tr></thead><tbody>{rows}</tbody></table></div>'''
@@ -127,7 +127,7 @@ def audit_router(router_id: int, request: Request):
     if not user:
         return RedirectResponse("/login", status_code=303)
     router = _router(router_id)
-    if not router or not router["enabled"]:
+    if not router or not router["enabled"] or (router["lifecycle_state"] or "production") == "retired":
         return RedirectResponse("/audit", status_code=303)
     try:
         output = router_exec.read(router["vpn_ip"], AUDIT_COMMAND, timeout=120, label="Router audit")
